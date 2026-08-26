@@ -3,6 +3,7 @@ import { fetchClusters, fetchMap, fetchRuns, searchWorks, type SearchHit } from 
 import { useStore, type ColorBy } from "./store";
 import MapView from "./views/MapView";
 import DetailPanel from "./panels/DetailPanel";
+import ClusterPanel from "./panels/ClusterPanel";
 import "./index.css";
 
 const COLOR_OPTIONS: { key: ColorBy; label: string }[] = [
@@ -177,6 +178,7 @@ export default function App() {
           </div>
         )}
 
+        <ClusterPanel />
         <DetailPanel />
       </main>
     </div>

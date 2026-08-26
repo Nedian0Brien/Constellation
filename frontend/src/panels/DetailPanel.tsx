@@ -24,13 +24,9 @@ export default function DetailPanel() {
     };
   }, [selected]);
 
-  if (!selected) {
-    return (
-      <aside className="detail detail--empty">
-        <p>점을 클릭하면 논문이 여기 나타난다.</p>
-      </aside>
-    );
-  }
+  // 비어 있을 때는 아예 그리지 않는다. 380px짜리 빈 패널이 떠 있으면
+  // 지도가 그만큼 왼쪽으로 밀려 화면 중앙에서 벗어난다.
+  if (!selected) return null;
 
   return (
     <aside className="detail">

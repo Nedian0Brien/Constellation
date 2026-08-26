@@ -348,6 +348,12 @@ export default function MapView() {
         </button>
       )}
 
+      {!hoverInfo && selectedCluster == null && (
+        <div className="hint">
+          점 위에 올리면 논문, 클릭하면 상세. 라벨을 누르면 그 덩어리만 남는다.
+        </div>
+      )}
+
       {hoverInfo && (
         <div className="tooltip" style={{ left: hoverInfo.x + 14, top: hoverInfo.y + 14 }}>
           <div className="tt-title">{map.title[hoverInfo.index]}</div>
