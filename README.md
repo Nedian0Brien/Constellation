@@ -14,12 +14,13 @@
 
 ## 현재 상태
 
-**M1 진행 중.** RAG/IR 코퍼스 10,604편 → SciNCL 임베딩 → UMAP 2D/3D → 브라우저 지도까지 동작한다.
+**M2 완료.** RAG/IR 코퍼스 10,604편 → SciNCL 임베딩 → UMAP → 45개 주제 덩어리와 자동 라벨까지 동작한다. 다음은 M3 — 시간 흐름도(Flow).
 
 ## 문서
 
 - [기획서](docs/PLAN.md) — 목표, 시각화 컨셉, "갈래"의 계산 방법, 마일스톤, 리스크
 - [아키텍처](docs/ARCHITECTURE.md) — 기술 스택, 모듈 구조, 데이터 스키마, API
+- [M2 결과](docs/M2-RESULTS.md) — 클러스터링 공간 선택과 지도가 찾아낸 코퍼스 오염
 - [M1 모델 비교](docs/M1-MODEL-COMPARISON.md) — 네 임베딩 모델을 세 지표로 비교한 기록
 - [M0 결과](docs/M0-RESULTS.md) — RAG/IR 코퍼스 실측치와 그 과정에서 고친 것
 - [데이터 소스](docs/DATA-SOURCES.md) — Scopus / OpenAlex / Semantic Scholar 비교와 어댑터 설계
