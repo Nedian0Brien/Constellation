@@ -1,0 +1,83 @@
+const BASE = "/api";
+
+export interface MapData {
+  run_id: string;
+  n: number;
+  id: string[];
+  x: number[];
+  y: number[];
+  z: number[];
+  year: (number | null)[];
+  cited: number[];
+  has_abstract: boolean[];
+  title: string[];
+  cluster: number[];
+}
+
+export interface ClusterInfo {
+  cluster_id: number;
+  label: string;
+  keywords: string[];
+  size: number;
+  x: number;
+  y: number;
+  year_median: number | null;
+  top_work_id: string | null;
+  top_work_title: string | null;
+}
+
+export interface ClusterDetail extends Omit<ClusterInfo, "x" | "y" | "top_work_id" | "top_work_title"> {
+  top_works: { id: string; title: string; year: number | null; cited: number }[];
+  by_year: { year: number; n: number }[];
+}
+
+export interface Work {
+  id: string;
+  doi: string | null;
+  title: string;
+  abstract: string | null;
+  year: number | null;
+  venue: string | null;
+  cited_by_count: number | null;
+  type: string | null;
+  source: string;
+  authors: string[];
+  topics: { name: string; kind: string }[];
+  refs_in_corpus: number;
+  cited_by_in_corpus: number;
+}
+
+export interface SearchHit {
+  id: string;
+  title: string;
+  year: number | null;
+  cited_by_count: number | null;
+}
+
+export interface RunInfo {
+  run_id: string;
+  model: string | null;
+  params: string | null;
+  n_items: number;
+  created_at: string;
+}
+
+async function get<T>(path: string): Promise<T> {
+  const r = await fetch(BASE + path);
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`${r.status} ${r.statusText}${body ? ` — ${body.slice(0, 200)}` : ""}`);
+  }
+  return r.json() as Promise<T>;
+}
+
+export const fetchRuns = () => get<RunInfo[]>("/runs");
+export const fetchMap = (run?: string) =>
+  get<MapData>("/map" + (run ? `?run=${encodeURIComponent(run)}` : ""));
+export const fetchWork = (id: string) => get<Work>(`/works/${id}`);
+export const fetchClusters = (run: string) =>
+  get<ClusterInfo[]>(`/clusters?run=${encodeURIComponent(run)}`);
+export const fetchClusterDetail = (run: string, id: number) =>
+  get<ClusterDetail>(`/clusters/${id}?run=${encodeURIComponent(run)}`);
+export const searchWorks = (q: string) =>
+  get<SearchHit[]>(`/search?q=${encodeURIComponent(q)}&limit=50`);
