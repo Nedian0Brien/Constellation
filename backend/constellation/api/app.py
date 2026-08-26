@@ -118,6 +118,47 @@ def clusters(run: str = Query(...)) -> list[dict[str, Any]]:
     ]
 
 
+@app.get("/api/tree")
+def tree(run: str = Query(...)) -> dict[str, Any]:
+    """클러스터 계층 트리 전체.
+
+    덴드로그램 배치(잎 순서·병합 높이)에 필요한 것을 모두 담아 한 번에 준다.
+    89개 노드라 쪼개 보낼 이유가 없다.
+    """
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT node_id, parent_id, left_id, right_id, height, size, "
+            "       n_leaves, cluster_id, x, y, leaf_order, label, label_src, keywords "
+            "FROM cluster_tree WHERE run_id = ? ORDER BY node_id", (run,)
+        ).fetchall()
+        if not rows:
+            raise HTTPException(404, "트리가 없다. constellation hierarchy 를 돌려라.")
+        lv = conn.execute(
+            "SELECT level, k, node_id FROM tree_levels WHERE run_id = ? "
+            "ORDER BY level, node_id", (run,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    levels: dict[int, list[int]] = {}
+    for level, _k, node in lv:
+        levels.setdefault(level, []).append(node)
+
+    return {
+        "run_id": run,
+        "nodes": [
+            {"id": r[0], "parent": r[1], "left": r[2], "right": r[3],
+             "height": r[4], "size": r[5], "n_leaves": r[6],
+             "cluster_id": r[7], "x": r[8], "y": r[9], "leaf_order": r[10],
+             "label": r[11], "label_src": r[12],
+             "keywords": (r[13] or "").split(", ") if r[13] else []}
+            for r in rows
+        ],
+        "levels": {str(k): v for k, v in sorted(levels.items())},
+    }
+
+
 @app.get("/api/clusters/{cluster_id}")
 def cluster_detail(cluster_id: int, run: str = Query(...)) -> dict[str, Any]:
     conn = _conn()

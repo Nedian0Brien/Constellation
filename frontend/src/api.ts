@@ -31,6 +31,29 @@ export interface ClusterDetail extends Omit<ClusterInfo, "x" | "y" | "top_work_i
   by_year: { year: number; n: number }[];
 }
 
+export interface TreeNode {
+  id: number;
+  parent: number | null;
+  left: number | null;
+  right: number | null;
+  height: number;
+  size: number;
+  n_leaves: number;
+  cluster_id: number | null;
+  x: number;
+  y: number;
+  leaf_order: number | null;
+  label: string;
+  label_src: string;
+  keywords: string[];
+}
+
+export interface TreeData {
+  run_id: string;
+  nodes: TreeNode[];
+  levels: Record<string, number[]>;
+}
+
 export interface Work {
   id: string;
   doi: string | null;
@@ -79,5 +102,7 @@ export const fetchClusters = (run: string) =>
   get<ClusterInfo[]>(`/clusters?run=${encodeURIComponent(run)}`);
 export const fetchClusterDetail = (run: string, id: number) =>
   get<ClusterDetail>(`/clusters/${id}?run=${encodeURIComponent(run)}`);
+export const fetchTree = (run: string) =>
+  get<TreeData>(`/tree?run=${encodeURIComponent(run)}`);
 export const searchWorks = (q: string) =>
   get<SearchHit[]>(`/search?q=${encodeURIComponent(q)}&limit=50`);

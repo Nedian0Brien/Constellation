@@ -157,6 +157,8 @@ export default function MapView() {
   const clusters = useStore((s) => s.clusters);
   const selectedCluster = useStore((s) => s.selectedCluster);
   const selectCluster = useStore((s) => s.selectCluster);
+  const tree = useStore((s) => s.tree);
+  const selectedNode = useStore((s) => s.selectedNode);
 
   const [viewState, setViewState] = useState<any>(null);
   const [hoverInfo, setHoverInfo] = useState<any>(null);
@@ -194,6 +196,22 @@ export default function MapView() {
     setViewState(vs);
   }, [map]);
 
+  // 트리에서 가지를 고르면 그 아래 잎 클러스터들만 지도에 남긴다.
+  const nodeClusters = useMemo(() => {
+    if (!tree || selectedNode == null) return null;
+    const byId = new Map(tree.nodes.map((n) => [n.id, n]));
+    const out = new Set<number>();
+    const stack = [selectedNode];
+    while (stack.length) {
+      const n = byId.get(stack.pop()!);
+      if (!n) continue;
+      if (n.cluster_id != null) out.add(n.cluster_id);
+      if (n.left != null) stack.push(n.left);
+      if (n.right != null) stack.push(n.right);
+    }
+    return out;
+  }, [tree, selectedNode]);
+
   const colors = useMemo(() => {
     if (!map) return null;
     const out = new Uint8Array(map.n * 4);
@@ -219,6 +237,8 @@ export default function MapView() {
       const isHi = highlighted.size > 0 && highlighted.has(map.id[i]);
 
       let alpha = inRange ? 190 : 16;
+      if (nodeClusters && inRange)
+        alpha = nodeClusters.has(map.cluster[i]) ? 235 : 20;
       if (selectedCluster != null && inRange) alpha = inCluster ? 235 : 22;
       if (highlighted.size > 0 && inRange) alpha = isHi ? 240 : 26;
       if (isSel) alpha = 255;
@@ -229,7 +249,7 @@ export default function MapView() {
       out[i * 4 + 3] = alpha;
     }
     return out;
-  }, [map, colorBy, yearRange, selected, highlighted, selectedCluster, scale]);
+  }, [map, colorBy, yearRange, selected, highlighted, selectedCluster, scale, nodeClusters]);
 
   const radii = useMemo(() => {
     if (!map) return null;
@@ -271,7 +291,7 @@ export default function MapView() {
       autoHighlight: true,
       highlightColor: [255, 255, 255, 255],
       updateTriggers: {
-        getFillColor: [colorBy, yearRange, selected, highlighted, selectedCluster],
+        getFillColor: [colorBy, yearRange, selected, highlighted, selectedCluster, selectedNode],
       },
       onHover: (info: any) => setHoverInfo(info?.index >= 0 ? info : null),
       onClick: (info: any) => {

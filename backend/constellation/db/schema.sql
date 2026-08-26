@@ -110,3 +110,38 @@ CREATE TABLE IF NOT EXISTS cluster_meta (
 );
 
 CREATE INDEX IF NOT EXISTS idx_clusters_run ON clusters (run_id);
+
+-- ── M2+: 클러스터 계층 트리 ─────────────────────────────────
+-- scipy linkage 관례를 따른다. 잎이 n개면 노드 0..n-1이 잎,
+-- n..2n-2가 내부 노드이고 루트는 2n-2다.
+
+CREATE TABLE IF NOT EXISTS cluster_tree (
+    run_id     TEXT NOT NULL,
+    node_id    INTEGER NOT NULL,
+    parent_id  INTEGER,            -- 루트는 NULL
+    left_id    INTEGER,            -- 잎은 NULL
+    right_id   INTEGER,
+    height     DOUBLE NOT NULL,    -- 병합 거리. 클수록 늦게(멀리서) 합쳐졌다
+    size       INTEGER NOT NULL,   -- 논문 편수
+    n_leaves   INTEGER NOT NULL,   -- 하위 클러스터 개수
+    cluster_id INTEGER,            -- 잎일 때만
+    x          DOUBLE,             -- 편수 가중 중심 (지도 라벨 위치)
+    y          DOUBLE,
+    leaf_order INTEGER,            -- 덴드로그램 세로 순서 (잎만)
+    label      TEXT,               -- 이름. LLM이 채우기 전엔 키워드 조합
+    label_src  TEXT,               -- 'ctfidf' | 'llm' | 'manual'
+    keywords   TEXT,
+    PRIMARY KEY (run_id, node_id)
+);
+
+-- 덴드로그램을 몇 개 높이에서 자를지. 줌 레벨에 대응한다.
+CREATE TABLE IF NOT EXISTS tree_levels (
+    run_id  TEXT NOT NULL,
+    level   INTEGER NOT NULL,
+    k       INTEGER NOT NULL,
+    node_id INTEGER NOT NULL,
+    PRIMARY KEY (run_id, level, node_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tree_run   ON cluster_tree (run_id);
+CREATE INDEX IF NOT EXISTS idx_levels_run ON tree_levels (run_id, level);

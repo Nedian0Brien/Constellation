@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { fetchClusters, fetchMap, fetchRuns, searchWorks, type SearchHit } from "./api";
+import { fetchClusters, fetchMap, fetchRuns, fetchTree, searchWorks, type SearchHit } from "./api";
 import { useStore, type ColorBy } from "./store";
 import MapView from "./views/MapView";
+import TreeView from "./views/TreeView";
 import DetailPanel from "./panels/DetailPanel";
 import ClusterPanel from "./panels/ClusterPanel";
 import "./index.css";
@@ -27,6 +28,9 @@ export default function App() {
   const setRuns = useStore((s) => s.setRuns);
   const setRun = useStore((s) => s.setRun);
   const setClusters = useStore((s) => s.setClusters);
+  const setTree = useStore((s) => s.setTree);
+  const view = useStore((s) => s.view);
+  const setView = useStore((s) => s.setView);
 
   const [q, setQ] = useState("");
 
@@ -50,6 +54,7 @@ export default function App() {
         setMap(m);
         // 클러스터는 run에 딸린 것이라 좌표를 받은 뒤에 그 run으로 받는다.
         fetchClusters(m.run_id).then(setClusters).catch(() => setClusters([]));
+        fetchTree(m.run_id).then(setTree).catch(() => setTree(null));
       })
       .catch((e) => setError(String(e.message ?? e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -94,6 +99,15 @@ export default function App() {
           {map ? `${map.n.toLocaleString()}편` : loading ? "불러오는 중…" : ""}
         </span>
 
+        <div className="seg viewseg">
+          <button className={view === "map" ? "on" : ""} onClick={() => setView("map")}>
+            지도
+          </button>
+          <button className={view === "tree" ? "on" : ""} onClick={() => setView("tree")}>
+            계층 트리
+          </button>
+        </div>
+
         {runs.length > 1 && (
           <select
             className="runsel"
@@ -116,7 +130,7 @@ export default function App() {
           onChange={(e) => setQ(e.target.value)}
         />
 
-        <div className="seg">
+        {view === "map" && <div className="seg">
           {COLOR_OPTIONS.map((o) => (
             <button
               key={o.key}
@@ -126,9 +140,9 @@ export default function App() {
               {o.label}
             </button>
           ))}
-        </div>
+        </div>}
 
-        {map && (
+        {view === "map" && map && (
           <div className="years">
             <span>{yearRange[0]}</span>
             <input
@@ -158,9 +172,9 @@ export default function App() {
       </header>
 
       <main>
-        <MapView />
+        {view === "tree" ? <TreeView /> : <MapView />}
 
-        {hits.length > 0 && (
+        {view === "map" && hits.length > 0 && (
           <div className="hits">
             <div className="hits-head">검색 결과 {hits.length}건</div>
             <ul>

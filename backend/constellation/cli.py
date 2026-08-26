@@ -190,6 +190,21 @@ def cluster(
 
 
 @app.command()
+def hierarchy(
+    model: str = typer.Option("scincl", "--model", "-m"),
+    levels: str = typer.Option("8,18", "--levels", help="레벨별 노드 수. 잎은 자동"),
+) -> None:
+    """클러스터 위에 ward 트리를 세운다 (bottom-up, 2D 좌표)."""
+    from .analyze.hierarchy import build
+    ks = tuple(int(x) for x in levels.split(",") if x.strip())
+    r = build(model, levels=ks, log=console.print)
+    console.print()
+    console.print("[green]완료[/] — 노드 %d개(잎 %d), 레벨 %s"
+                  % (r["n_nodes"], r["n_leaves"],
+                     " / ".join("%d개" % v for v in r["levels"].values())))
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),

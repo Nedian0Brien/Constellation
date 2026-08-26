@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import type { ClusterInfo, MapData, RunInfo } from "./api";
+import type { ClusterInfo, MapData, RunInfo, TreeData } from "./api";
 
 export type ColorBy = "cluster" | "year" | "cited" | "abstract";
+export type View = "map" | "tree";
 
 interface State {
   map: MapData | null;
@@ -9,6 +10,9 @@ interface State {
   currentRun: string | null;
   clusters: ClusterInfo[];
   selectedCluster: number | null;
+  tree: TreeData | null;
+  selectedNode: number | null;
+  view: View;
   loading: boolean;
   error: string | null;
 
@@ -23,6 +27,9 @@ interface State {
   setRuns: (r: RunInfo[]) => void;
   setClusters: (c: ClusterInfo[]) => void;
   selectCluster: (id: number | null) => void;
+  setTree: (t: TreeData | null) => void;
+  selectNode: (id: number | null) => void;
+  setView: (v: View) => void;
   setRun: (id: string) => void;
   setLoading: (v: boolean) => void;
   setError: (e: string | null) => void;
@@ -39,6 +46,9 @@ export const useStore = create<State>((set) => ({
   currentRun: null,
   clusters: [],
   selectedCluster: null,
+  tree: null,
+  selectedNode: null,
+  view: "map",
   loading: true,
   error: null,
 
@@ -56,12 +66,15 @@ export const useStore = create<State>((set) => ({
     set({
       map: m, currentRun: m.run_id,
       yearBounds: [lo, hi], yearRange: [lo, hi],
-      loading: false, selected: null, selectedCluster: null,
+      loading: false, selected: null, selectedCluster: null, selectedNode: null,
     });
   },
   setRuns: (r) => set({ runs: r }),
   setClusters: (c) => set({ clusters: c }),
-  selectCluster: (id) => set({ selectedCluster: id, selected: null }),
+  selectCluster: (id) => set({ selectedCluster: id, selected: null, selectedNode: null }),
+  setTree: (t) => set({ tree: t }),
+  selectNode: (id) => set({ selectedNode: id, selectedCluster: null, selected: null }),
+  setView: (v) => set({ view: v }),
   setRun: (id) => set({ currentRun: id, loading: true, selected: null }),
   setLoading: (v) => set({ loading: v }),
   setError: (e) => set({ error: e, loading: false }),
