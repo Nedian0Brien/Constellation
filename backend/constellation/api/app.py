@@ -230,6 +230,79 @@ def flow_papers(
     return [{"id": r[0], "title": r[1], "year": r[2], "cited": r[3]} for r in rows]
 
 
+@app.get("/api/lineage")
+def lineage(
+    run: str = Query(...),
+    seed: str | None = Query(None),
+    depth: int = Query(2, ge=1, le=4),
+    limit: int = Query(240, le=600),
+) -> dict[str, Any]:
+    """인용 계보.
+
+    seed가 없으면 메인패스만, 있으면 그 논문 주변 depth홉을 함께 준다.
+    """
+    conn = _conn()
+    try:
+        main = conn.execute(
+            "SELECT cited_id, citing_id, log_spc FROM citation_spc "
+            "WHERE run_id = ? AND on_main ORDER BY log_spc DESC", (run,)
+        ).fetchall()
+        if not main:
+            raise HTTPException(404, "계보가 없다. constellation lineage 를 돌려라.")
+
+        keep: set[str] = set()
+        for a, b, _ in main:
+            keep.add(a); keep.add(b)
+        edges = [{"from": a, "to": b, "spc": c, "main": True} for a, b, c in main]
+
+        if seed:
+            frontier = {seed}
+            keep.add(seed)
+            seen_edge = {(e["from"], e["to"]) for e in edges}
+            for _ in range(depth):
+                if not frontier or len(keep) > limit:
+                    break
+                q = ",".join("?" for _ in frontier)
+                rows = conn.execute(
+                    "SELECT cited_id, citing_id, log_spc FROM citation_spc "
+                    "WHERE run_id = ? AND (cited_id IN (%s) OR citing_id IN (%s)) "
+                    "ORDER BY log_spc DESC LIMIT ?" % (q, q),
+                    (run, *frontier, *frontier, limit),
+                ).fetchall()
+                nxt: set[str] = set()
+                for a, b, c in rows:
+                    if len(keep) > limit:
+                        break
+                    if (a, b) not in seen_edge:
+                        seen_edge.add((a, b))
+                        edges.append({"from": a, "to": b, "spc": c, "main": False})
+                    for x in (a, b):
+                        if x not in keep:
+                            keep.add(x); nxt.add(x)
+                frontier = nxt
+
+        rows = conn.execute(
+            "SELECT id, title, year, coalesce(cited_by_count,0), venue "
+            "FROM works WHERE id IN (%s)" % ",".join("?" for _ in keep),
+            tuple(keep),
+        ).fetchall()
+        main_ids = []
+        seen = set()
+        for a, b, _ in main:
+            for x in (a, b):
+                if x not in seen:
+                    seen.add(x); main_ids.append(x)
+    finally:
+        conn.close()
+
+    nodes = {r[0]: {"id": r[0], "title": r[1], "year": r[2],
+                    "cited": r[3], "venue": r[4]} for r in rows}
+    main_ids.sort(key=lambda i: (nodes[i]["year"] or 0) if i in nodes else 0)
+    return {"run_id": run, "seed": seed,
+            "nodes": list(nodes.values()), "edges": edges,
+            "main_path": main_ids}
+
+
 @app.get("/api/clusters/{cluster_id}")
 def cluster_detail(cluster_id: int, run: str = Query(...)) -> dict[str, Any]:
     conn = _conn()

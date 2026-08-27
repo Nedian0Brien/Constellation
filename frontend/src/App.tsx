@@ -4,6 +4,8 @@ import { useStore, type ColorBy } from "./store";
 import MapView from "./views/MapView";
 import TreeView from "./views/TreeView";
 import FlowView from "./views/FlowView";
+import LineageView from "./views/LineageView";
+import SkyView from "./views/SkyView";
 import DetailPanel from "./panels/DetailPanel";
 import ClusterPanel from "./panels/ClusterPanel";
 import "./index.css";
@@ -110,6 +112,12 @@ export default function App() {
           <button className={view === "flow" ? "on" : ""} onClick={() => setView("flow")}>
             갈래 흐름
           </button>
+          <button className={view === "lineage" ? "on" : ""} onClick={() => setView("lineage")}>
+            인용 계보
+          </button>
+          <button className={view === "sky" ? "on" : ""} onClick={() => setView("sky")}>
+            3D
+          </button>
         </div>
 
         {runs.length > 1 && (
@@ -176,7 +184,11 @@ export default function App() {
       </header>
 
       <main>
-        {view === "tree" ? <TreeView /> : view === "flow" ? <FlowView /> : <MapView />}
+        {view === "tree" ? <TreeView />
+          : view === "flow" ? <FlowView />
+          : view === "lineage" ? <LineageView />
+          : view === "sky" ? <SkyView />
+          : <MapView />}
 
         {view === "map" && hits.length > 0 && (
           <div className="hits">

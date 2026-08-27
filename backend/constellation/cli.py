@@ -238,6 +238,19 @@ def flow(
 
 
 @app.command()
+def lineage(
+    model: str = typer.Option("scincl", "--model", "-m"),
+) -> None:
+    """인용 DAG에 SPC 가중치를 매기고 메인패스를 뽑는다."""
+    from .analyze.lineage import build
+    r = build(model_key=model, log=console.print)
+    console.print()
+    console.print("[green]완료[/] — 노드 %s개, 엣지 %s개, 메인패스 %d편"
+                  % (format(r["nodes"], ","), format(r["edges"], ","),
+                     len(r["main_path"])))
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),

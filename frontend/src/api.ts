@@ -66,6 +66,14 @@ export interface FlowData {
 
 export interface FlowPaper { id: string; title: string; year: number | null; cited: number }
 
+export interface LineageData {
+  run_id: string;
+  seed: string | null;
+  nodes: { id: string; title: string; year: number | null; cited: number; venue: string | null }[];
+  edges: { from: string; to: string; spc: number; main: boolean }[];
+  main_path: string[];
+}
+
 export interface Work {
   id: string;
   doi: string | null;
@@ -120,5 +128,9 @@ export const fetchFlow = (run: string) =>
   get<FlowData>(`/flow?run=${encodeURIComponent(run)}`);
 export const fetchFlowPapers = (run: string, w: number, c: number) =>
   get<FlowPaper[]>(`/flow/papers?run=${encodeURIComponent(run)}&window=${w}&cluster=${c}`);
+export const fetchLineage = (run: string, seed?: string, depth = 2) =>
+  get<LineageData>(
+    `/lineage?run=${encodeURIComponent(run)}` +
+    (seed ? `&seed=${encodeURIComponent(seed)}&depth=${depth}` : ""));
 export const searchWorks = (q: string) =>
   get<SearchHit[]>(`/search?q=${encodeURIComponent(q)}&limit=50`);

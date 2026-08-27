@@ -196,3 +196,17 @@ CREATE TABLE IF NOT EXISTS flows (
 
 CREATE INDEX IF NOT EXISTS idx_flows_run    ON flows (run_id);
 CREATE INDEX IF NOT EXISTS idx_fmem_run     ON flow_members (run_id, window_idx);
+
+-- ── M4: 인용 계보 (SPC 메인패스) ────────────────────────────
+
+CREATE TABLE IF NOT EXISTS citation_spc (
+    run_id   TEXT NOT NULL,
+    cited_id TEXT NOT NULL,   -- 앞선 논문 (지식이 나온 곳)
+    citing_id TEXT NOT NULL,  -- 뒤 논문
+    log_spc  DOUBLE NOT NULL, -- Search Path Count, 로그 스케일
+    on_main  BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (run_id, cited_id, citing_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_spc_cited  ON citation_spc (run_id, cited_id);
+CREATE INDEX IF NOT EXISTS idx_spc_citing ON citation_spc (run_id, citing_id);
