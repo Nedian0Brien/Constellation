@@ -31,46 +31,56 @@ Progress = Callable[[str], None]
 DEFAULT_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 MAX_NEW_TOKENS = 48
 
+# 영어로 뽑는다.
+#
+# 처음에는 한국어로 시켰다가 도메인 용어의 한국어 대응을 모른다는 것이
+# 드러났다 — dense retrieval을 "신문 검색", music information retrieval을
+# "음성 정보 검색", semantic web을 "세미어nt릭"으로 냈다.
+#
+# beam search(4, 8)로도 "신문 검색 모델"이 그대로 나왔다. 전체 확률로
+# 비교해도 모델이 그 경로를 선호한다는 뜻이라 디코딩 문제가 아니었다.
+# 이 분야의 명칭은 원래 영어가 표준이고(Dense Retrieval, Learning to Rank),
+# 모델의 영어가 훨씬 안정적이다.
+
 SYSTEM = (
-    "너는 학술 문헌 지도에 이름을 붙이는 사서다. "
-    "주어진 근거만 보고 연구 주제 묶음의 이름을 짓는다. "
-    "근거에 없는 내용을 지어내지 않는다."
+    "You are a librarian who names regions on a map of scholarly literature. "
+    "You name a cluster of research papers using only the evidence given. "
+    "You never introduce concepts that are absent from the evidence."
 )
 
-RULES = """규칙:
-- 한국어 이름. 6단어를 넘기지 마라. 짧을수록 좋다.
-- 학술 분야 이름처럼 쓴다. 문장도, 설명도, "~ 기반 ~"류의 구절도 아니다.
-- 널리 쓰이는 영문 약어(RAG, IR, LLM, PIR, NER)는 그대로 둔다.
-- 하위 묶음들이 서로 무관하면 억지로 하나로 잇지 말고 "혼합: A와 B"로 쓴다.
-- 근거(특징 용어·논문 제목·하위 묶음 이름)에 나오지 않는 개념을 넣지 마라.
-- "~ 기반 ~" 꼴을 쓰지 마라. 명사구 하나로 끝내라.
-- 이름만 출력한다. 따옴표, 설명, 접두사를 붙이지 마라."""
+RULES = """Rules:
+- Answer in English. At most 5 words. Shorter is better.
+- Write it like the name of a research area, not a sentence or a description.
+- Use Title Case. Keep established acronyms as-is (RAG, IR, LLM, PIR, NER, OCR).
+- If the sub-clusters are unrelated, do not force a single name.
+  Write "Mixed: A and B" instead.
+- Do not introduce any concept that is absent from the evidence
+  (characteristic terms, paper titles, sub-cluster names).
+- Output the name only. No quotes, no explanation, no prefix."""
 
-# 규칙을 말로만 주면 4B급 모델은 지키지 않는다. 실측에서 한국어 규칙을
-# 어기고("dense & interactive ranking"), 무관한 자식을 억지로 이어
-# 없는 개념을 지어냈다("PIR과 에너지 기반 애플리케이션의 보안 공학").
-# 형식은 예시로 가르치는 편이 확실하다. 이 코퍼스 밖의 예시를 쓴다.
-SHOTS = """예시 1
-특징 용어: federated, client, aggregation, privacy, decentralized
-이름: 연합학습
+# 규칙을 말로만 주면 작은 모델은 지키지 않는다. 형식은 예시로 가르치는
+# 편이 확실하다. 이 코퍼스 밖의 예시를 쓴다.
+SHOTS = """Example 1
+Characteristic terms: federated, client, aggregation, privacy, decentralized
+Name: Federated Learning
 
-예시 2
-하위 묶음:
-  - transformer · attention · pretraining (2,100편)
-  - bert · fine-tuning · downstream (900편)
-이름: 사전학습 언어모델
+Example 2
+Sub-clusters:
+  - transformer · attention · pretraining (2,100 papers)
+  - bert · fine-tuning · downstream (900 papers)
+Name: Pretrained Language Models
 
-예시 3
-하위 묶음:
-  - protein · folding · structure (800편)
-  - solar · photovoltaic · efficiency (760편)
-이름: 혼합: 단백질 구조와 태양전지
+Example 3
+Sub-clusters:
+  - protein · folding · structure (800 papers)
+  - solar · photovoltaic · efficiency (760 papers)
+Name: Mixed: Protein Structure and Photovoltaics
 
-예시 4
-하위 묶음:
-  - graph neural · message passing (410편)
-  - node classification · link prediction (380편)
-이름: 그래프 신경망
+Example 4
+Sub-clusters:
+  - graph neural · message passing (410 papers)
+  - node classification · link prediction (380 papers)
+Name: Graph Neural Networks
 
 """
 
@@ -80,25 +90,25 @@ def _leaf_prompt(label: str, keywords: list[str], titles: list[str], size: int) 
     return "\n\n".join([
         RULES,
         SHOTS,
-        "이제 아래 묶음의 이름을 지어라.\n"
-        "논문 %s편으로 이루어진 하나의 주제 묶음이다.\n\n"
-        "특징 용어(빈도 가중 상위): %s\n\n"
-        "피인용 상위 논문 제목:\n%s"
+        "Now name the cluster below.\n"
+        "It is a single topical cluster of %s papers.\n\n"
+        "Characteristic terms (frequency-weighted): %s\n\n"
+        "Most-cited paper titles:\n%s"
         % (format(size, ","), ", ".join(keywords[:8]), t),
-        "이름:",
+        "Name:",
     ])
 
 
 def _node_prompt(children: list[tuple[str, int]], keywords: list[str], size: int) -> str:
-    c = "\n".join("  - %s (%s편)" % (lab, format(n, ",")) for lab, n in children)
+    c = "\n".join("  - %s (%s papers)" % (lab, format(n, ",")) for lab, n in children)
     return "\n\n".join([
         RULES,
         SHOTS,
-        "이제 아래 묶음의 이름을 지어라.\n"
-        "논문 %s편을 담은 상위 묶음이다. 하위 묶음들을 포괄하는 이름이어야 한다.\n\n"
-        "하위 묶음:\n%s\n\n전체 특징 용어: %s"
+        "Now name the cluster below.\n"
+        "It is a parent cluster of %s papers. The name must cover its sub-clusters.\n\n"
+        "Sub-clusters:\n%s\n\nCharacteristic terms overall: %s"
         % (format(size, ","), c, ", ".join(keywords[:8])),
-        "이름:",
+        "Name:",
     ])
 
 
@@ -106,9 +116,32 @@ def _clean(text: str) -> str:
     """모델이 덧붙이는 군더더기를 떼어낸다."""
     t = text.strip().split("\n")[0].strip()
     t = re.sub(r'^["\'“‘`]+|["\'”’`]+$', "", t).strip()
-    t = re.sub(r"^(이름|라벨|답|Name|Label)\s*[:：]\s*", "", t, flags=re.I).strip()
+    t = re.sub(r"^(Name|Label|Answer|이름|라벨|답)\s*[:：]\s*", "", t, flags=re.I).strip()
     t = t.rstrip(".。").strip()
-    return t[:60]
+    return t[:90]   # 영어 이름은 한국어보다 길다. 60자면 잘린다.
+
+
+# 영어 이름을 기대하므로 한글·한자·가나가 섞이면 실패로 본다.
+_NON_LATIN = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+
+
+def is_malformed(name: str) -> str | None:
+    """쓸 수 없는 출력이면 이유를, 멀쩡하면 None을 돌려준다.
+
+    유창하지만 틀린 이름은 이걸로 못 잡는다 — 그래서 c-TF-IDF 키워드를
+    라벨 옆에 남겨 독자가 대조할 수 있게 한다.
+    """
+    if not name or len(name) < 2:
+        return "빈 출력"
+    if _NON_LATIN.search(name):
+        return "영어가 아님"
+    if len(name.split()) > 8:
+        return "너무 김"
+    if name.count(":") > 1:
+        return "구분자 중복"
+    if not re.search(r"[A-Za-z]", name):
+        return "알파벳이 없음"
+    return None
 
 
 class LocalNamer:
@@ -218,6 +251,7 @@ def run(
         namer = LocalNamer(model_id, load_4bit=load_4bit, log=log)
         named: dict[int, str] = {}
         audit: list[tuple] = []
+        n_fallback = 0
         t0 = datetime.now(timezone.utc)
 
         for i, n in enumerate(targets, 1):
@@ -236,6 +270,19 @@ def run(
                 prompt = _node_prompt(ch, kws, size)
 
             out = namer.name(prompt)
+            why = is_malformed(out)
+            if why:
+                # 한 번만 더 시도한다. 결정적 생성이라 프롬프트를 바꿔야 결과가 바뀐다.
+                log("    [%d] %s: %r — 재시도" % (node_id, why, out))
+                out2 = namer.name(
+                    prompt
+                    + "\n\n(The previous answer was not in the required form. "
+                      "Answer in English only, as a short Title Case noun "
+                      "phrase of at most 5 words.)")
+                out = out2 if not is_malformed(out2) else old
+                if out is old:
+                    log("    [%d] 재시도 실패 — c-TF-IDF 라벨 유지" % node_id)
+                    n_fallback += 1
             if not out:
                 out = old
             named[node_id] = out
@@ -271,6 +318,9 @@ def run(
 
         log("")
         log("완료 — %d개, %.0f초 (%.1f초/개)" % (len(named), el, el / max(len(named), 1)))
-        return {"run_id": run_id, "n": len(named), "seconds": el}
+        if n_fallback:
+            log("  형식 불량으로 c-TF-IDF 라벨을 유지한 노드 %d개" % n_fallback)
+        return {"run_id": run_id, "n": len(named), "seconds": el,
+                "fallback": n_fallback}
     finally:
         conn.close()

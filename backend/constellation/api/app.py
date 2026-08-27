@@ -22,9 +22,22 @@ app.add_middleware(
 
 
 def _conn():
+    """읽기 전용 연결.
+
+    DuckDB는 프로세스 간에 '쓰기 1개 또는 읽기 N개'만 허용한다. collect나
+    name 같은 쓰기 명령이 도는 동안 여기서 예외가 올라오면 서버가 통째로
+    죽는다(실제로 죽었다). 503으로 바꿔서 서버는 살려둔다.
+    """
     if not DB_PATH.exists():
         raise HTTPException(503, "DB가 없다. constellation collect 를 먼저 돌려라.")
-    return store.connect(read_only=True)
+    try:
+        return store.connect(read_only=True)
+    except Exception as e:
+        raise HTTPException(
+            503,
+            "DB가 잠겨 있다 — 쓰기 명령(collect / cluster / name 등)이 도는 중일 수 "
+            "있다. 끝난 뒤 새로고침하라. (%s)" % type(e).__name__,
+        )
 
 
 @app.get("/api/runs")
