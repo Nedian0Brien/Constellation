@@ -54,6 +54,18 @@ export interface TreeData {
   levels: Record<string, number[]>;
 }
 
+export interface FlowData {
+  run_id: string;
+  windows: { idx: number; year_from: number; year_to: number; n_works: number; n_clusters: number }[];
+  clusters: { window: number; id: number; label: string; label_src: string; keywords: string[]; size: number }[];
+  flows: {
+    from_window: number; from_cluster: number; to_window: number; to_cluster: number;
+    weight: number; citation: number; semantic: number; author: number; n_papers: number;
+  }[];
+}
+
+export interface FlowPaper { id: string; title: string; year: number | null; cited: number }
+
 export interface Work {
   id: string;
   doi: string | null;
@@ -104,5 +116,9 @@ export const fetchClusterDetail = (run: string, id: number) =>
   get<ClusterDetail>(`/clusters/${id}?run=${encodeURIComponent(run)}`);
 export const fetchTree = (run: string) =>
   get<TreeData>(`/tree?run=${encodeURIComponent(run)}`);
+export const fetchFlow = (run: string) =>
+  get<FlowData>(`/flow?run=${encodeURIComponent(run)}`);
+export const fetchFlowPapers = (run: string, w: number, c: number) =>
+  get<FlowPaper[]>(`/flow/papers?run=${encodeURIComponent(run)}&window=${w}&cluster=${c}`);
 export const searchWorks = (q: string) =>
   get<SearchHit[]>(`/search?q=${encodeURIComponent(q)}&limit=50`);

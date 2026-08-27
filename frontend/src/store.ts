@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { ClusterInfo, MapData, RunInfo, TreeData } from "./api";
 
 export type ColorBy = "cluster" | "year" | "cited" | "abstract";
-export type View = "map" | "tree";
+export type View = "map" | "tree" | "flow";
 
 interface State {
   map: MapData | null;

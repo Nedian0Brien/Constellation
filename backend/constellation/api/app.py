@@ -172,6 +172,64 @@ def tree(run: str = Query(...)) -> dict[str, Any]:
     }
 
 
+@app.get("/api/flow")
+def flow(run: str = Query(...)) -> dict[str, Any]:
+    """시간 창별 클러스터와 그 사이 흐름."""
+    conn = _conn()
+    try:
+        wins = conn.execute(
+            "SELECT window_idx, year_from, year_to, n_works, n_clusters "
+            "FROM flow_windows WHERE run_id = ? ORDER BY window_idx", (run,)
+        ).fetchall()
+        if not wins:
+            raise HTTPException(404, "흐름이 없다. constellation flow 를 돌려라.")
+        cls = conn.execute(
+            "SELECT window_idx, cluster_id, label, label_src, keywords, size "
+            "FROM flow_clusters WHERE run_id = ? ORDER BY window_idx, -size", (run,)
+        ).fetchall()
+        fls = conn.execute(
+            "SELECT from_window, from_cluster, to_window, to_cluster, weight, "
+            "       w_citation, w_semantic, w_author, n_papers "
+            "FROM flows WHERE run_id = ? ORDER BY to_window, to_cluster, -weight",
+            (run,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return {
+        "run_id": run,
+        "windows": [{"idx": r[0], "year_from": r[1], "year_to": r[2],
+                     "n_works": r[3], "n_clusters": r[4]} for r in wins],
+        "clusters": [{"window": r[0], "id": r[1], "label": r[2], "label_src": r[3],
+                      "keywords": (r[4] or "").split(", ") if r[4] else [],
+                      "size": r[5]} for r in cls],
+        "flows": [{"from_window": r[0], "from_cluster": r[1],
+                   "to_window": r[2], "to_cluster": r[3],
+                   "weight": r[4], "citation": r[5], "semantic": r[6],
+                   "author": r[7], "n_papers": r[8]} for r in fls],
+    }
+
+
+@app.get("/api/flow/papers")
+def flow_papers(
+    run: str = Query(...), window: int = Query(...), cluster: int = Query(...),
+    limit: int = Query(15, le=60),
+) -> list[dict[str, Any]]:
+    """한 창-클러스터에 속한 논문들 (피인용 상위)."""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT w.id, w.title, w.year, coalesce(w.cited_by_count, 0) "
+            "FROM flow_members m JOIN works w ON w.id = m.work_id "
+            "WHERE m.run_id = ? AND m.window_idx = ? AND m.cluster_id = ? "
+            "ORDER BY w.cited_by_count DESC NULLS LAST LIMIT ?",
+            (run, window, cluster, limit),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [{"id": r[0], "title": r[1], "year": r[2], "cited": r[3]} for r in rows]
+
+
 @app.get("/api/clusters/{cluster_id}")
 def cluster_detail(cluster_id: int, run: str = Query(...)) -> dict[str, Any]:
     conn = _conn()

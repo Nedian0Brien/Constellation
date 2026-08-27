@@ -221,6 +221,23 @@ def name(
 
 
 @app.command()
+def flow(
+    model: str = typer.Option("scincl", "--model", "-m"),
+    width: int = typer.Option(3, "--width", help="시간 창 폭(년)"),
+    year_min: int = typer.Option(2014, "--from", help="이 해부터"),
+    min_frac: float = typer.Option(0.012, "--min-frac",
+                                   help="창 크기 대비 최소 클러스터 비율"),
+) -> None:
+    """시간 창별로 나눠 클러스터링하고 갈래 흐름을 계산한다."""
+    from .analyze.flow import build
+    r = build(model, width=width, year_min=year_min,
+              min_cluster_frac=min_frac, log=console.print)
+    console.print()
+    console.print("[green]완료[/] — 창 %d개, 클러스터 %d개, 흐름 %d개"
+                  % (r["windows"], r["clusters"], r["flows"]))
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8000, "--port"),

@@ -145,3 +145,54 @@ CREATE TABLE IF NOT EXISTS tree_levels (
 
 CREATE INDEX IF NOT EXISTS idx_tree_run   ON cluster_tree (run_id);
 CREATE INDEX IF NOT EXISTS idx_levels_run ON tree_levels (run_id, level);
+
+-- ── M3: 시간 슬라이스 흐름 ──────────────────────────────────
+-- 창(window)마다 독립적으로 클러스터링하고, 인접 창의 클러스터를
+-- 세 신호로 잇는다. 세 성분을 따로 저장하는 이유는 UI에서 신호별로
+-- 켜고 끌 수 있어야 하고, 흐름이 이상할 때 원인을 짚을 수 있어야 해서다.
+
+CREATE TABLE IF NOT EXISTS flow_windows (
+    run_id     TEXT NOT NULL,
+    window_idx INTEGER NOT NULL,
+    year_from  INTEGER NOT NULL,
+    year_to    INTEGER NOT NULL,
+    n_works    INTEGER NOT NULL,
+    n_clusters INTEGER NOT NULL,
+    PRIMARY KEY (run_id, window_idx)
+);
+
+CREATE TABLE IF NOT EXISTS flow_clusters (
+    run_id     TEXT NOT NULL,
+    window_idx INTEGER NOT NULL,
+    cluster_id INTEGER NOT NULL,
+    label      TEXT,
+    label_src  TEXT,
+    keywords   TEXT,
+    size       INTEGER NOT NULL,
+    PRIMARY KEY (run_id, window_idx, cluster_id)
+);
+
+CREATE TABLE IF NOT EXISTS flow_members (
+    run_id     TEXT NOT NULL,
+    window_idx INTEGER NOT NULL,
+    cluster_id INTEGER NOT NULL,
+    work_id    TEXT NOT NULL,
+    PRIMARY KEY (run_id, window_idx, work_id)
+);
+
+CREATE TABLE IF NOT EXISTS flows (
+    run_id       TEXT NOT NULL,
+    from_window  INTEGER NOT NULL,
+    from_cluster INTEGER NOT NULL,
+    to_window    INTEGER NOT NULL,
+    to_cluster   INTEGER NOT NULL,
+    weight       DOUBLE NOT NULL,   -- 세 신호의 가중 결합, to_cluster 기준 정규화
+    w_citation   DOUBLE NOT NULL,   -- 뒤 창이 앞 창을 인용한 비율 — 가장 인과적
+    w_semantic   DOUBLE NOT NULL,   -- 클러스터 중심 임베딩 코사인
+    w_author     DOUBLE NOT NULL,   -- 공통 저자 비율
+    n_papers     INTEGER,           -- 이 흐름을 만든 인용 엣지 수
+    PRIMARY KEY (run_id, from_window, from_cluster, to_window, to_cluster)
+);
+
+CREATE INDEX IF NOT EXISTS idx_flows_run    ON flows (run_id);
+CREATE INDEX IF NOT EXISTS idx_fmem_run     ON flow_members (run_id, window_idx);

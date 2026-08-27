@@ -3,6 +3,7 @@ import { fetchClusters, fetchMap, fetchRuns, fetchTree, searchWorks, type Search
 import { useStore, type ColorBy } from "./store";
 import MapView from "./views/MapView";
 import TreeView from "./views/TreeView";
+import FlowView from "./views/FlowView";
 import DetailPanel from "./panels/DetailPanel";
 import ClusterPanel from "./panels/ClusterPanel";
 import "./index.css";
@@ -106,6 +107,9 @@ export default function App() {
           <button className={view === "tree" ? "on" : ""} onClick={() => setView("tree")}>
             계층 트리
           </button>
+          <button className={view === "flow" ? "on" : ""} onClick={() => setView("flow")}>
+            갈래 흐름
+          </button>
         </div>
 
         {runs.length > 1 && (
@@ -172,7 +176,7 @@ export default function App() {
       </header>
 
       <main>
-        {view === "tree" ? <TreeView /> : <MapView />}
+        {view === "tree" ? <TreeView /> : view === "flow" ? <FlowView /> : <MapView />}
 
         {view === "map" && hits.length > 0 && (
           <div className="hits">
