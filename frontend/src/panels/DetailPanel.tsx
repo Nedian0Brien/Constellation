@@ -1,29 +1,19 @@
-import { useEffect, useState } from "react";
-import { fetchWork, type Work } from "../api";
-import { useStore } from "../store";
+import { useQuery } from "@tanstack/react-query";
+import { DataState } from "../components/DataState";
+import { fetchWork } from "../api";
+import { useWorkspace } from "../hooks/use-workspace";
 
 export default function DetailPanel() {
-  const selected = useStore((s) => s.selected);
-  const select = useStore((s) => s.select);
-  const [work, setWork] = useState<Work | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!selected) {
-      setWork(null);
-      return;
-    }
-    let alive = true;
-    setErr(null);
-    setWork(null);
-    fetchWork(selected)
-      .then((w) => alive && setWork(w))
-      .catch((e) => alive && setErr(String(e.message ?? e)));
-    return () => {
-      alive = false;
-    };
-  }, [selected]);
-
+  const workspace = useWorkspace();
+  const selected = workspace.selected;
+  const select = workspace.select;
+  const result = useQuery({
+    queryKey: ["work", workspace.map?.run_id, selected],
+    queryFn: ({ signal }) =>
+      fetchWork(selected!, workspace.map?.run_id, signal),
+    enabled: !!selected,
+  });
+  const work = result.data;
   // 비어 있을 때는 아예 그리지 않는다. 380px짜리 빈 패널이 떠 있으면
   // 지도가 그만큼 왼쪽으로 밀려 화면 중앙에서 벗어난다.
   if (!selected) return null;
@@ -34,8 +24,13 @@ export default function DetailPanel() {
         ✕
       </button>
 
-      {err && <p className="err">불러오지 못했다: {err}</p>}
-      {!work && !err && <p className="dim">불러오는 중…</p>}
+      {!work && (
+        <DataState
+          error={result.error}
+          loading={result.isPending}
+          retry={() => result.refetch()}
+        />
+      )}
 
       {work && (
         <>
@@ -59,8 +54,12 @@ export default function DetailPanel() {
           )}
 
           <div className="corpus-links">
-            <span>코퍼스 내 참고문헌 <b>{work.refs_in_corpus}</b></span>
-            <span>코퍼스 내 피인용 <b>{work.cited_by_in_corpus}</b></span>
+            <span>
+              코퍼스 내 참고문헌 <b>{work.refs_in_corpus}</b>
+            </span>
+            <span>
+              코퍼스 내 피인용 <b>{work.cited_by_in_corpus}</b>
+            </span>
           </div>
 
           {work.abstract ? (
@@ -74,7 +73,10 @@ export default function DetailPanel() {
           {work.topics.length > 0 && (
             <div className="topics">
               {work.topics.map((t) => (
-                <span key={t.kind + t.name} className={`topic topic--${t.kind}`}>
+                <span
+                  key={t.kind + t.name}
+                  className={`topic topic--${t.kind}`}
+                >
                   {t.name}
                 </span>
               ))}

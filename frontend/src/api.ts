@@ -26,8 +26,16 @@ export interface ClusterInfo {
   top_work_title: string | null;
 }
 
-export interface ClusterDetail extends Omit<ClusterInfo, "x" | "y" | "top_work_id" | "top_work_title"> {
-  top_works: { id: string; title: string; year: number | null; cited: number }[];
+export interface ClusterDetail extends Omit<
+  ClusterInfo,
+  "x" | "y" | "top_work_id" | "top_work_title"
+> {
+  top_works: {
+    id: string;
+    title: string;
+    year: number | null;
+    cited: number;
+  }[];
   by_year: { year: number; n: number }[];
 }
 
@@ -56,20 +64,51 @@ export interface TreeData {
 
 export interface FlowData {
   run_id: string;
-  windows: { idx: number; year_from: number; year_to: number; n_works: number; n_clusters: number }[];
-  clusters: { window: number; id: number; label: string; label_src: string; keywords: string[]; size: number }[];
+  windows: {
+    idx: number;
+    year_from: number;
+    year_to: number;
+    n_works: number;
+    n_clusters: number;
+  }[];
+  clusters: {
+    window: number;
+    id: number;
+    label: string;
+    label_src: string;
+    keywords: string[];
+    size: number;
+  }[];
   flows: {
-    from_window: number; from_cluster: number; to_window: number; to_cluster: number;
-    weight: number; citation: number; semantic: number; author: number; n_papers: number;
+    from_window: number;
+    from_cluster: number;
+    to_window: number;
+    to_cluster: number;
+    weight: number;
+    citation: number;
+    semantic: number;
+    author: number;
+    n_papers: number;
   }[];
 }
 
-export interface FlowPaper { id: string; title: string; year: number | null; cited: number }
+export interface FlowPaper {
+  id: string;
+  title: string;
+  year: number | null;
+  cited: number;
+}
 
 export interface LineageData {
   run_id: string;
   seed: string | null;
-  nodes: { id: string; title: string; year: number | null; cited: number; venue: string | null }[];
+  nodes: {
+    id: string;
+    title: string;
+    year: number | null;
+    cited: number;
+    venue: string | null;
+  }[];
   edges: { from: string; to: string; spc: number; main: boolean }[];
   main_path: string[];
 }
@@ -105,32 +144,98 @@ export interface RunInfo {
   created_at: string;
 }
 
-async function get<T>(path: string): Promise<T> {
-  const r = await fetch(BASE + path);
-  if (!r.ok) {
-    const body = await r.text().catch(() => "");
-    throw new Error(`${r.status} ${r.statusText}${body ? ` — ${body.slice(0, 200)}` : ""}`);
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
   }
-  return r.json() as Promise<T>;
 }
-
-export const fetchRuns = () => get<RunInfo[]>("/runs");
-export const fetchMap = (run?: string) =>
-  get<MapData>("/map" + (run ? `?run=${encodeURIComponent(run)}` : ""));
-export const fetchWork = (id: string) => get<Work>(`/works/${id}`);
-export const fetchClusters = (run: string) =>
-  get<ClusterInfo[]>(`/clusters?run=${encodeURIComponent(run)}`);
-export const fetchClusterDetail = (run: string, id: number) =>
-  get<ClusterDetail>(`/clusters/${id}?run=${encodeURIComponent(run)}`);
-export const fetchTree = (run: string) =>
-  get<TreeData>(`/tree?run=${encodeURIComponent(run)}`);
-export const fetchFlow = (run: string) =>
-  get<FlowData>(`/flow?run=${encodeURIComponent(run)}`);
-export const fetchFlowPapers = (run: string, w: number, c: number) =>
-  get<FlowPaper[]>(`/flow/papers?run=${encodeURIComponent(run)}&window=${w}&cluster=${c}`);
-export const fetchLineage = (run: string, seed?: string, depth = 2) =>
-  get<LineageData>(
-    `/lineage?run=${encodeURIComponent(run)}` +
-    (seed ? `&seed=${encodeURIComponent(seed)}&depth=${depth}` : ""));
-export const searchWorks = (q: string) =>
-  get<SearchHit[]>(`/search?q=${encodeURIComponent(q)}&limit=50`);
+export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(BASE + path, { signal });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const detail = body?.detail;
+    throw new ApiError(
+      response.status,
+      typeof detail === "string" ? detail : `요청 실패 (${response.status})`,
+    );
+  }
+  return response.json() as Promise<T>;
+}
+export function params(values: Record<string, unknown>) {
+  const p = new URLSearchParams();
+  for (const [key, value] of Object.entries(values))
+    if (value !== undefined && value !== null && value !== "")
+      p.set(key, String(value));
+  return p.toString();
+}
+export const fetchRuns = (signal?: AbortSignal) =>
+  get<RunInfo[]>("/runs", signal);
+export const fetchMap = (run?: string, signal?: AbortSignal) =>
+  get<MapData>("/map?" + params({ run }), signal);
+export const fetchWork = (id: string, run?: string, signal?: AbortSignal) =>
+  get<Work>("/works/" + encodeURIComponent(id) + "?" + params({ run }), signal);
+export const fetchClusters = (run: string, signal?: AbortSignal) =>
+  get<ClusterInfo[]>("/clusters?" + params({ run }), signal);
+export const fetchClusterDetail = (
+  run: string,
+  id: number,
+  signal?: AbortSignal,
+) => get<ClusterDetail>(`/clusters/${id}?` + params({ run }), signal);
+export const fetchTree = (run: string, signal?: AbortSignal) =>
+  get<TreeData>("/tree?" + params({ run }), signal);
+export const fetchFlow = (run: string, signal?: AbortSignal) =>
+  get<FlowData>("/flow?" + params({ run }), signal);
+export const fetchFlowPapers = (
+  run: string,
+  w: number,
+  c: number,
+  signal?: AbortSignal,
+) =>
+  get<FlowPaper[]>(
+    "/flow/papers?" + params({ run, window: w, cluster: c }),
+    signal,
+  );
+export const fetchLineage = (
+  run: string,
+  seed?: string,
+  depth = 2,
+  signal?: AbortSignal,
+) => get<LineageData>("/lineage?" + params({ run, seed, depth }), signal);
+export interface PaperRow {
+  id: string;
+  title: string;
+  year: number | null;
+  cited_by_count: number | null;
+  has_abstract: boolean;
+}
+export interface PaperPage {
+  items: PaperRow[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+export interface Matches {
+  ids: string[];
+  total: number;
+}
+export interface Filters {
+  run: string;
+  q?: string;
+  year_from?: number;
+  year_to?: number;
+}
+export const fetchMatches = (filters: Filters, signal?: AbortSignal) =>
+  get<Matches>("/matches?" + params({ ...filters }), signal);
+export const fetchPapers = (
+  filters: Filters,
+  sort: string,
+  order: string,
+  page: number,
+  signal?: AbortSignal,
+) =>
+  get<PaperPage>(
+    "/works?" + params({ ...filters, sort, order, page, page_size: 25 }),
+    signal,
+  );

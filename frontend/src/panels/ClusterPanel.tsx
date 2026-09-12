@@ -1,45 +1,80 @@
-import { useEffect, useState } from "react";
-import { fetchClusterDetail, type ClusterDetail } from "../api";
-import { useStore } from "../store";
+import { descendants } from "../views/map/labels";
+import { useQuery } from "@tanstack/react-query";
+import { DataState } from "../components/DataState";
+import { fetchClusterDetail } from "../api";
+import { useWorkspace } from "../hooks/use-workspace";
 
 export default function ClusterPanel() {
-  const selectedCluster = useStore((s) => s.selectedCluster);
-  const selectCluster = useStore((s) => s.selectCluster);
-  const selected = useStore((s) => s.selected);
-  const select = useStore((s) => s.select);
-  const run = useStore((s) => s.map?.run_id);
-  const [d, setD] = useState<ClusterDetail | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (selectedCluster == null || !run) {
-      setD(null);
-      return;
-    }
-    let alive = true;
-    setErr(null);
-    setD(null);
-    fetchClusterDetail(run, selectedCluster)
-      .then((r) => alive && setD(r))
-      .catch((e) => alive && setErr(String(e.message ?? e)));
-    return () => {
-      alive = false;
-    };
-  }, [selectedCluster, run]);
-
+  const workspace = useWorkspace();
+  const node = workspace.tree?.nodes.find(
+    (n) => n.id === workspace.selectedNode,
+  );
+  const selectedCluster = workspace.selectedCluster ?? node?.cluster_id ?? null;
+  const selectCluster = workspace.selectCluster;
+  const selected = workspace.selected;
+  const select = workspace.select;
+  const run = workspace.map?.run_id;
+  const result = useQuery({
+    queryKey: ["cluster-detail", run, selectedCluster],
+    queryFn: ({ signal }) => fetchClusterDetail(run!, selectedCluster!, signal),
+    enabled: !!run && selectedCluster !== null,
+  });
+  const d = result.data;
   // 논문을 고르면 논문 패널이 우선한다. 둘이 겹치지 않게 한다.
-  if (selectedCluster == null || selected) return null;
+  if (selected) return null;
+  if (selectedCluster === null && node) {
+    const ids = descendants(workspace.tree, node.id);
+    return (
+      <aside className="detail cluster">
+        <button
+          className="close"
+          aria-label="닫기"
+          onClick={() => selectCluster(null)}
+        >
+          ✕
+        </button>
+        <span className="cl-eyebrow">연구 분야</span>
+        <h2>{node.label}</h2>
+        <p>
+          {node.size.toLocaleString()}편 · {ids.size}개 하위 주제
+        </p>
+        <div className="cl-sec">하위 연구 주제</div>
+        <ol className="cl-works">
+          {workspace.clusters
+            .filter((c) => ids.has(c.cluster_id))
+            .map((c) => (
+              <li key={c.cluster_id}>
+                <button onClick={() => selectCluster(c.cluster_id)}>
+                  <span className="ht">{c.label}</span>
+                  <span className="hm">{c.size.toLocaleString()}편</span>
+                </button>
+              </li>
+            ))}
+        </ol>
+      </aside>
+    );
+  }
+  if (selectedCluster === null) return null;
 
   const peak = d ? Math.max(1, ...d.by_year.map((y) => y.n)) : 1;
 
   return (
     <aside className="detail cluster">
-      <button className="close" onClick={() => selectCluster(null)} aria-label="닫기">
+      <button
+        className="close"
+        onClick={() => selectCluster(null)}
+        aria-label="닫기"
+      >
         ✕
       </button>
 
-      {err && <p className="err">불러오지 못했다: {err}</p>}
-      {!d && !err && <p className="dim">불러오는 중…</p>}
+      {!d && (
+        <DataState
+          error={result.error}
+          loading={result.isPending}
+          retry={() => result.refetch()}
+        />
+      )}
 
       {d && (
         <>
@@ -48,13 +83,17 @@ export default function ClusterPanel() {
 
           <div className="meta-row">
             <span className="tag">{d.size.toLocaleString()}편</span>
-            {d.year_median && <span className="tag">중앙연도 {d.year_median}</span>}
+            {d.year_median && (
+              <span className="tag">중앙연도 {d.year_median}</span>
+            )}
           </div>
 
           {d.keywords.length > 0 && (
             <div className="topics">
               {d.keywords.map((k) => (
-                <span key={k} className="topic topic--facet">{k}</span>
+                <span key={k} className="topic topic--facet">
+                  {k}
+                </span>
               ))}
             </div>
           )}

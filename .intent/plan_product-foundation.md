@@ -14,14 +14,14 @@ date: 2026-09-09
 
 | 구분 | 파일 | 변경 |
 |---|---|---|
-| 수정 | `backend/constellation/config.py`, `.env.example`, `README.md` | 저장소 루트와 데이터 경로 정합성, `CONSTELLATION_DATA_DIR` 선택, 실행·검증 안내 |
+| 수정 | `backend/constellation/config.py`, `pyproject.toml`, `.env.example`, `.gitignore`, `README.md`, `docs/ARCHITECTURE.md` | 저장소 루트와 데이터 경로 정합성, `CONSTELLATION_DATA_DIR` 선택, 실행·검증 안내 |
 | 수정·신규 | `backend/constellation/api/app.py`, `backend/constellation/db/queries.py`(신규) | `/api/works` 페이지 조회, `/api/matches` 전체 일치 ID; run·검색·연도 조건 공유, 오류 구분 |
-| 신규 | `backend/tests/test_queries.py`, `backend/tests/test_api.py`, `backend/tests/fixtures.py` | 임시 DB로 정렬·페이지·결측·run 격리·잘못된 입력 검증 |
-| 수정 | `frontend/package.json`, `frontend/package-lock.json`, `frontend/vite.config.ts`, `frontend/tsconfig.app.json` | shadcn·Tailwind, TanStack Router·Query·Table, Vitest·Playwright와 경로 별칭 |
+| 신규 | `backend/tests/test_queries.py`, `backend/tests/test_api.py`, `backend/tests/test_config.py`, `backend/tests/fixtures.py` | 임시 DB로 정렬·페이지·결측·run 격리·잘못된 입력 검증 |
+| 수정 | `frontend/package.json`, `frontend/package-lock.json`, `frontend/vite.config.ts`, `frontend/tsconfig.app.json`, `frontend/tsconfig.json` | shadcn·Tailwind, TanStack Router·Query·Table, Vitest·Playwright와 경로 별칭 |
 | 신규 | `frontend/components.json`, `frontend/src/lib/utils.ts`, `frontend/src/hooks/use-mobile.ts` | 공식 shadcn 레지스트리 설정과 공통 유틸리티 |
-| 신규 | `frontend/src/components/ui/{sidebar,resizable,button,input,tooltip,slider,select,table,sheet,skeleton,alert,separator,field,toggle,toggle-group}.tsx` | 필요한 shadcn 컴포넌트를 추가하고 수락된 디자인 토큰 적용 |
+| 신규 | `frontend/src/components/ui/{sidebar,resizable,button,input,tooltip,slider,select,table,sheet,skeleton,alert,separator,field,label,empty,toggle,toggle-group}.tsx` | 필요한 shadcn 컴포넌트를 추가하고 수락된 디자인 토큰 적용 |
 | 수정 | `frontend/src/{main,App}.tsx`, `frontend/src/{api,store}.ts`, `frontend/src/index.css` | Provider 연결, 요청 취소·오류 타입, Zustand 일시 상태, 공통 스타일 |
-| 신규 | `frontend/src/app/{router.tsx,navigation.ts}`, `frontend/src/hooks/{use-exploration,use-analysis,use-persistent-layout}.ts` | URL 검증·복원, Query 캐시, 패널 배치 저장 |
+| 신규 | `frontend/src/app/{router.tsx,navigation.ts}`, `frontend/src/hooks/{use-exploration,use-analysis,use-persistent-layout,use-workspace,use-reduced-motion}.ts` | URL 검증·복원, Query 캐시, 패널 배치 저장 |
 | 신규 | `frontend/src/components/{AppShell,AppSidebar,ExploreToolbar,PaperListOverlay,DataState}.tsx`, `frontend/src/styles/tokens.css` | 지도 중심 셸, 목록 오버레이, 오류·빈 상태, 디자인 시스템 적용 |
 | 수정 | `frontend/src/views/{MapView,TreeView,FlowView,LineageView,SkyView}.tsx`, `frontend/src/panels/{DetailPanel,ClusterPanel}.tsx` | 기존 분석 결과 재사용, Query·URL 연동, 화면 전환 시 선택 보존 |
 | 신규 | `frontend/src/views/map/{labels,regions}.ts` | 실제 계층 트리 기반 줌 라벨·가시 범위 계산과 은은한 영역 표현 |
@@ -59,3 +59,11 @@ npm --prefix frontend run test:e2e
 ## 게이트
 
 데이터 복사와 검증을 완료했다. 2026-09-12 사용자의 “구현 진행”으로 수락되었다.
+
+## 구현 반영과 검증 결과 — 2026-09-12
+
+- 서버 데이터 재사용용 `use-workspace` 어댑터와 동작 줄이기 훅, shadcn 의존 컴포넌트 `label`·`empty`, 설정 테스트를 추가했다.
+- 기본 API 실행에 필요한 PyArrow를 선언했다. 초기 조사에서 `parents[2]`를 잘못 해석한 부분을 정정했다. 기존 저장소 루트 계산은 맞았으며 그대로 유지하고 데이터 경로 재정의만 추가했다.
+- 전체 `deck.gl` 묶음 의존성은 제거하고 실제로 쓰는 scoped 패키지를 유지했다. Table은 서버 페이지 처리에 사용한 v8 API에 맞춰 8.21.3 계열로 고정했다.
+- 실제 계층 레벨 8/18/45와 논문 제목 라벨을 연결했다. 라벨 중심을 유지하면서 겹치는 라벨을 숨기고 줌으로 드러낸다. 목록 오버레이와 모델 전환, 선택 복원은 브라우저에서 검증했다.
+- 백엔드 8개·프론트 단위 8개·실데이터 브라우저 9개 통과. 상세 결과와 경고는 `docs/PRODUCT-FOUNDATION-QA.md`에 기록한다.

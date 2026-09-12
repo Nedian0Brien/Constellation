@@ -1,13 +1,13 @@
 """FastAPI — 지도 데이터를 브라우저에 넘긴다."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..config import DB_PATH
-from ..db import store
+from ..db import store, queries
 from ..embed.encoder import DEFAULT_MODEL
 
 app = FastAPI(title="Constellation", version="0.1.0")
@@ -29,7 +29,7 @@ def _conn():
     죽는다(실제로 죽었다). 503으로 바꿔서 서버는 살려둔다.
     """
     if not DB_PATH.exists():
-        raise HTTPException(503, "DB가 없다. constellation collect 를 먼저 돌려라.")
+        raise HTTPException(503, "로컬 논문 데이터가 없습니다. 데이터 폴더를 확인해주세요.")
     try:
         return store.connect(read_only=True)
     except Exception as e:
@@ -146,7 +146,7 @@ def tree(run: str = Query(...)) -> dict[str, Any]:
             "FROM cluster_tree WHERE run_id = ? ORDER BY node_id", (run,)
         ).fetchall()
         if not rows:
-            raise HTTPException(404, "트리가 없다. constellation hierarchy 를 돌려라.")
+            raise HTTPException(404, "이 분석에는 계층 트리 결과가 없습니다.")
         lv = conn.execute(
             "SELECT level, k, node_id FROM tree_levels WHERE run_id = ? "
             "ORDER BY level, node_id", (run,)
@@ -182,7 +182,7 @@ def flow(run: str = Query(...)) -> dict[str, Any]:
             "FROM flow_windows WHERE run_id = ? ORDER BY window_idx", (run,)
         ).fetchall()
         if not wins:
-            raise HTTPException(404, "흐름이 없다. constellation flow 를 돌려라.")
+            raise HTTPException(404, "이 분석에는 시간대별 흐름 결과가 없습니다.")
         cls = conn.execute(
             "SELECT window_idx, cluster_id, label, label_src, keywords, size "
             "FROM flow_clusters WHERE run_id = ? ORDER BY window_idx, -size", (run,)
@@ -248,7 +248,7 @@ def lineage(
             "WHERE run_id = ? AND on_main ORDER BY log_spc DESC", (run,)
         ).fetchall()
         if not main:
-            raise HTTPException(404, "계보가 없다. constellation lineage 를 돌려라.")
+            raise HTTPException(404, "이 분석에는 인용 계보 결과가 없습니다.")
 
         keep: set[str] = set()
         for a, b, _ in main:
@@ -338,10 +338,52 @@ def cluster_detail(cluster_id: int, run: str = Query(...)) -> dict[str, Any]:
     }
 
 
+def paper_filter(
+    run: str = Query(..., min_length=1, max_length=200),
+    q: str = Query("", max_length=500),
+    year_from: int | None = Query(None, ge=0, le=9999),
+    year_to: int | None = Query(None, ge=0, le=9999),
+):
+    try:
+        return queries.PaperFilter(run, q, year_from, year_to)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+def query_connection(filters):
+    conn = _conn()
+    if not queries.exists(conn, filters.run):
+        conn.close()
+        raise HTTPException(404, "분석 실행을 찾을 수 없습니다.")
+    return conn
+
+
+@app.get("/api/works")
+def list_works(filters=Depends(paper_filter), sort: Literal["title", "year", "cited"] = "cited",
+               order: Literal["asc", "desc"] = "desc", page: int = Query(1, ge=1, le=1000000),
+               page_size: int = Query(25, ge=1, le=100)):
+    conn = query_connection(filters)
+    try:
+        return queries.papers(conn, filters, sort, order, page, page_size)
+    finally:
+        conn.close()
+
+
+@app.get("/api/matches")
+def matching_works(filters=Depends(paper_filter)):
+    conn = query_connection(filters)
+    try:
+        return queries.matches(conn, filters)
+    finally:
+        conn.close()
+
+
 @app.get("/api/works/{work_id:path}")
-def get_work(work_id: str) -> dict[str, Any]:
+def get_work(work_id: str, run: str | None = Query(None)) -> dict[str, Any]:
     conn = _conn()
     try:
+        if run and not conn.execute("SELECT 1 FROM projections WHERE run_id = ? AND work_id = ?", [run, work_id]).fetchone():
+            raise HTTPException(404, "현재 분석에 포함되지 않은 논문입니다.")
         row = conn.execute(
             "SELECT id, doi, title, abstract, year, venue, cited_by_count, type, source "
             "FROM works WHERE id = ?", (work_id,)
@@ -397,7 +439,7 @@ def search(q: str = Query(..., min_length=2), limit: int = Query(50, le=200)) ->
 def health() -> dict[str, Any]:
     if not DB_PATH.exists():
         return {"ok": False, "reason": "DB 없음"}
-    conn = store.connect(read_only=True)
+    conn = _conn()
     try:
         n = conn.execute("SELECT count(*) FROM works").fetchone()[0]
         p = conn.execute("SELECT count(*) FROM runs WHERE kind='project'").fetchone()[0]

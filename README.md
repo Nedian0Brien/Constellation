@@ -1,93 +1,86 @@
 # Constellation
 
-학술 데이터베이스에서 논문 초록을 수집해, 한 연구 분야의 지형을 2D/3D 공간에 지도로 그리는 도구.
+논문 초록과 인용 관계로 연구 분야의 구조와 변화를 탐색하는 로컬 웹앱.
 
-## 무엇에 답하는가
+## 제품 기반
 
-| 질문 | 뷰 |
-|---|---|
-| 이 분야에는 어떤 주제 덩어리들이 있는가 | **Map** — 의미 공간 2D 지도 |
-| 그 덩어리들은 시간에 따라 어떻게 갈라지고 합쳐졌는가 | **Flow** — 갈래 흐름도 |
-| 어떤 연구가 어떤 연구에서 뻗어 나왔는가 | **Lineage** — 인용 계보 |
-| 각 갈래는 무엇을 대상으로, 어떤 방법으로 연구하는가 | **Facets** — 대상/방법/응용 패싯 |
-| 전체 구조를 한눈에 | **Sky** — 3D 별자리 |
+React·Vite·shadcn/ui, TanStack Router·Query·Table, deck.gl, FastAPI·DuckDB를 사용한다.
 
-## 현재 상태
-
-**M4 완료.** 다섯 개 뷰가 모두 동작한다 — 지도·계층 트리·갈래 흐름·인용 계보·3D. 남은 것은 M5(Scopus 연결, 권한 대기).
-
-## 문서
-
-- [기획서](docs/PLAN.md) — 목표, 시각화 컨셉, "갈래"의 계산 방법, 마일스톤, 리스크
-- [아키텍처](docs/ARCHITECTURE.md) — 기술 스택, 모듈 구조, 데이터 스키마, API
-- [M2 결과](docs/M2-RESULTS.md) — 클러스터링 공간 선택과 지도가 찾아낸 코퍼스 오염
-- [M1 모델 비교](docs/M1-MODEL-COMPARISON.md) — 네 임베딩 모델을 세 지표로 비교한 기록
-- [M0 결과](docs/M0-RESULTS.md) — RAG/IR 코퍼스 실측치와 그 과정에서 고친 것
-- [데이터 소스](docs/DATA-SOURCES.md) — Scopus / OpenAlex / Semantic Scholar 비교와 어댑터 설계
+- **연구 지도**: 논문을 별로 배치하고 확대 수준에 따라 상위 분야·하위 분야·논문 제목을 표시한다. 영역 범위는 은은한 색 면, 분야 라벨은 중심의 흰색 글자다.
+- **논문 목록**: 지도를 유지한 채 오버레이로 열고 검색·연도 필터·정렬·페이지 이동·논문 선택을 제공한다.
+- **계층 트리 / 갈래 흐름 / 인용 계보 / 3D**: 기존 분석 산출물에 연결된다. 모델마다 없는 산출물은 안내한다.
+- **탐색 복원**: 검색·연도·선택·화면·목록 상태는 URL, 패널 크기와 접힘 상태는 로컬 저장소에 보관한다. 지도 위치는 현재 세션에서 run별로 유지한다.
 
 ## 실행
 
-```bash
-# 1) 환경
-python -m venv .venv
-.venv/Scripts/python.exe -m pip install -e .
+Python 3.12 이상과 Node.js가 필요하다. 기존 `data/constellation.duckdb`가 있으면 수집이나 GPU 임베딩을 다시 실행할 필요가 없다.
 
-# 2) API 키 — .env.example을 .env로 복사하고 OPENALEX_API_KEY를 채운다
-cp .env.example .env
+```sh
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -e '.[api]'
+npm --prefix frontend ci
 
-# 3) 수집 → 측정
-constellation sets                      # 정의된 쿼리 세트
-constellation collect --set rag-ir      # 연도별 할당량 + 피인용순으로 수집
-constellation stats                     # 초록 커버리지 · 내부 인용 밀도
-constellation backfill                  # 자주 인용되는 코퍼스 밖 논문 보강
+# 각각 별도 터미널에서 실행
+.venv/bin/constellation serve
+npm --prefix frontend run dev
 ```
 
-`constellation stats`가 M0의 관문이다. 두 숫자를 본다:
+브라우저에서 `http://localhost:5173`을 연다. 프론트는 `/api`를 사용하며 Vite가 `127.0.0.1:8000`으로 연결한다.
 
-- **초록 커버리지** — 90%↑ 진행 / 70–90% 보강 / 70%↓ 분야 교체 검토
-- **내부 인용 밀도** — 양 끝이 모두 코퍼스 안에 있는 엣지. Flow와 Lineage가
-  이 값에 직접 의존한다. 편당 3개 미만이면 `backfill`로 올린다.
+Windows에서는 Python 경로를 `.venv/Scripts/python.exe`, CLI 경로를 `.venv/Scripts/constellation.exe`로 바꾼다.
 
-## 지도 띄우기
+다른 데이터 폴더를 사용하려면 환경변수 또는 저장소 루트 `.env`에 `CONSTELLATION_DATA_DIR`을 설정한다. 상대 경로는 저장소 루트를 기준으로 해석한다. 데이터는 Git에 포함되지 않는다.
 
-```bash
-# 임베딩 → 좌표 (최초 1회, RTX 5080 기준 임베딩 26초 + UMAP 약 2분)
-constellation embed --model scincl --batch 128
-constellation project --model scincl
+## 지도 조작
 
-# 백엔드와 프론트를 각각 띄운다
-constellation serve                 # http://127.0.0.1:8000
-npm --prefix frontend run dev       # http://localhost:5173
+- 점 클릭: 논문 상세. 목록에서 같은 논문을 선택할 수도 있다.
+- 휠·트랙패드 또는 +/−: 확대·축소. 드래그: 이동.
+- 지도에 키보드 초점을 두면 방향키로 이동하고 +/−로 확대·축소한다.
+- 분야 이름 클릭: 해당 분야 선택과 확대. ‘필터 초기화’ 또는 ‘지도 전체 보기’로 해제한다.
+- 패널 구분선: 드래그 또는 키보드 화살표로 조절. 상단 버튼으로 접기·복원한다.
+- 목록에서 Escape: 지도 상태를 유지하며 목록을 닫는다.
+
+검색은 제목과 초록의 부분 문자열을 대상으로 한다. 두 글자 이상 입력하며 연도 미상 논문은 연도 필터에 포함한다. 지도와 목록은 같은 검색 조건을 사용한다. 클러스터·트리 선택은 지도 강조에 사용한다.
+
+## 수집과 분석
+
+새 코퍼스는 OpenAlex API 키를 `.env.example`을 참고해 설정한 뒤 수집한다. 임베딩 단계는 별도의 모델 의존성과 실행 장치가 필요하다.
+
+```sh
+.venv/bin/constellation sets
+.venv/bin/constellation collect --set rag-ir
+.venv/bin/constellation stats
+.venv/bin/constellation backfill
+uv pip install --python .venv/bin/python -e '.[embed]'
+.venv/bin/constellation embed --model scincl --batch 128
+.venv/bin/constellation project --model scincl
+.venv/bin/constellation cluster
+.venv/bin/constellation hierarchy
+.venv/bin/constellation flow
+.venv/bin/constellation lineage
 ```
 
-프론트는 항상 `/api`로 부르고 Vite가 백엔드로 프록시한다.
+API 조회에는 GPU가 필요 없다. 재수집·임베딩·분석은 명시적으로 실행하며 기존 데이터를 자동 변경하지 않는다. Scopus 어댑터는 후속 작업이다.
 
-## 임베딩 모델 고르기
+## 검증
 
-`constellation evaluate` 는 **인용 이웃 일치도**로 모델을 비교한다. 코퍼스 내부
-인용 엣지 62,703개를 정답지로 삼아, 인용으로 연결된 논문이 임베딩 공간에서도
-가까운지 잰다.
-
-| 모델 | recall@10 | 무작위 대비 | 효과크기 | 지도 분리비 |
-|---|---:|---:|---:|---:|
-| **scincl** | 0.199 | **211×** | **1.99** | 0.763 |
-| specter2 | 0.195 | 207× | 1.76 | 0.682 |
-| specter | 0.172 | 182× | 1.64 | **0.887** |
-| bge-m3 | 0.170 | 180× | 1.55 | 0.627 |
-
-**SciNCL을 쓴다.** 다만 "관련 논문을 잘 찾는 것"과 "읽을 수 있는 지도를 만드는
-것"은 다른 능력이라, SPECTER v1이 지도 분리도에서는 앞선다. 프론트 상단
-선택기로 모델별 지도를 전환해 눈으로 비교할 수 있다.
-
-자세한 근거와 한계는 [M1 모델 비교](docs/M1-MODEL-COMPARISON.md).
-
-## 임베딩 환경 (M1)
-
-RTX 5080은 Blackwell(sm_120)이라 CUDA 12.8 이상 빌드가 필요하다.
-
-```bash
-uv pip install --python .venv/Scripts/python.exe torch --index-url https://download.pytorch.org/whl/cu128
+```sh
+.venv/bin/python -m unittest discover -s backend/tests -v
+npm --prefix frontend run test -- --run
+npm --prefix frontend run build
+npm --prefix frontend run lint
+npm --prefix frontend exec -- playwright install chromium
+npm --prefix frontend run test:e2e
 ```
 
-`pip`으로 이 인덱스를 쓰면 의존성 해석에서 오래 멈춘다 — `uv`를 쓸 것.
-CUDA 툴킷(nvcc)은 필요 없다. PyTorch 휠이 런타임을 번들한다.
+브라우저 검사는 기존 SciNCL 데이터와 다른 모델의 투영 결과를 사용한다. API 테스트는 임시 DB에서 실행한다. 상세 결과는 [검증 기록](docs/PRODUCT-FOUNDATION-QA.md)에 남긴다.
+
+## 문서
+
+- [디자인 시스템](docs/design-system/index.html) · [CSS 토큰](docs/design-system/constellation-tokens.css)
+- [제품 Spec](.intent/spec_product-foundation.md) · [구현 Plan](.intent/plan_product-foundation.md)
+- [기획서](docs/PLAN.md) · [아키텍처](docs/ARCHITECTURE.md)
+- [M0 수집 결과](docs/M0-RESULTS.md) · [M1 모델 비교](docs/M1-MODEL-COMPARISON.md) · [M2 군집 결과](docs/M2-RESULTS.md)
+- [데이터 소스](docs/DATA-SOURCES.md)
+
+기존 RAG/IR 코퍼스는 10,604편이다. 수집어 충돌에 따른 다른 분야 논문이 포함되어 있으며, 과거 실험 수치와 한계는 각 결과 문서에서 확인한다.

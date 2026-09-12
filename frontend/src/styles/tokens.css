@@ -1,0 +1,87 @@
+/* Constellation design tokens v0.1 — draft */
+:root {
+  --background: #101113;
+  --foreground: #e8e8ec;
+  --card: #18191d;
+  --popover: #222327;
+  --muted: #2b2c31;
+  --muted-foreground: #a5a6af;
+  --border: #37383f;
+  --input: #6b6d77;
+  --primary: #b7a4ff;
+  --action: #d9d5e8;
+  --action-foreground: #201e25;
+  --primary-foreground: #151024;
+  --accent: #86d9f0;
+  --accent-foreground: #081920;
+  --destructive: #ffa1ae;
+  --success: #8ddfc1;
+  --warning: #f2cb8d;
+  --ring: #d5c9ff;
+  --cluster-1: #b7a4ff;
+  --cluster-2: #86d9f0;
+  --cluster-3: #f2cb8d;
+  --cluster-4: #8ddfc1;
+  --cluster-5: #f2a7d5;
+  --cluster-6: #a7bbff;
+  --radius-sm: 3px;
+  --radius: 5px;
+  --radius-lg: 6px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-panel: 240ms;
+  --duration-label: 240ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+  --text-display: 32px;
+  --leading-body: 1.7;
+  --leading-title: 1.4;
+  --font-region:
+    Georgia, "Times New Roman", "Noto Serif KR", "AppleMyungjo", serif;
+  --region-label-size: 23px;
+  --region-parent-size: 29px;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+    "Malgun Gothic", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+:root {
+  color-scheme: dark;
+  --ground: var(--background);
+  --bar: var(--card);
+  --panel: var(--card);
+  --rule: var(--border);
+  --ink: var(--foreground);
+  --ink-soft: var(--muted-foreground);
+  --ink-faint: var(--muted-foreground);
+  --warn: var(--warning);
+  --font: var(--font-sans);
+  --mono: var(--font-mono);
+  --primary: var(--action);
+  --primary-foreground: var(--action-foreground);
+  --secondary: #2b2c31;
+  --secondary-foreground: var(--foreground);
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --sidebar: #141518;
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: #202124;
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
