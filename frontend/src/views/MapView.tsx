@@ -11,7 +11,6 @@ import { useStore, type Camera } from "../store";
 import { Button } from "../components/ui/button";
 import {
   labelLevel,
-  PAPER_LABEL_ZOOM,
   regionLabels,
   homeCamera,
   descendants,
@@ -182,9 +181,42 @@ export default function MapView() {
     () => regionLabels(a.tree.data, a.clusters.data ?? [], 2),
     [a.tree.data, a.clusters.data],
   );
-  // 문턱 반 단계 아래부터 목록을 만든다. 축소해 꺼질 때 240ms 페이드가 끝날 때까지
-  // DOM이 남아야 하고, 그 아래에서는 1만 개를 투영할 이유가 없다.
-  const showTitles = relativeZoom >= PAPER_LABEL_ZOOM - 0.5;
+  // 영역 라벨 가시성. 배율 단계마다 한 묶음만 켜지고, 화면 밖이거나 겹치는
+  // 라벨은 숨긴다. 켜진 영역 라벨이 하나도 없으면 논문 제목이 대신 보인다.
+  const regionSet = level === "field" ? top : relativeZoom < 2 ? sub : leaves;
+  const shownRegions = useMemo(() => {
+    const boxes: { x: number; y: number; w: number; h: number }[] = [];
+    const out = new Set<string>();
+    if (level === "paper") return out;
+    for (const n of [...regionSet].sort((a, b) => b.size - a.size)) {
+      const [x, y] = viewport.project([n.x, n.y, 0]);
+      const w = Math.min(205, n.label.length * 10),
+        h = Math.ceil(n.label.length / 20) * 23;
+      const inside =
+        x > w / 2 &&
+        x < size.width - w / 2 &&
+        y > 55 + h / 2 &&
+        y < size.height - 75 - h / 2;
+      if (
+        !inside ||
+        boxes.some(
+          (b) =>
+            Math.abs(x - b.x) < (w + b.w) / 2 + 12 &&
+            Math.abs(y - b.y) < (h + b.h) / 2 + 10,
+        )
+      )
+        continue;
+      boxes.push({ x, y, w, h });
+      out.add(n.id);
+    }
+    return out;
+  }, [level, regionSet, viewport, size]);
+  // 논문 제목이 켜지는 조건: 문턱 이상이거나, 하위 분야 단계인데 화면에 영역 이름이
+  // 하나도 없을 때(영역 중심이 화면 밖으로 나간 경우). 상위 분야 단계에서는 켜지 않는다.
+  const paperLabelsOn =
+    level === "paper" || (level === "topic" && shownRegions.size === 0);
+  // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 투영할 이유가 없다.
+  const showTitles = level !== "field";
   const titles = useMemo(
     () =>
       showTitles
@@ -258,57 +290,37 @@ export default function MapView() {
     active: boolean,
     prefix: string,
   ) => {
-    const boxes: { x: number; y: number; w: number; h: number }[] = [];
-    return [...items]
-      .sort((a, b) => b.size - a.size)
-      .map((n) => {
-        const [x, y] = viewport.project([n.x, n.y, 0]);
-        const w = Math.min(205, n.label.length * 10),
-          h = Math.ceil(n.label.length / 20) * 23;
-        let visible =
-          active &&
-          x > w / 2 &&
-          x < size.width - w / 2 &&
-          y > 55 + h / 2 &&
-          y < size.height - 75 - h / 2;
-        if (
-          visible &&
-          boxes.some(
-            (b) =>
-              Math.abs(x - b.x) < (w + b.w) / 2 + 12 &&
-              Math.abs(y - b.y) < (h + b.h) / 2 + 10,
-          )
-        )
-          visible = false;
-        if (visible) boxes.push({ x, y, w, h });
-        return (
-          <button
-            key={prefix + n.id}
-            className="region-name"
-            title={n.label}
-            data-active={visible}
-            style={{ left: x, top: y }}
-            tabIndex={visible ? 0 : -1}
-            aria-hidden={!visible}
-            onClick={() => {
-              update({
-                node: n.node,
-                selected: undefined,
-                cluster: n.node === undefined ? n.cluster : undefined,
-              });
-              move({
-                target: [n.x, n.y, 0],
-                zoom: Math.max(
-                  camera.zoom + 0.8,
-                  home.zoom + (prefix === "top" ? 1.2 : 3),
-                ),
-              });
-            }}
-          >
-            {n.label}
-          </button>
-        );
-      });
+    return items.map((n) => {
+      const [x, y] = viewport.project([n.x, n.y, 0]);
+      const visible = active && shownRegions.has(n.id);
+      return (
+        <button
+          key={prefix + n.id}
+          className="region-name"
+          title={n.label}
+          data-active={visible}
+          style={{ left: x, top: y }}
+          tabIndex={visible ? 0 : -1}
+          aria-hidden={!visible}
+          onClick={() => {
+            update({
+              node: n.node,
+              selected: undefined,
+              cluster: n.node === undefined ? n.cluster : undefined,
+            });
+            move({
+              target: [n.x, n.y, 0],
+              zoom: Math.max(
+                camera.zoom + 0.8,
+                home.zoom + (prefix === "top" ? 1.2 : 3),
+              ),
+            });
+          }}
+        >
+          {n.label}
+        </button>
+      );
+    });
   };
   return (
     <div
@@ -316,6 +328,7 @@ export default function MapView() {
       className="map-wrap"
       data-testid="research-map"
       data-label-level={level}
+      data-paper-labels={paperLabelsOn}
       data-camera={`${camera.zoom.toFixed(4)}:${camera.target.slice(0, 2).join(",")}`}
       tabIndex={0}
       aria-label="연구 지도. 방향키 이동, 더하기와 빼기로 확대 축소"
@@ -380,11 +393,12 @@ export default function MapView() {
           <button
             key={l.id}
             className="paper-name"
-            data-active={level === "paper"}
+            data-active={paperLabelsOn}
             data-selected={l.selected || undefined}
+            title={l.text}
             style={{ left: l.x, top: l.y + 7 }}
-            tabIndex={level === "paper" ? 0 : -1}
-            aria-hidden={level !== "paper"}
+            tabIndex={paperLabelsOn ? 0 : -1}
+            aria-hidden={!paperLabelsOn}
             onClick={() => update({ selected: l.id })}
           >
             {l.text}

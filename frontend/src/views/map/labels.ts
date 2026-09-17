@@ -1,10 +1,11 @@
 import type { MapData, TreeData, ClusterInfo } from "../../api";
 export type LabelLevel = "field" | "topic" | "paper";
-// 논문 제목이 켜지는 배율(기준 배율 대비 log2). 6 = 6400%.
+// 논문 제목이 켜지는 배율(기준 배율 대비 log2). 5 = 3200%. 하위 분야 라벨은
+// 이 배율에서 꺼지므로 라벨이 하나도 없는 구간이 생기지 않는다.
 // 실측(SciNCL run, 지도 영역 1184×830): 800%에서 가장 빽빽한 화면에 980편,
-// 6400%에서 79편, 12800%에서 35편이 들어온다. 겹침 억제 없이 전부 그리므로
-// 이 값이 한 화면의 라벨 수를 정한다.
-export const PAPER_LABEL_ZOOM = 6;
+// 3200%에서 188편, 6400%에서 79편이 들어온다. 겹침 억제 없이 전부 그리므로
+// 이 값이 한 화면의 라벨 수를 정한다. 제목은 한 줄로 줄여 겹침을 줄인다.
+export const PAPER_LABEL_ZOOM = 5;
 export function labelLevel(relativeZoom: number): LabelLevel {
   return relativeZoom < 1
     ? "field"

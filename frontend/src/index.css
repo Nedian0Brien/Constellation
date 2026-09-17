@@ -1104,19 +1104,26 @@ input:focus-visible,
   pointer-events: auto;
 }
 .paper-name {
-  /* 점 바로 아래, 가로 중앙. 겹침을 피하지 않으므로 같은 배율이면 늘 같은 자리다. */
+  /* 점 바로 아래, 가로 중앙. 겹침을 피하지 않으므로 같은 배율이면 늘 같은 자리다.
+     한 줄로 줄이고(…) 배경 없이 그림자만 둔다. */
   position: absolute;
   transform: translateX(-50%);
   /* absolute 요소는 오른쪽 가장자리 근처에서 남은 폭만큼 줄어든다. 내용 폭으로 고정한다. */
   width: max-content;
-  max-width: 260px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
   font-size: 11px;
   line-height: 1.4;
   border: 0;
-  background: #101113d9;
+  background: transparent;
   color: var(--foreground);
-  padding: 3px 6px;
+  padding: 2px 4px;
+  text-shadow:
+    0 1px 3px var(--background),
+    0 0 8px var(--background);
   opacity: 0;
   pointer-events: none;
   transition: opacity 240ms var(--ease);

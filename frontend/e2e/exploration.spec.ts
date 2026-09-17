@@ -114,10 +114,15 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
   const map = page.getByTestId("research-map");
   await expect(map).toHaveAttribute("data-label-level", "field");
   await map.focus();
-  // 논문 제목은 기준 배율의 2^6 이상에서만 켜진다. + 한 번에 0.5씩.
-  for (let i = 0; i < 11; i++) await map.press("+");
+  // 하위 분야 단계: 화면에 영역 이름이 있으면 그것만, 없으면 논문 제목이 보인다.
+  // 둘 중 하나는 반드시 켜져 있다. + 한 번에 0.5씩.
+  for (let i = 0; i < 9; i++) await map.press("+");
   await expect(map).toHaveAttribute("data-label-level", "topic");
-  await expect(page.locator(".paper-name[data-active=true]")).toHaveCount(0);
+  const regions = await page.locator(".region-name[data-active=true]").count();
+  const papers = await page.locator(".paper-name[data-active=true]").count();
+  expect(regions > 0).not.toBe(papers > 0);
+  expect(regions + papers).toBeGreaterThan(0);
+  // 기준 배율의 2^5 이상에서는 영역 이름과 무관하게 논문 제목이 켜진다.
   for (let i = 0; i < 2; i++) await map.press("+");
   await expect(map).toHaveAttribute("data-label-level", "paper");
   await expect(

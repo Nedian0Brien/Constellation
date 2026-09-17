@@ -11,12 +11,12 @@ date: 2026-09-17
 
 ## 요구사항
 
-- [x] `labels.ts`에 `PAPER_LABEL_ZOOM = 6` 상수가 있고 `labelLevel(rz)`는 `rz < 1 → field`, `rz < 6 → topic`, 그 외 `paper`다.
+- [x] `labels.ts`에 `PAPER_LABEL_ZOOM = 5` 상수가 있고 `labelLevel(rz)`는 `rz < 1 → field`, `rz < 5 → topic`, 그 외 `paper`다.
 - [x] `avoidCollisions`를 없애고 `visibleTitles(labels, width, height)`를 둔다. 뷰포트 밖(여백 40px)의 라벨만 뺀다. 정렬·개수 제한·겹침 판정이 없어 입력 순서가 보존된다.
-- [x] `MapView`는 `rz ≥ PAPER_LABEL_ZOOM - 0.5`일 때만 제목 목록을 만든다(그 아래는 빈 배열). 페이드 아웃 동안 DOM이 남도록 반 단계 여유를 둔다. `data-active`는 `level === "paper"`일 때만 참이다.
-- [x] 라벨은 `left: 점 x`, `top: 점 y + 7px`, CSS `transform: translateX(-50%)`, 가운데 정렬이다. 선택한 논문은 `z-index: 1`.
+- [x] `MapView`는 하위 분야 단계부터 제목 목록을 만든다(상위 분야 단계는 빈 배열). 제목은 `level === "paper"`이거나 하위 분야 단계에서 켜진 영역 이름이 0개일 때 켜진다(`data-paper-labels`). 영역 라벨 가시성(화면 안·겹침)은 `shownRegions` 한 곳에서 계산해 렌더와 이 판정이 같이 쓴다.
+- [x] 라벨은 `left: 점 x`, `top: 점 y + 7px`, CSS `transform: translateX(-50%)`, 가운데 정렬, 배경 없음(그림자만), 한 줄 `…` 줄임(220px), `title` 속성에 전문. 선택한 논문은 `z-index: 1`.
 - [x] `labels.test.ts`: `labelLevel(5.9) === "topic"`, `labelLevel(6) === "paper"`, `visibleTitles`가 화면 밖만 빼고 순서를 지키며 개수를 자르지 않는 검사.
-- [x] E2E 시나리오 4가 6400% 이상으로 확대해 제목이 보이는지, 축소하면 하위 분야 라벨로 돌아오는지 확인한다.
+- [x] E2E 시나리오 4가 하위 분야 단계에서 영역 이름과 논문 제목 중 하나만 켜져 있는지, 3200% 이상에서 제목이 보이는지, 축소하면 상위 분야로 돌아오는지 확인한다.
 - [x] `npm run test -- --run`·`build`·`lint`·`test:e2e` 통과. 브라우저에서 6400%·12800%에서 라벨이 점 아래 놓이고 이동해도 라벨이 나타났다 사라지지 않는다.
 
 ## 설계

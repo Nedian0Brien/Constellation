@@ -39,3 +39,4 @@ cd frontend && npm run test -- --run && npm run build && npm run lint && npm run
 ## 구현 중 계획에서 더한 것 — 2026-09-17
 
 - `.paper-name`에 `width: max-content`. absolute 요소는 오른쪽 가장자리 근처에서 남은 폭만큼 줄어들어 라벨이 세로로 길게 접혔다.
+- 사용자가 결과를 보고 지시한 대로: 문턱 6 → 5, 하위 분야 단계에서 영역 이름이 화면에 없으면 논문 제목을 켬, 배경 제거, 한 줄 `…` 줄임. `renderRegions`의 가시성 판정을 `shownRegions` useMemo로 빼서 두 곳이 같은 결과를 쓴다.
