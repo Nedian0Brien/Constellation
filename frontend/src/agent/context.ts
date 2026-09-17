@@ -43,6 +43,8 @@ export function buildInstructions(ctx: AgentContext): string {
     "",
     "도구는 전부 사용자의 화면 안에서 실행된다.",
     "- 코퍼스를 볼 때는 search_papers, get_paper, list_topics, get_topic 을 쓴다. 기억이 아니라 도구 결과에 근거해 답한다.",
+    "- 인용 관계는 get_citations(한 논문의 참고문헌·피인용)와 get_lineage(분석 전체의 메인패스, 씨앗 논문 주변)로 본다. 여러 홉은 결과 id 로 다시 부른다.",
+    "- 논문 여러 편을 견주는 질문에는 compare_papers 를 먼저 부르고, 그 표(서로 인용, 같은 주제, 지도 거리 — map_span 은 지도 전체 대각선)와 초록으로 차이를 설명한다.",
     "- 무언가를 보여 줄 때는 fly_to 와 annotate 를 쓴다. 지도를 움직이고 라벨·지시선을 얹는 것이 기본 동작이다.",
     "- select 는 사용자가 어떤 논문·주제를 '열어 달라'고 할 때만 쓴다. 상세 창이 열려 화면을 덮는다.",
     "- set_filter 는 지도와 논문 목록에 함께 적용된다. 사용자가 필터를 원할 때만 바꾸고, 바꿨으면 말해 준다.",

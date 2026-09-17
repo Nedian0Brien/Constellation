@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { buildInstructions } from "./context";
 import { resolveAnnotations, paperPosition, truncate } from "./resolve";
-import { createToolExecutors, toolDefinitions, type ToolDeps } from "./tools";
+import { createToolExecutors, paperId, toolDefinitions, type ToolDeps } from "./tools";
 import { newThread, readThread, writeThread, createHistoryAdapter } from "./history";
 import { parseSearch } from "../app/navigation";
 import type { ClusterInfo, MapData } from "../api";
@@ -94,6 +94,32 @@ describe("tool executors", () => {
         fetchPapers: vi.fn(async () => ({ items: [{ id: "p2", title: "둘째 논문", year: 2024, cited_by_count: 50, has_abstract: true }], total: 1, page: 1, page_size: 25 })),
         fetchWork: vi.fn(async () => ({ id: "p1", doi: null, title: "첫 논문", abstract: "가".repeat(2000), year: 2023, venue: null, cited_by_count: 5, type: null, source: "openalex", authors: [], topics: [], refs_in_corpus: 0, cited_by_in_corpus: 1 })),
         fetchMatches: vi.fn(async () => ({ ids: ["p2"], total: 1 })),
+        // p2 → p1, p3 → p1 인용. 피인용 목록은 요청한 논문 기준으로 만든다.
+        fetchCitations: vi.fn(async (_run: string, id: string, direction = "both") => {
+          const refs = id === "p2" || id === "p3" ? [{ id: "p1", title: "첫 논문", year: 2023, cited: 5, cluster: 0 }] : [];
+          const by = id === "p1" ? [{ id: "p2", title: "둘째 논문", year: 2024, cited: 50, cluster: 0 }, { id: "p3", title: "셋째 논문", year: null, cited: 0, cluster: 1 }] : [];
+          return {
+            id,
+            references: direction === "cited_by" ? [] : refs,
+            cited_by: direction === "references" ? [] : by,
+            ref_total: refs.length,
+            cited_by_total: by.length,
+          };
+        }),
+        fetchLineage: vi.fn(async (_run: string, seed?: string) => ({
+          run_id: "r1",
+          seed: seed ?? null,
+          nodes: [
+            { id: "p1", title: "첫 논문", year: 2023, cited: 5, venue: null },
+            { id: "p2", title: "둘째 논문", year: 2024, cited: 50, venue: null },
+            { id: "p3", title: "셋째 논문", year: null, cited: 0, venue: null },
+          ],
+          edges: [
+            { from: "p1", to: "p2", spc: 2, main: true },
+            { from: "p1", to: "p3", spc: 1.234, main: false },
+          ],
+          main_path: ["p1", "p2"],
+        })),
       },
     };
     return { d, calls, state: () => state };
@@ -142,6 +168,96 @@ describe("tool executors", () => {
     expect(paper.abstract.length).toBe(1501);
     expect(await ex.search_papers({ query: "r" })).toHaveProperty("error");
     expect(await ex.search_papers({ query: "rag" })).toMatchObject({ total: 1, shown: 1 });
+  });
+});
+
+describe("citation tools", () => {
+  const { d } = (() => {
+    // 위 deps() 는 describe 안에 있어 여기서 다시 만든다.
+    let state = parseSearch({ run: "r1", view: "map" });
+    const d: ToolDeps = {
+      run: "r1",
+      map: async () => map,
+      clusters: async () => clusters,
+      state: () => state,
+      update: (patch) => void (state = { ...state, ...patch }),
+      requestCamera: () => {},
+      annotations: () => [],
+      setAnnotations: () => {},
+      api: {
+        fetchClusterDetail: vi.fn(),
+        fetchPapers: vi.fn(),
+        fetchMatches: vi.fn(),
+        fetchWork: vi.fn(async (id: string) => ({
+          id, doi: null, title: map.title[map.id.indexOf(id)]!, abstract: "초록 ".repeat(200), year: map.year[map.id.indexOf(id)] ?? null,
+          venue: id === "p2" ? "NeurIPS" : null, cited_by_count: map.cited[map.id.indexOf(id)]!, type: null, source: "openalex",
+          authors: ["가", "나", "다", "라"], topics: [{ name: "RAG", kind: "topic" }], refs_in_corpus: id === "p1" ? 0 : 1, cited_by_in_corpus: id === "p1" ? 2 : 0,
+        })),
+        fetchCitations: vi.fn(async (_run: string, id: string, direction = "both") => {
+          const refs = id === "p2" || id === "p3" ? [{ id: "p1", title: "첫 논문", year: 2023, cited: 5, cluster: 0 }] : [];
+          const by = id === "p1" ? [{ id: "p2", title: "둘째 논문", year: 2024, cited: 50, cluster: 0 }, { id: "p3", title: "셋째 논문", year: null, cited: 0, cluster: 1 }] : [];
+          return { id, references: direction === "cited_by" ? [] : refs, cited_by: direction === "references" ? [] : by, ref_total: refs.length, cited_by_total: by.length };
+        }),
+        fetchLineage: vi.fn(async (_run: string, seed?: string) => ({
+          run_id: "r1", seed: seed ?? null,
+          nodes: [
+            { id: "p1", title: "첫 논문", year: 2023, cited: 5, venue: null },
+            { id: "p2", title: "둘째 논문", year: 2024, cited: 50, venue: null },
+            { id: "p3", title: "셋째 논문", year: null, cited: 0, venue: null },
+          ],
+          edges: [{ from: "p1", to: "p2", spc: 2, main: true }, { from: "p1", to: "p3", spc: 1.234, main: false }],
+          main_path: ["p1", "p2"],
+        })),
+      },
+    };
+    return { d };
+  })();
+  const ex = createToolExecutors(d);
+  it("get_citations 는 주제 라벨을 붙이고 W 표기를 코퍼스 id 로 맞춘다", async () => {
+    const out = (await ex.get_citations({ id: "p1", limit: 9999 })) as { cited_by: { id: string; cluster_label: string | null }[]; cited_by_total: number };
+    expect(out.cited_by.map((w) => [w.id, w.cluster_label])).toEqual([["p2", "RAG 평가"], ["p3", "기타"]]);
+    expect(out.cited_by_total).toBe(2);
+    expect(d.api.fetchCitations).toHaveBeenLastCalledWith("r1", "p1", "both", 500);
+    expect(paperId("W12")).toBe("openalex:W12");
+    expect(paperId("openalex:W12")).toBe("openalex:W12");
+    expect(await ex.get_citations({})).toHaveProperty("error");
+  });
+  it("get_lineage 는 씨앗 기준으로 인용 방향을 판정한다", async () => {
+    const plain = (await ex.get_lineage({})) as { main_path: { id: string; title: string }[]; neighbors?: unknown };
+    expect(plain.main_path.map((n) => n.title)).toEqual(["첫 논문", "둘째 논문"]);
+    expect(plain.neighbors).toBeUndefined();
+    const seeded = (await ex.get_lineage({ paper_id: "p1", depth: 9 })) as { neighbors: { id: string; relation: string; spc: number }[] };
+    expect(d.api.fetchLineage).toHaveBeenLastCalledWith("r1", "p1", 4);
+    expect(seeded.neighbors).toEqual([
+      { id: "p2", title: "둘째 논문", year: 2024, cited: 50, relation: "cited_by", spc: 2 },
+      { id: "p3", title: "셋째 논문", year: null, cited: 0, relation: "cited_by", spc: 1.23 },
+    ]);
+    const from3 = (await ex.get_lineage({ paper_id: "p3" })) as { neighbors: { id: string; relation: string }[] };
+    expect(from3.neighbors).toEqual([expect.objectContaining({ id: "p1", relation: "cites" })]);
+    expect(await ex.get_lineage({ paper_id: "zzz" })).toHaveProperty("error");
+  });
+  it("compare_papers 는 인용 쌍·거리·같은 주제를 표로 만들고 없는 id 는 보고한다", async () => {
+    const out = (await ex.compare_papers({ ids: ["p1", "p2", "p3", "nope"] })) as {
+      papers: { id: string; abstract: string; venue: string | null; x: number }[];
+      cites: [string, string][];
+      pairs: { a: string; b: string; distance: number; same_topic: boolean }[];
+      map_span: number;
+      missing: string[];
+    };
+    expect(out.papers.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+    expect(out.papers[0]!.abstract.length).toBe(401);
+    expect(out.papers[1]!.venue).toBe("NeurIPS");
+    expect(out.papers[1]!.x).toBe(2);
+    expect(out.cites).toEqual([["p2", "p1"], ["p3", "p1"]]);
+    expect(out.pairs).toEqual([
+      { a: "p1", b: "p2", distance: 10.05, same_topic: true },
+      { a: "p1", b: "p3", distance: 20.1, same_topic: false },
+      { a: "p2", b: "p3", distance: 10.05, same_topic: false },
+    ]);
+    expect(out.map_span).toBe(20.1);
+    expect(out.missing).toEqual(["nope"]);
+    expect(await ex.compare_papers({ ids: ["p1"] })).toHaveProperty("error");
+    expect(await ex.compare_papers({ ids: ["p1", "p1"] })).toHaveProperty("error");
   });
 });
 
