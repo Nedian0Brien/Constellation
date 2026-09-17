@@ -284,11 +284,13 @@ export default function MapView() {
     [points, a.ids, map, widths],
   );
   // 논문마다 제목이 켜지는 배율. 좌표·제목 폭·피인용수로만 정하므로 이동해도
-  // 바뀌지 않는다. 바닥은 하위 분야 단계의 시작(기준 배율)이다 — 그 아래 값은
-  // 어차피 쓰이지 않는다.
+  // 바뀌지 않는다. 바닥은 기준 배율을 내림한 값 — 그 아래 값은 어차피 쓰이지
+  // 않고(하위 분야 단계는 기준+1부터), 내림해 두면 사이드바를 여닫아 지도
+  // 크기가 조금 바뀌어도 다시 계산하지 않는다(1만 편에 약 60ms).
+  const revealFloor = Math.floor(home.zoom);
   const reveals = useMemo(
-    () => revealZooms(boxes, home.zoom, TITLE_HEIGHT),
-    [boxes, home.zoom],
+    () => revealZooms(boxes, revealFloor, TITLE_HEIGHT),
+    [boxes, revealFloor],
   );
   // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 투영할 이유가 없다.
   const showTitles = level !== "field";

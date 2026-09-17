@@ -188,6 +188,8 @@ export function revealZooms(
     reveal = new Float64Array(n),
     floorScale = 2 ** floor;
   if (!n) return out;
+  // 우선순위가 같으면 입력 순. 정렬은 안정적이고(ES2019) 지도는 work_id 순으로
+  // 오므로 페이지를 다시 열어도 같은 결과다.
   const order = Array.from({ length: n }, (_, i) => i).sort(
     (a, b) => boxes[b].priority - boxes[a].priority,
   );
