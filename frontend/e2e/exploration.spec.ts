@@ -18,7 +18,7 @@ test("real corpus: map, list, selection, history, reload and panels", async ({
   const text = await title.textContent();
   await title.click();
   await expect(page.locator(".paper-overlay")).toBeHidden();
-  await expect(page.locator(".detail h2")).toHaveText(text!);
+  await expect(page.getByTestId("inspector").locator("h2")).toHaveText(text!);
   const selectedURL = page.url();
   await page.getByRole("button", { name: "계층 트리", exact: true }).click();
   await expect(page.locator(".tree-wrap")).toBeVisible();
@@ -28,7 +28,7 @@ test("real corpus: map, list, selection, history, reload and panels", async ({
   await page.goBack();
   await expect(map).toBeVisible();
   await page.reload();
-  await expect(page.locator(".detail h2")).toHaveText(text!);
+  await expect(page.getByTestId("inspector").locator("h2")).toHaveText(text!);
   await page
     .getByRole("button", { name: "상세 패널 전환", exact: true })
     .click();
@@ -39,16 +39,17 @@ test("real corpus: map, list, selection, history, reload and panels", async ({
   await expect(
     page.getByRole("button", { name: "상세 패널 전환", exact: true }),
   ).toHaveAttribute("aria-pressed", "false");
-  const handle = page.getByRole("separator", { name: "탐색 패널 크기 조절" });
-  await handle.focus();
-  const old = await handle.getAttribute("aria-valuenow");
-  await handle.press("ArrowRight");
-  await expect(handle).not.toHaveAttribute("aria-valuenow", old!);
-  const changed = await handle.getAttribute("aria-valuenow");
+  // 탐색 사이드바: 헤더 버튼으로 접고, 새로고침 뒤에도 접힌 채이며, ⌘B로 다시 편다.
+  const nav = page.locator('[data-slot="sidebar"][data-side="left"]');
+  await page
+    .getByRole("button", { name: "탐색 패널 전환", exact: true })
+    .click();
+  await expect(nav).toHaveAttribute("data-state", "collapsed");
+  await expect(nav).toHaveAttribute("data-collapsible", "icon");
   await page.reload();
-  await expect(
-    page.getByRole("separator", { name: "탐색 패널 크기 조절" }),
-  ).toHaveAttribute("aria-valuenow", changed!);
+  await expect(nav).toHaveAttribute("data-state", "collapsed");
+  await page.keyboard.press("ControlOrMeta+b");
+  await expect(nav).toHaveAttribute("data-state", "expanded");
 });
 test("query filters, empty results, sort, paging and scoped IDs", async ({
   page,
@@ -150,7 +151,7 @@ test("mobile overlays and no horizontal overflow", async ({ page }) => {
     .click();
   await page.locator(".paper-title-button").first().click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.locator(".detail h2")).toBeVisible();
+  await expect(page.getByTestId("inspector").locator("h2")).toBeVisible();
 });
 test("failed request can recover without resetting URL state", async ({
   page,
@@ -203,19 +204,20 @@ test("unknown selection and malformed persisted layout remain recoverable", asyn
   page,
 }) => {
   await page.addInitScript(() =>
-    localStorage.setItem("constellation.layout.v1", "{broken"),
+    localStorage.setItem("constellation.layout.v2", "{broken"),
   );
   await page.goto("/?node=999999&page=-5&view=bad");
   await expect(page.getByTestId("research-map")).toBeVisible();
   await expect(page.locator(".invalid-region")).toBeVisible();
-  await page.getByRole("button", { name: "선택 해제", exact: true }).click();
+  await page
+    .locator(".invalid-region")
+    .getByRole("button", { name: "선택 해제", exact: true })
+    .click();
   await expect(page.locator(".invalid-region")).toBeHidden();
+  // 저장값이 깨졌어도 선택이 있는 딥링크는 인스펙터를 연 채로 시작한다.
   await page.goto("/?run=" + run + "&selected=missing");
   await expect(page.getByTestId("research-map")).toBeVisible();
-  await page
-    .getByRole("button", { name: "상세 패널 전환", exact: true })
-    .click();
-  await expect(page.locator(".detail")).toContainText(
+  await expect(page.getByTestId("inspector")).toContainText(
     "현재 분석에 포함되지 않은 논문입니다",
   );
 });
@@ -232,10 +234,10 @@ test("explicit region selection replaces paper detail with the real cluster", as
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
   await page.locator(".paper-title-button").first().click();
-  await expect(page.locator(".detail h2")).toBeVisible();
+  await expect(page.getByTestId("inspector").locator("h2")).toBeVisible();
   await page
     .getByRole("button", { name: clusters[0].label, exact: true })
     .click();
-  await expect(page.locator(".detail h2")).toHaveText(clusters[0].label);
+  await expect(page.getByTestId("inspector").locator("h2")).toHaveText(clusters[0].label);
   expect(new URL(page.url()).searchParams.has("selected")).toBe(false);
 });
