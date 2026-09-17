@@ -113,6 +113,15 @@ test("analysis views and missing artifacts in a different model", async ({
     "결과가 없습니다",
   );
 });
+// 논문 제목은 deck TextLayer가 그리므로 DOM에 없다. 지도 컨테이너가 E2E용으로 걸어 둔
+// `__map`으로 켜진 제목(지도 좌표)과 deck의 투영·픽킹을 읽는다(MapView의 MapBridge).
+// evaluate 안의 함수는 브라우저에서 돌므로 바깥 함수를 부르지 못한다.
+interface Bridge {
+  titles(): { id: string; x: number; y: number; dy: number; opacity: number }[];
+  project(x: number, y: number): [number, number] | null;
+  pick(x: number, y: number): string | null;
+}
+type Bridged = HTMLElement & { __map?: Bridge };
 test("semantic zoom, reversibility, and list does not replace the map", async ({
   page,
 }) => {
@@ -120,99 +129,76 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
   const map = page.getByTestId("research-map");
   await expect(map).toHaveAttribute("data-label-level", "field");
   await map.focus();
+  const titles = () => map.evaluate((el) => (el as Bridged).__map!.titles());
+  const project = (x: number, y: number) =>
+    map.evaluate(
+      (el, at) => (el as Bridged).__map!.project(at[0], at[1]),
+      [x, y],
+    );
+  const pick = (x: number, y: number) =>
+    map.evaluate((el, at) => (el as Bridged).__map!.pick(at[0], at[1]), [x, y]);
   // 하위 분야 단계: 화면에 영역 이름이 있으면 그것만, 없으면 논문 제목이 보인다.
   // 둘 중 하나는 반드시 켜져 있다. + 한 번에 0.5씩.
   for (let i = 0; i < 9; i++) await map.press("+");
   await expect(map).toHaveAttribute("data-label-level", "topic");
   const regions = await page.locator(".region-name[data-active=true]").count();
-  const papers = await page.locator(".paper-name[data-active=true]").count();
+  const papers = (await titles()).length;
   expect(regions > 0).not.toBe(papers > 0);
   expect(regions + papers).toBeGreaterThan(0);
-  // 기준 배율의 2^5 이상에서는 영역 이름과 무관하게 논문 제목이 켜진다.
+  // 기준 배율의 2^5 이상에서는 영역 이름과 무관하게 논문 제목이 켜진다. 켜진 제목끼리
+  // 겹치지 않는 것은 단위 테스트(revealZooms)가 보장한다.
   for (let i = 0; i < 2; i++) await map.press("+");
   await expect(map).toHaveAttribute("data-label-level", "paper");
-  const active = page.locator(".paper-name[data-active=true]");
-  await expect(active.first()).toBeVisible();
-  // 켜진 제목끼리는 겹치지 않는다 — 제목마다 제 배율에서 켜진다.
-  const boxes = await active.evaluateAll((els) =>
-    els.map((e) => {
-      const r = e.getBoundingClientRect();
-      return {
-        t: e.getAttribute("title"),
-        x: r.x,
-        y: r.y,
-        w: r.width,
-        h: r.height,
-      };
-    }),
-  );
-  expect(boxes.length).toBeGreaterThan(0);
-  for (let i = 0; i < boxes.length; i++)
-    for (let j = i + 1; j < boxes.length; j++) {
-      const a = boxes[i],
-        b = boxes[j];
-      const overlap =
-        a.x < b.x + b.w &&
-        b.x < a.x + a.w &&
-        a.y < b.y + b.h &&
-        b.y < a.y + a.h;
-      expect(overlap, `${a.t} ↔ ${b.t}`).toBe(false);
-    }
-  // 이동해도 같은 제목이 켜져 있다. 화면 밖으로 나간 것만 빠진다.
-  const before = await page
-    .locator(".paper-name")
-    .evaluateAll((els) =>
-      els.map((e) => [e.getAttribute("title"), e.getAttribute("data-active")]),
-    );
+  await expect.poll(async () => (await titles()).length).toBeGreaterThan(0);
+  // 이동해도 같은 제목이 켜져 있다. 이동 전에 켜진 제목 가운데 이동 뒤에도 화면 안에
+  // 있는 것은 전부 그대로 켜져 있다 — 화면 밖으로 나간 것만 빠진다.
+  const before = await titles();
   await map.press("ArrowRight");
-  await expect(active.first()).toBeVisible();
-  const after = new Map(
-    await page
-      .locator(".paper-name")
-      .evaluateAll((els) =>
-        els.map((e) => [
-          e.getAttribute("title"),
-          e.getAttribute("data-active"),
-        ]),
-      ),
+  const box = (await map.boundingBox())!;
+  const after = new Set((await titles()).map((t) => t.id));
+  for (const t of before) {
+    const [x, y] = (await project(t.x, t.y))!;
+    if (x > 0 && x < box.width && y > 0 && y < box.height)
+      expect(after.has(t.id), t.id).toBe(true);
+  }
+  // 제목을 클릭하면 그 논문이 선택된다. 화면 중앙 근처의 제목 하나를 고른다.
+  const pin = await map.evaluate(
+    (el, size) => {
+      const b = (el as Bridged).__map!;
+      for (const t of b.titles()) {
+        const [x, y] = b.project(t.x, t.y)!;
+        const dx = Math.abs(x - size[0] / 2),
+          dy = Math.abs(y - size[1] / 2);
+        if (dx > 40 && dx < size[0] / 4 && dy < size[1] / 4)
+          return { ...t, px: x, py: y };
+      }
+      return null;
+    },
+    [box.width, box.height],
   );
-  for (const [title, on] of before)
-    if (after.has(title)) expect(after.get(title), title ?? "").toBe(on);
+  expect(pin).not.toBeNull();
+  await page.mouse.click(box.x + pin!.px, box.y + pin!.py + pin!.dy + 5);
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("selected"))
+    .toBe(pin!.id);
   // 휠로 확대한 뒤 키로 확대해도 지도가 따라온다. deck이 주는 viewState의 내부 값
   // (zoomX·zoomY)을 그대로 저장하면 뒤의 키 확대가 배율 표시와 라벨만 바꾸고 지도는
-  // 그대로라 라벨이 제자리에 못 박힌다.
+  // 그대로라 라벨이 제자리에 못 박힌다. JS 투영이 가리키는 자리에 실제로 그 점이
+  // 그려져 있어야 한다.
   const zoomOf = async () =>
     Number((await map.getAttribute("data-camera"))!.split(":")[0]);
-  const box = (await map.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   const beforeWheel = await zoomOf();
   await page.mouse.wheel(0, 120);
   await expect.poll(zoomOf).not.toBe(beforeWheel);
-  // 화면 중앙에서 조금 떨어진 제목 하나를 잡아 둔다(너무 멀면 확대 뒤 화면 밖).
-  // 확대하면 제자리에서 밀려나야 한다.
-  const pin = await page.locator(".paper-name").evaluateAll(
-    (els, mid) => {
-      const e = els.find((el) => {
-        const dx = Math.abs(parseFloat(el.style.left) - mid[0]),
-          dy = Math.abs(parseFloat(el.style.top) - mid[1]);
-        return dx > 40 && dx < mid[0] / 2 && dy < mid[1] / 2;
-      });
-      return e
-        ? { title: e.getAttribute("title") ?? "", left: e.style.left }
-        : null;
-    },
-    [box.width / 2, box.height / 2],
-  );
-  expect(pin).not.toBeNull();
+  const [wheeled] = (await project(pin!.x, pin!.y))!;
   await map.press("+");
   await expect
-    .poll(() =>
-      page
-        .getByTitle(pin!.title, { exact: true })
-        .first()
-        .evaluate((e) => (e as HTMLElement).style.left),
-    )
-    .not.toBe(pin!.left);
+    .poll(async () => {
+      const [x, y] = (await project(pin!.x, pin!.y))!;
+      return [Math.round(x) !== Math.round(wheeled), await pick(x, y)];
+    })
+    .toEqual([true, pin!.id]);
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();

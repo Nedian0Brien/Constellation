@@ -7,6 +7,7 @@ import {
   clampRegionLabel,
   regionRadii,
   revealZooms,
+  truncateTitle,
   PAPER_LABEL_ZOOM,
   type LabelBox,
 } from "./labels";
@@ -41,6 +42,20 @@ describe("region persistence and zoom ramp", () => {
   it("clamps a region label into the viewport", () => {
     expect(clampRegionLabel(-300, 20, 100, 23, 800, 600)).toEqual([66, 66.5]);
     expect(clampRegionLabel(400, 900, 100, 23, 800, 600)).toEqual([400, 513.5]);
+  });
+  it("cuts an overlong title to the width with an ellipsis", () => {
+    // 글자 6px, 말줄임표 6px인 가짜 글꼴.
+    const measure = (t: string) => Array.from(t).length * 6;
+    expect(truncateTitle(measure, "abcdefghij", 60)).toBe("abcdefghij");
+    expect(truncateTitle(measure, "abcdefghij", 30)).toBe("abcd…");
+    expect(truncateTitle(measure, "abcd efghij", 30)).toBe("abcd…");
+    expect(truncateTitle(measure, "abcdefghij", 5)).toBe("…");
+    // 자리 어림이 빗나가도 폭을 넘지 않는다: 앞은 좁고 뒤는 넓은 글자.
+    const uneven = (t: string) =>
+      Array.from(t).reduce((w, c) => w + (c === "i" ? 2 : 10), 0);
+    const out = truncateTitle(uneven, "iiiiWWWW", 30);
+    expect(out).toBe("iiiiW…");
+    expect(uneven(out)).toBeLessThanOrEqual(30);
   });
   it("measures a region radius from its members", () => {
     const map = {

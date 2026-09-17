@@ -1,7 +1,12 @@
 import { useReducedMotion } from "../hooks/use-reduced-motion";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
-import DeckGL from "@deck.gl/react";
-import { ScatterplotLayer, BitmapLayer } from "@deck.gl/layers";
+import DeckGL, { type DeckGLRef } from "@deck.gl/react";
+import {
+  ScatterplotLayer,
+  BitmapLayer,
+  TextLayer,
+  type TextLayerProps,
+} from "@deck.gl/layers";
 import { OrthographicView, OrthographicViewport } from "@deck.gl/core";
 import type { PickingInfo } from "@deck.gl/core";
 import { Minus, Plus, RotateCcw } from "lucide-react";
@@ -18,44 +23,151 @@ import {
   regionRadii,
   regionLabels,
   revealZooms,
+  truncateTitle,
   MAX_ROWS,
   homeCamera,
   descendants,
 } from "./map/labels";
 import { clusterColor, regionTexture } from "./map/regions";
+import { SnapTextExtension } from "./map/text-snap";
 const view = new OrthographicView({ id: "research-map" });
-// 논문 제목 상자. `.paper-name`의 11px/1.4 글꼴과 2px 4px 안쪽 여백, 220px 최대 폭에
-// 맞춘다. 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의
-// 줄 간격이기도 하다.
-const TITLE_MAX_WIDTH = 220,
+const snapText = new SnapTextExtension();
+// 논문 제목 상자. 본문 글꼴 11px, 220px 최대 폭(안쪽 여백 2px 4px를 뺀 212px에
+// 글자), 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의 줄
+// 간격이기도 하다. 글자는 점 아래 9px(위 여백 7 + 안쪽 2)에서 시작한다.
+const TITLE_FONT_SIZE = 11,
+  TITLE_MAX_WIDTH = 220,
   TITLE_PADDING = 8,
   TITLE_GAP_X = 8,
   TITLE_HEIGHT = 20 + 4,
+  TITLE_OFFSET_Y = 9,
   // 화면 밖이어도 이만큼 안이면 그린다: 가로는 라벨 폭의 절반, 세로는 쌓인 줄까지.
   TITLE_MARGIN_X = TITLE_MAX_WIDTH / 2 + TITLE_GAP_X,
-  TITLE_MARGIN_Y = TITLE_HEIGHT * (MAX_ROWS + 1);
-interface PositionedTitle {
+  TITLE_MARGIN_Y = TITLE_HEIGHT * (MAX_ROWS + 1),
+  // 제목 배열을 다시 만드는 카메라 칸: 중심 240px, 배율 반 단계. `titles` 참고.
+  TITLE_TILE = 240,
+  TITLE_ZOOM_STEP = 0.5;
+// TextLayer에 주는 제목 하나. 위치는 지도 좌표라 카메라가 움직여도 안 바뀐다.
+interface Title {
   id: string;
+  /** map 배열의 색인. 툴팁·선택이 쓴다. */
+  i: number;
+  /** boxes·reveals의 색인. */
+  k: number;
   text: string;
-  x: number;
-  y: number;
+  position: [number, number];
+  /** 점 아래 픽셀 거리: 9 + 줄 × 24. */
+  dy: number;
   selected: boolean;
-  opacity: number;
 }
 // 기준 배율 위로 확대할 수 있는 단계. 25600%.
 const ZOOM_RANGE = 8;
-// 제목 폭을 실제 글꼴로 잰다. 캔버스가 없으면 글자 수로 어림한다.
-function titleMeasurer(): (text: string) => number {
+// 제목 글꼴·색. 본문의 글꼴 문자열과 글자색을 한 번 읽는다 — 글자 폭 재기와
+// TextLayer(글꼴 아틀라스)가 같은 글꼴을 쓴다. 테마 변수가 oklch라 색은 캔버스에
+// 넣었다 꺼내 sRGB로 읽는다. 캔버스가 없으면 글자 수로 어림한다.
+type RGB = [number, number, number];
+interface TitleTypography {
+  fontFamily: string;
+  color: RGB;
+  measureChar: (char: string) => number;
+}
+function titleTypography(): TitleTypography {
   const ctx =
     typeof document === "undefined"
       ? null
       : document.createElement("canvas").getContext("2d");
-  if (!ctx)
-    return (text) => Math.min(TITLE_MAX_WIDTH, text.length * 6 + TITLE_PADDING);
-  ctx.font = `11px ${getComputedStyle(document.body).fontFamily}`;
-  return (text) =>
-    Math.min(TITLE_MAX_WIDTH, ctx.measureText(text).width + TITLE_PADDING);
+  // 실측 기본값: 어두운 테마의 글자색(#e8e8ec)과 본문 글꼴.
+  const fallback: TitleTypography = {
+    fontFamily: "system-ui, sans-serif",
+    color: [232, 232, 236],
+    measureChar: () => 6,
+  };
+  if (!ctx) return fallback;
+  const style = getComputedStyle(document.body);
+  const rgb = (css: string, or: RGB): RGB => {
+    ctx.fillStyle = css;
+    const hex = ctx.fillStyle;
+    return /^#[0-9a-f]{6}$/i.test(hex)
+      ? ([1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as RGB)
+      : or;
+  };
+  ctx.font = `${TITLE_FONT_SIZE}px ${style.fontFamily}`;
+  return {
+    fontFamily: style.fontFamily,
+    color: rgb(style.color, fallback.color),
+    measureChar: (char) => ctx.measureText(char).width,
+  };
 }
+// 글꼴 아틀라스의 글리프를 DOM과 같은 래스터로 만든다. deck 기본 방식은 아틀라스
+// 크기(여기서는 22px)의 글꼴을 그려 절반으로 줄이는 셈이라, 시스템 글꼴의 광학
+// 크기 때문에 11px 글자보다 4% 좁게 나왔다. 그래서 11px 글꼴을 기기 픽셀 비율만큼
+// 키운 캔버스에 그린다. 캔버스 글자는 macOS의 글꼴 다듬기(획 굵히기)를 받아 본문의
+// `-webkit-font-smoothing: antialiased`보다 3할 굵어지는데, `textRendering`을
+// geometricPrecision으로 두면 같은 잉크 양이 나온다(실측: 같은 제목에서 1644 대
+// 2188). 치수는 아틀라스 픽셀(= 기기 픽셀)로 돌려준다. `_getFontRenderer`는 deck
+// 9.3의 실험 API다(text-layer.d.ts).
+type FontRenderer = ReturnType<NonNullable<TextLayerProps["_getFontRenderer"]>>;
+function titleFontRenderer(fontFamily: string, dpr: number): FontRenderer {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  // 캔버스 크기를 바꾸면 컨텍스트가 초기화되므로 그릴 때마다 다시 잡는다.
+  const style = () => {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `${TITLE_FONT_SIZE}px ${fontFamily}`;
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
+    ctx.textRendering = "geometricPrecision";
+    ctx.fillStyle = "#fff";
+  };
+  style();
+  const measure = (char?: string) => {
+    const m = ctx.measureText(char ?? "A");
+    return char === undefined
+      ? {
+          advance: 0,
+          width: 0,
+          ascent: Math.ceil(m.fontBoundingBoxAscent * dpr),
+          descent: Math.ceil(m.fontBoundingBoxDescent * dpr),
+        }
+      : {
+          advance: m.width * dpr,
+          width: Math.ceil(
+            (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) * dpr,
+          ),
+          ascent: Math.ceil(m.actualBoundingBoxAscent * dpr),
+          descent: Math.ceil(m.actualBoundingBoxDescent * dpr),
+        };
+  };
+  return {
+    measure,
+    draw(char) {
+      const g = measure(char),
+        left = ctx.measureText(char).actualBoundingBoxLeft,
+        pad = Math.ceil(dpr);
+      canvas.width = g.width + pad * 2;
+      canvas.height = g.ascent + g.descent + pad * 2;
+      style();
+      ctx.fillText(char, pad / dpr + left, (pad + g.ascent) / dpr);
+      return {
+        data: ctx.getImageData(0, 0, canvas.width, canvas.height),
+        left: pad,
+        top: pad,
+      };
+    },
+  };
+}
+// E2E용 다리. 제목이 DOM에 없으므로 켜진 제목과 deck의 투영·픽킹을 컨테이너에 걸어
+// 둔다. `project`는 JS 쪽 뷰포트, `pick`은 실제로 그려진 픽셀을 본다 — 둘이 어긋나면
+// 지도와 라벨이 따로 노는 것이다.
+export interface MapBridge {
+  /** 켜진 제목: 지도 좌표, 점 아래 글자까지의 픽셀 거리, 불투명도. */
+  titles(): { id: string; x: number; y: number; dy: number; opacity: number }[];
+  /** 지도 좌표를 화면 픽셀로. */
+  project(x: number, y: number): [number, number] | null;
+  /** 화면 픽셀 자리에 그려진 논문 id. */
+  pick(x: number, y: number): string | null;
+}
+const EMPTY_TITLES: Title[] = [];
 export default function MapView() {
   const a = useAnalysis(),
     { state, update } = useExploration(),
@@ -71,7 +183,8 @@ export default function MapView() {
   const camera = saved ?? home,
     frame = useRef(0);
   const reduced = useReducedMotion();
-  const [hover, setHover] = useState<PickingInfo | null>(null);
+  const [hover, setHover] = useState<PickingInfo<{ i: number }> | null>(null);
+  const deckRef = useRef<DeckGLRef<typeof view>>(null);
   useEffect(() => {
     if (reduced) cancelAnimationFrame(frame.current);
   }, [reduced]);
@@ -273,11 +386,54 @@ export default function MapView() {
   const paperLabelsOn = paperOpacity > 0;
   // 영역 이름은 같은 곡선을 거꾸로 따라 옅어진다.
   const regionOpacity = 1 - paperLabelOpacity(relativeZoom);
-  // 제목 상자 폭: 실제 글꼴로 한 번 잰다(1만 편에 약 50ms). 필터가 바뀌어도 다시 재지 않는다.
-  const widths = useMemo(() => {
-    const measure = titleMeasurer();
-    return map.title.map((t) => measure(t) + TITLE_GAP_X);
-  }, [map]);
+  const typo = useMemo(() => titleTypography(), []);
+  // TextLayer의 글꼴 아틀라스에 넣을 글자. 제목에 나오는 글자 전부와 말줄임표(133자).
+  // 'auto'로 두면 새 글자가 화면에 들어올 때마다 아틀라스를 다시 만든다.
+  const characterSet = useMemo(
+    () => [...new Set(map.title.join("") + "…")].join(""),
+    [map],
+  );
+  // 글꼴 아틀라스는 실제로 그려질 크기(11px × 기기 픽셀 비율)로, 1:1로 표본한다.
+  // 기본값(64px SDF)은 22px로 줄여 그릴 때 i의 점·따옴표·마침표 같은 작은 획이
+  // 사라졌다. 글리프는 `titleFontRenderer`가 DOM과 같은 11px 글꼴로 그린다.
+  const dpr = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
+  const fontSettings = useMemo(
+    () => ({ fontSize: TITLE_FONT_SIZE * dpr, sdf: false }),
+    [dpr],
+  );
+  const getFontRenderer = useMemo(
+    () => () => titleFontRenderer(typo.fontFamily, dpr),
+    [typo, dpr],
+  );
+  // 글자 폭 표로 글 폭을 잰다. TextLayer는 글자마다 잰 폭을 더해 글을 놓으므로(커닝
+  // 없음) 이 합이 실제 그려지는 폭이다. 제목 상자 폭과 말줄임이 모두 이 표를 쓴다.
+  const measure = useMemo(() => {
+    const table = new Map<string, number>();
+    for (const ch of characterSet) table.set(ch, typo.measureChar(ch));
+    const missing = typo.measureChar("M");
+    return (text: string) => {
+      let w = 0;
+      for (const ch of text) w += table.get(ch) ?? missing;
+      return w;
+    };
+  }, [characterSet, typo]);
+  // 제목 상자 폭과 한 줄로 줄인 제목(`…`). 지도마다 한 번(1만 편에 약 70ms). 필터가
+  // 바뀌어도 다시 재지 않는다.
+  const widths = useMemo(
+    () =>
+      map.title.map(
+        (t) =>
+          Math.min(TITLE_MAX_WIDTH, measure(t) + TITLE_PADDING) + TITLE_GAP_X,
+      ),
+    [map, measure],
+  );
+  const displays = useMemo(
+    () =>
+      map.title.map((t) =>
+        truncateTitle(measure, t, TITLE_MAX_WIDTH - TITLE_PADDING),
+      ),
+    [map, measure],
+  );
   // 제목 상자: 필터에 든 논문만. 필터 밖 논문은 자리를 차지하지 않는다.
   const boxes = useMemo(
     () =>
@@ -311,52 +467,98 @@ export default function MapView() {
       revealZooms(boxes, settledHome, TITLE_HEIGHT, settledHome + ZOOM_RANGE),
     [boxes, settledHome],
   );
-  // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 투영할 이유가 없다.
+  // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 거를 이유가 없다.
   const showTitles = level !== "field";
-  // 카메라가 움직일 때마다 돈다. 화면(여백 포함)을 지도 좌표로 되돌려 그 안의 점만
-  // 투영하고, 지금 배율에서 불투명도가 0인 제목은 아예 만들지 않는다 — 1만 개를
-  // 투영하고 수백 개를 투명하게 그리던 것이 확대·축소 렉의 원인이었다.
+  // 제목 배열. 위치가 지도 좌표라 이동할 때는 손댈 것이 없다. 다만 TextLayer는 배열이
+  // 바뀌면 글자를 전부 다시 놓으므로(수백 제목 × 수십 글자) 카메라가 조금 움직일
+  // 때마다 새 배열을 주면 DOM 시절만큼 비싸진다. 그래서 카메라를 칸으로 묶는다:
+  // 중심은 240px 칸, 배율은 반 단계로 끊고, 그 칸에서 화면에 들어올 수 있는 제목을
+  // (칸 안 어느 중심에서든, 반 단계 안 어느 배율에서든) 전부 넣어 만든다. 카메라가
+  // 같은 칸 안에서 움직이는 동안은 같은 배열을 쓰고, 아직 안 켜진 제목은 불투명도
+  // 0으로 그린다(픽셀은 버려진다). 선택한 제목은 마지막에 두어 이웃 위에 그린다.
+  const zoomStep = Math.floor(camera.zoom / TITLE_ZOOM_STEP),
+    tileWorld = TITLE_TILE / 2 ** (zoomStep * TITLE_ZOOM_STEP),
+    tileX = Math.floor(camera.target[0] / tileWorld),
+    tileY = Math.floor(camera.target[1] / tileWorld);
   const titles = useMemo(() => {
-    if (!showTitles) return [];
-    const [wx0, wy0] = viewport.unproject([-TITLE_MARGIN_X, -TITLE_MARGIN_Y]),
-      [wx1, wy1] = viewport.unproject([
-        size.width + TITLE_MARGIN_X,
-        size.height + TITLE_MARGIN_Y,
-      ]);
-    const out: PositionedTitle[] = [];
+    if (!showTitles) return EMPTY_TITLES;
+    const z0 = zoomStep * TITLE_ZOOM_STEP,
+      scale = 2 ** z0,
+      tile = TITLE_TILE / scale,
+      cx = (tileX + 0.5) * tile,
+      cy = (tileY + 0.5) * tile,
+      hx = tile / 2 + (size.width / 2 + TITLE_MARGIN_X) / scale,
+      hy = tile / 2 + (size.height / 2 + TITLE_MARGIN_Y) / scale,
+      lit = z0 + TITLE_ZOOM_STEP;
+    const data: Title[] = [];
+    let selected: Title | null = null;
     for (let k = 0; k < boxes.length; k++) {
       const b = boxes[k];
-      if (b.x < wx0 || b.x > wx1 || b.y < wy0 || b.y > wy1) continue;
+      if (Math.abs(b.x - cx) > hx || Math.abs(b.y - cy) > hy) continue;
       const id = map.id[b.i],
-        selected = id === state.selected,
-        // 제목마다 제 배율에서 서서히 진해진다. 선택한 논문은 이웃에 가려지지 않는다.
-        opacity = selected
-          ? paperOpacity
-          : labelOpacity(camera.zoom, reveals.zoom[k], paperFloor);
-      if (opacity <= 0) continue;
-      const [x, y] = viewport.project([b.x, b.y, 0]);
-      out.push({
+        isSelected = id === state.selected;
+      if (!isSelected && Math.max(reveals.zoom[k], paperFloor) >= lit) continue;
+      const t: Title = {
         id,
-        text: map.title[b.i],
-        x,
-        y: y + 7 + TITLE_HEIGHT * reveals.row[k],
-        selected,
-        opacity,
-      });
+        i: b.i,
+        k,
+        text: displays[b.i],
+        position: [b.x, b.y],
+        dy: TITLE_OFFSET_Y + TITLE_HEIGHT * reveals.row[k],
+        selected: isSelected,
+      };
+      if (isSelected) selected = t;
+      else data.push(t);
     }
-    return out;
+    if (selected) data.push(selected);
+    return data;
   }, [
     showTitles,
     boxes,
     reveals,
-    viewport,
-    size,
     map,
+    displays,
     state.selected,
-    paperOpacity,
     paperFloor,
-    camera.zoom,
+    zoomStep,
+    tileX,
+    tileY,
+    size,
   ]);
+  // 제목 하나의 불투명도. 제목마다 제 배율에서 서서히 진해진다. 선택한 논문은 이웃에
+  // 가려지지 않는다.
+  const titleOpacity = (t: Title) =>
+    t.selected
+      ? paperOpacity
+      : labelOpacity(camera.zoom, reveals.zoom[t.k], paperFloor);
+  useEffect(() => {
+    const el = container.current as
+      (HTMLDivElement & { __map?: MapBridge }) | null;
+    if (!el) return;
+    el.__map = {
+      titles: () =>
+        titles
+          .map((t) => ({
+            id: t.id,
+            x: t.position[0],
+            y: t.position[1],
+            dy: t.dy,
+            opacity: titleOpacity(t),
+          }))
+          .filter((t) => t.opacity > 0),
+      project: (x, y) => {
+        const vp = deckRef.current?.deck?.getViewports()[0];
+        if (!vp) return null;
+        const [px, py] = vp.project([x, y, 0]);
+        return [px, py];
+      },
+      pick: (x, y) =>
+        (
+          deckRef.current?.pickObject({ x, y, radius: 6 })?.object as
+            { id?: string } | undefined
+        )?.id ?? null,
+    };
+  });
   const layers = [
     ...(texture
       ? [
@@ -384,7 +586,7 @@ export default function MapView() {
       autoHighlight: true,
       highlightColor: [255, 255, 255, 255],
       updateTriggers: { getFillColor: [colors], getRadius: [state.color] },
-      onHover: (info) => setHover(info.index >= 0 ? info : null),
+      onHover: (info) => setHover(info.object ? info : null),
       onClick: (info) => {
         if (info.object) update({ selected: info.object.id });
       },
@@ -401,6 +603,30 @@ export default function MapView() {
       lineWidthUnits: "pixels",
       getLineWidth: 1,
       pickable: false,
+    }),
+    // 논문 제목. GPU에서 그린다 — DOM 버튼 수백 개를 프레임마다 옮기던 비용이 사라진다.
+    // 배율이 바뀔 때만 색(불투명도) 속성을 다시 채우고, 이동은 그리기만 한다.
+    new TextLayer<Title>({
+      id: "paper-titles",
+      data: titles,
+      characterSet,
+      fontFamily: typo.fontFamily,
+      fontSettings,
+      _getFontRenderer: getFontRenderer,
+      extensions: [snapText],
+      sizeUnits: "pixels",
+      getSize: TITLE_FONT_SIZE,
+      getPosition: (t) => t.position,
+      getPixelOffset: (t) => [0, t.dy],
+      getTextAnchor: "middle",
+      getAlignmentBaseline: "top",
+      getColor: (t) => [...typo.color, Math.round(255 * titleOpacity(t))],
+      updateTriggers: { getColor: [camera.zoom, paperFloor] },
+      pickable: true,
+      onHover: (info) => setHover(info.object ? info : null),
+      onClick: (info) => {
+        if (info.object) update({ selected: info.object.id });
+      },
     }),
   ];
   // 영역 이름은 켜진 것만 자리를 옮긴다. 꺼진 이름은 마지막 자리에 그대로 두어
@@ -456,6 +682,7 @@ export default function MapView() {
       data-label-level={level}
       data-paper-labels={paperLabelsOn}
       data-paper-opacity={paperOpacity.toFixed(2)}
+      data-title-count={titles.length}
       data-reveal-floor={settledHome.toFixed(4)}
       data-camera={`${camera.zoom.toFixed(4)}:${camera.target.slice(0, 2).join(",")}`}
       tabIndex={0}
@@ -465,7 +692,16 @@ export default function MapView() {
         if (["+", "=", "-"].includes(e.key)) {
           e.preventDefault();
           move(
-            { ...camera, zoom: camera.zoom + (e.key === "-" ? -0.5 : 0.5) },
+            {
+              ...camera,
+              zoom: Math.min(
+                home.zoom + ZOOM_RANGE,
+                Math.max(
+                  home.zoom - 2,
+                  camera.zoom + (e.key === "-" ? -0.5 : 0.5),
+                ),
+              ),
+            },
             false,
           );
         } else if (e.key.startsWith("Arrow")) {
@@ -488,6 +724,7 @@ export default function MapView() {
       }}
     >
       <DeckGL
+        ref={deckRef}
         pickingRadius={6}
         views={view}
         viewState={{
@@ -524,19 +761,6 @@ export default function MapView() {
           relativeZoom >= 2 && relativeZoom < PAPER_LABEL_ZOOM + 0.5,
           "leaf",
         )}
-        {titles.map((l) => (
-          <button
-            key={l.id}
-            className="paper-name"
-            data-active="true"
-            data-selected={l.selected || undefined}
-            title={l.text}
-            style={{ left: l.x, top: l.y, opacity: l.opacity }}
-            onClick={() => update({ selected: l.id })}
-          >
-            {l.text}
-          </button>
-        ))}
       </div>
       <div className="map-caption">
         <span className="eyebrow">
@@ -611,10 +835,10 @@ export default function MapView() {
             top: Math.min(hover.y + 12, size.height - 100),
           }}
         >
-          <strong>{map.title[hover.index]}</strong>
+          <strong>{map.title[hover.object!.i]}</strong>
           <div>
-            {map.year[hover.index] ?? "연도 미상"} · 피인용{" "}
-            {map.cited[hover.index].toLocaleString()}
+            {map.year[hover.object!.i] ?? "연도 미상"} · 피인용{" "}
+            {map.cited[hover.object!.i].toLocaleString()}
           </div>
         </div>
       )}

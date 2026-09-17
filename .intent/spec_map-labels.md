@@ -27,6 +27,11 @@ date: 2026-09-17
 - [x] `MapView`: 제목 폭은 캔버스 `measureText`(11px, body 글꼴)로 지도마다 한 번 잰다(캔버스가 없으면 글자 수 × 6). 상자 폭 = min(220, 글자 폭 + 8) + 8, 높이 24. `boxes`는 필터에 든 유한 좌표 논문, `reveals`는 `[boxes, home.zoom]`에 memo. 바닥은 상위 분야 단계 Infinity, 하위 분야 단계에서 영역 이름이 없으면 -Infinity, 그 외 `home.zoom + PAPER_LABEL_ZOOM − 0.5`. 제목마다 `labelOpacity(camera.zoom, reveal, floor)`를 인라인 `opacity`로, `top: y + 7 + 24·row`, `data-active`는 0보다 클 때. 선택한 논문은 `labelOpacity(camera.zoom, -Infinity, floor)`. `reveals`는 실제 `home.zoom`과 `home.zoom + ZOOM_RANGE`(8)로 계산하되 `home.zoom`이 바뀌면 250ms 멎은 뒤(`settledHome`)에 다시 계산한다.
 - [x] `labels.test.ts`: 떨어진 쌍은 비구속, 가까운 쌍은 낮은 우선순위가 log2(200)에서 켜짐, 세로 분리, 바닥 아래 무시·입력 순 동률, 같은 자리 Infinity, 막힌 이웃보다 먼저 켜지는 사슬, 자리가 나면 상위 이웃이 막혀 있어도 켜지고 상위 이웃이 기다림, 무작위 600개(최대 배율 11)에서 배율 단조·줄을 반영한 겹침 0·"안 켜진 라벨은 0줄로는 켜진 라벨과 겹침"·최대 배율에서 전부 켜짐·`unresolved` 0 검사. 쌓기: 같은 자리 둘은 [0,1]줄, 셋은 [0,1,2]줄, 아래 점은 1줄로 바닥에서 켜짐, 위 점은 1줄이 두 배로 벌어져야 해 2줄(겹치는 구간이 최대 배율 너머), 최대 배율이 없으면 0줄 유지, 0줄로 되면 안 내림.
 - [x] E2E 시나리오 4: 3200% 이상에서 켜진 제목의 DOM 상자끼리 겹치지 않고, 이동 뒤에도 화면에 남은 제목의 `data-active`가 그대로다.
+- [x] 여섯 번째 지시(GPU): `MapView`가 `.paper-name` 버튼 대신 `TextLayer`(id `paper-titles`)를 그린다. 데이터는 지도 좌표 `position`, `getPixelOffset [0, 9 + 24·row]`, `getTextAnchor middle`, `getAlignmentBaseline top`, `getSize 11`(pixels), `getColor [--foreground, 255·opacity]`(`updateTriggers.getColor = [camera.zoom, paperFloor]`), `characterSet`은 제목의 모든 글자 + `…`, `fontFamily`는 body 글꼴, `fontSettings {fontSize: 11·DPR, sdf: false}`, `_getFontRenderer`는 11px 글꼴을 DPR 배로 키운 캔버스에 `textRendering: geometricPrecision`으로 그린다. `pickable`이고 hover → 툴팁, click → 선택. 선택한 제목은 배열 마지막. `SnapTextExtension`이 세로 위치를 기기 픽셀에 맞춘다.
+- [x] 제목 배열은 카메라 칸(`TITLE_TILE` 240px, `TITLE_ZOOM_STEP` 0.5)마다 한 번 만든다: 칸 중심 ± (칸/2 + 화면 반 + 여백), 켜지는 배율이 칸 상한(반 단계 위) 아래인 제목(과 선택한 제목)을 넣는다. 같은 칸 안에서는 배열 참조가 같다.
+- [x] `labels.ts`의 `truncateTitle(measure, text, maxWidth)`: 폭 비례로 자를 자리를 어림한 뒤 한 글자씩 맞춘다. 끝 공백은 뗀다. 글 폭은 글자 폭 표(`characterSet`의 글자마다 `measureText`)의 합으로 잰다 — TextLayer가 글자마다 잰 폭을 더해 놓으므로 이 합이 실제 폭이다. 상자 폭 = min(220, 합 + 8) + 8, 줄임 폭 212.
+- [x] E2E 시나리오 4: 컨테이너의 `__map` 다리(`titles()`·`project()`·`pick()`)로 하위 분야 단계의 XOR, 논문 단계의 제목 존재, 이동 뒤 화면 안 제목 보존, 제목 클릭 → URL `selected`, 휠 뒤 `+`에서 투영이 옮겨지고 그 자리에 실제로 그 점이 그려져 있는지(픽킹) 본다. `zoomX`·`zoomY` 버그를 되살리면 실패한다(확인).
+- [x] `index.css`의 `.paper-name`·`paper-name-in` 삭제.
 - [x] `npm run test -- --run`·`build`·`lint`·`test:e2e` 통과. 브라우저에서 3200%·6400%에서 켜진 라벨이 겹치지 않고(DOM 상자 검사 0쌍), 이동해도 라벨의 불투명도가 바뀌지 않는다(39개 공통 라벨 변화 0). 네 번째 규칙 뒤: 3200%→25600% 여섯 단계와 이동 세 번에서 DOM 겹침 0, 실데이터 전체에서 배율 5·6·7·8마다 켜진 쌍 겹침 0(표본)·자리 있는데 안 켜진 라벨 0(표본 400). 쌓기 뒤: 실데이터 전체에서 배율 5·6·7·8마다 줄을 반영한 겹침 0(표본), 가장 빽빽한 자리(EMNLP 프로시딩 무리)에서 18102%·6400% DOM 겹침 0.
 
 ## 설계
@@ -48,7 +53,7 @@ date: 2026-09-17
 - 제목 목록 useMemo가 카메라마다 돈다. 문턱 아래에서 빈 배열을 돌려 1만 개 투영을 피한다.
 - `revealZooms`는 절대 배율로 계산한다. 상대 배율로 하면 창 크기(`homeCamera`)가 바뀔 때 값이 어긋난다. 계산 바닥은 `Math.floor(home.zoom)` — 사이드바를 여닫아 지도 폭이 조금 바뀌어도 다시 계산하지 않는다(정수를 넘을 때만, 실측 70–80ms). 자리 다툼은 바닥 배율에서 시작하므로 바닥이 정수를 넘으면 누가 먼저 자리를 잡는지가 바뀔 수 있다 — 창 크기 변경 때만이다.
 - 힙에서 꺼낼 때 이웃을 전부 다시 보면 실데이터에서 336ms였다. 켜진 순서 도장으로 새로 켜진 이웃만 보면 70–80ms.
-- 제목 폭은 `.paper-name`이 상속하는 body 글꼴(시스템 글꼴, 웹 글꼴 아님)로 재므로 글꼴 로딩과 경합하지 않는다. DOM 상자 폭과 0.01px 안에서 일치했다.
+- 제목 폭은 body 글꼴(시스템 글꼴, 웹 글꼴 아님)로 재므로 글꼴 로딩과 경합하지 않는다. DOM 시절 상자 폭과 0.01px 안에서 일치했다. 지금은 글자 폭 표의 합이다(커닝 없음, TextLayer와 같은 모델).
 - 바닥보다 낮은 분리 배율을 버려도 결과는 같다: reveal = max(바닥, 구속)이고, 바닥 아래 구속은 어차피 바닥이 가린다(귀납으로 확인).
 - 줄을 내린 라벨은 아래쪽 점의 0줄 라벨과만 겹칠 수 있다(위쪽 점의 라벨은 제 점 위에 있다). 처음엔 방향을 거꾸로 잡아 무작위 검사에서 겹침 1이 나왔다.
 - 이웃 창을 열쇠 m으로 좁히지 않으면 pop마다 이웃 칸 300여 개를 훑어 실데이터에서 300ms가 넘었다. 좁히면 110~150ms.
@@ -56,6 +61,11 @@ date: 2026-09-17
 - 확대·축소 한 단계당 CPU(CDP Performance, 800×880 DPR 2, 빽빽한 자리): 고치기 전 개발 서버 약 15ms(1만 점 투영 + 투명 제목 수백 개 DOM), 고친 뒤 개발 5.6ms·프로덕션 2.9~4.3ms. 남는 것은 React 렌더와 deck 자체다. 개발 서버는 React 19 dev 런타임(jsxDEV) 때문에 프로덕션의 두 배쯤 느리다.
 - 휠 확대 뒤 키 확대에서 라벨이 수백 개 겹쳐 보인 것은 `revealZooms`가 아니라 `zoomX`·`zoomY` 저장 버그였다. 모델 투영과 DOM 위치를 견줘 잡았다.
 - E2E 4번은 `+`를 눌러 확대한다. 한 번에 0.5씩이므로 6 이상 가려면 12번.
+- TextLayer 기본값(64px SDF 아틀라스)은 11px로 줄여 그릴 때 i의 점·따옴표·마침표가 사라졌다. 아틀라스를 22px 래스터로 바꾸면 획은 살지만 시스템 글꼴의 광학 크기 때문에 11px 글자보다 4% 좁고, 캔버스 글자 다듬기(macOS 획 굵히기) 때문에 DOM보다 잉크가 33% 많았다. `_getFontRenderer`로 11px 글꼴을 DPR 배 캔버스에 `geometricPrecision`으로 그리면 잉크 양이 DOM과 같다(같은 제목에서 1644 대 1660).
+- Playwright의 `deviceScaleFactor: 2` 에뮬레이션에서는 deck 캔버스가 1×(1184×796)로 만들어져 글자가 흐리게 찍힌다 — ResizeObserver의 `devicePixelContentBoxSize`가 1×를 준다. `--force-device-scale-factor=2`를 함께 주면 2×가 된다. 흐림을 쫓느라 배경색 위에 그려 알파를 뽑는 방식까지 시도했다가 이것으로 밝혀졌다.
+- 제목 클릭이 URL에 반영되기까지 약 315ms 걸린다. 점 클릭도 같다 — deck(mjolnir)이 더블클릭을 가리느라 단일 클릭을 늦게 낸다. E2E는 `expect.poll`로 기다린다.
+- 키보드 `+`·`-`도 버튼처럼 `home.zoom − 2 ~ home.zoom + 8`로 조인다. 브라우저 패널의 확대 동작이 키 확대를 여러 번 보내 288026%까지 간 것을 보고 고쳤다.
+- 프로덕션 실측(1440×950 DPR 2, CDP Tracing RunTask/단계): 성긴 자리(29편) 휠 8.8 → 7.9ms·키 이동 2.7 → 1.5ms·드래그 132 → 108ms, 가장 빽빽한 3200%(89편) 휠 13.8 → 9.3ms·키 이동 4.4 → 1.7ms·드래그 159 → 111ms. 휠에서 JS는 늘고(배열 다시 만들기·색 속성 채우기) 스타일·래스터·GPU가 줄었다.
 
 ## 완료 기준
 

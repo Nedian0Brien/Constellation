@@ -134,6 +134,27 @@ export function paperLabelOpacity(relativeZoom: number): number {
   return labelOpacity(relativeZoom, -Infinity, PAPER_LABEL_ZOOM - 0.5);
 }
 
+// 한 줄에 못 들어가는 제목을 `…`로 줄인다. 글자 폭 비례로 자를 자리를 어림한 뒤
+// 실제 폭으로 한 글자씩 맞춘다 — 대개 두세 번 재면 끝나 이분 탐색보다 싸다.
+// 자른 끝의 공백은 뗀다. 말줄임표 하나가 들어갈 폭이면 `maxWidth`를 넘지 않는다.
+export function truncateTitle(
+  measure: (text: string) => number,
+  text: string,
+  maxWidth: number,
+): string {
+  const full = measure(text);
+  if (full <= maxWidth) return text;
+  const chars = Array.from(text);
+  const cut = (n: number) => chars.slice(0, n).join("").trimEnd() + "…";
+  let n = Math.min(
+    chars.length - 1,
+    Math.floor((chars.length * maxWidth) / full),
+  );
+  while (n > 0 && measure(cut(n)) > maxWidth) n--;
+  while (n < chars.length - 1 && measure(cut(n + 1)) <= maxWidth) n++;
+  return cut(n);
+}
+
 // ── 논문마다 제목이 켜지는 배율 ────────────────────────────────────
 // UMAP은 비슷한 논문을 라벨 폭보다 가깝게 놓으므로 어떤 배율에서도 "전부 켜고
 // 겹치지 않기"는 안 된다. 대신 논문마다 켜지는 배율을 좌표·제목 폭·피인용수만으로
