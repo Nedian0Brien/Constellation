@@ -14,7 +14,8 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "../.venv/bin/constellation serve",
+      command:
+        "cargo run -p constellation-serve -- --db ../data/constellation.duckdb",
       url: "http://127.0.0.1:8000/api/health",
       reuseExistingServer: true,
     },
