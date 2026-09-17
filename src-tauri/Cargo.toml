@@ -3,6 +3,25 @@ name = "constellation-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Constellation 데스크톱 앱 — 논문 초록으로 연구 지형을 지도로 그린다"
+
+[lib]
+name = "constellation_app"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
 constellation-core = { path = "../crates/constellation-core" }
+tauri = { version = "2.11", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
+log = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tauri = { version = "2.11", features = ["test"] }
+duckdb.workspace = true
+tempfile = "3"

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type CSSProperties } from "react";
-import { PanelRight, List } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { PanelRight, List, FolderOpen } from "lucide-react";
 import { Button } from "./ui/button";
 import { SidebarProvider, SidebarTrigger, useSidebar } from "./ui/sidebar";
 import {
@@ -22,6 +23,7 @@ import { Inspector } from "./Inspector";
 import { ExploreToolbar } from "./ExploreToolbar";
 import { PaperListOverlay } from "./PaperListOverlay";
 import { DataState } from "./DataState";
+import { chooseDatabase, desktop, fetchDbStatus } from "../api";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { usePersistentLayout } from "../hooks/use-persistent-layout";
@@ -31,6 +33,32 @@ import TreeView from "../views/TreeView";
 import FlowView from "../views/FlowView";
 import LineageView from "../views/LineageView";
 import SkyView from "../views/SkyView";
+// 데스크톱 앱에서 DB가 없을 때. 기본 경로를 보여 주고 파일을 고르게 한다.
+function DatabasePicker() {
+  const client = useQueryClient();
+  const status = useQuery({ queryKey: ["db-status"], queryFn: fetchDbStatus });
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">
+        {status.data?.exists === false
+          ? `찾는 위치: ${status.data.path}`
+          : "파이프라인이 만든 constellation.duckdb 파일을 고르세요."}
+      </p>
+      <Button
+        variant="outline"
+        className="w-fit"
+        onClick={async () => {
+          const next = await chooseDatabase();
+          client.setQueryData(["db-status"], next);
+          if (next.exists) await client.invalidateQueries();
+        }}
+      >
+        <FolderOpen data-icon="inline-start" />
+        데이터베이스 열기
+      </Button>
+    </div>
+  );
+}
 // 우측 인스펙터 폭. 코퍼스에 인스펙터 표본이 없어 이전 값 320px를 유지한다.
 const inspectorWidth = { "--sidebar-width": "20rem" } as CSSProperties;
 // 헤더 버튼은 Provider 안에서만 사이드바 상태를 읽을 수 있다.
@@ -90,14 +118,17 @@ export function AppShell() {
       <ExploreToolbar />
       <div className="analysis-stage">
         {error ? (
-          <DataState
-            error={error}
-            retry={() => {
-              if (a.runs.isError) void a.runs.refetch();
-              else void a.map.refetch();
-            }}
-            title="분석 결과를 찾을 수 없습니다"
-          />
+          <div className="stage-notice">
+            <DataState
+              error={error}
+              retry={() => {
+                if (a.runs.isError) void a.runs.refetch();
+                else void a.map.refetch();
+              }}
+              title="분석 결과를 찾을 수 없습니다"
+            />
+            {desktop && <DatabasePicker />}
+          </div>
         ) : a.runs.data?.length === 0 ? (
           <DataState title="아직 투영된 연구 지도가 없습니다" />
         ) : !map ? (

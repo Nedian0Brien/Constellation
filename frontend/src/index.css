@@ -1043,6 +1043,20 @@ input:focus-visible,
 [data-slot="slider-range"] {
   background: var(--foreground);
 }
+/* 오류 안내와 데스크톱의 데이터베이스 열기 버튼을 세로로 모아 가운데 둔다. */
+.stage-notice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 28px;
+}
+.stage-notice > .data-state {
+  margin: 0;
+}
 .data-state {
   padding: 28px;
   max-width: 520px;

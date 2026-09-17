@@ -287,3 +287,10 @@ export const fetchPapers = (
     { filter: filters, sort, order, page, pageSize: 25 },
     signal,
   );
+// 데스크톱 앱 전용. 브라우저에서는 부르지 않는다.
+export interface DbStatus {
+  path: string;
+  exists: boolean;
+}
+export const fetchDbStatus = () => invoke<DbStatus>("db_status");
+export const chooseDatabase = () => invoke<DbStatus>("choose_database");
