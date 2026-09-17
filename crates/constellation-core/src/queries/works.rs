@@ -339,3 +339,110 @@ pub fn work(db: &Database, work_id: &str, run: Option<&str>) -> Result<Work> {
         cited_by_in_corpus,
     })
 }
+
+/// 인용 목록의 방향. `Both`가 기본이다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    References,
+    CitedBy,
+    Both,
+}
+
+impl Direction {
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "references" => Ok(Self::References),
+            "cited_by" => Ok(Self::CitedBy),
+            "both" => Ok(Self::Both),
+            _ => Err(Error::invalid("허용되지 않은 방향입니다.")),
+        }
+    }
+}
+
+/// 인용 목록의 한 줄. `cluster`는 그 run에서의 주제이고 run 밖이면 None이다.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CitedWork {
+    pub id: String,
+    pub title: String,
+    pub year: Option<i32>,
+    pub cited: i32,
+    pub cluster: Option<i32>,
+}
+
+/// 논문 하나의 코퍼스 안 참고문헌·피인용. 총계는 limit·방향과 무관하다.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Citations {
+    pub id: String,
+    pub references: Vec<CitedWork>,
+    pub cited_by: Vec<CitedWork>,
+    pub ref_total: i64,
+    pub cited_by_total: i64,
+}
+
+/// 참고문헌·피인용 목록. 코퍼스(`works`)에 있는 논문만 세고 피인용 순으로 `limit`개.
+pub fn citations(
+    db: &Database,
+    run: &str,
+    work_id: &str,
+    direction: Direction,
+    limit: u32,
+) -> Result<Citations> {
+    if !(1..=500).contains(&limit) {
+        return Err(Error::invalid("limit은 1 이상 500 이하여야 합니다."));
+    }
+    let conn = db.connect()?;
+    let exists: Option<i32> = conn
+        .query_row("SELECT 1 FROM works WHERE id = ?", params![work_id], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    if exists.is_none() {
+        return Err(Error::not_found(format!("없는 논문: {work_id}")));
+    }
+    // `side`는 목록에 나올 쪽, `me`는 주어진 논문이 놓인 쪽이다.
+    let list = |side: &str, me: &str| -> Result<Vec<CitedWork>> {
+        let sql = format!(
+            "SELECT w.id, w.title, w.year, coalesce(w.cited_by_count, 0), k.cluster_id \
+             FROM citations c JOIN works w ON w.id = c.{side} \
+             LEFT JOIN clusters k ON k.run_id = ? AND k.work_id = w.id \
+             WHERE c.{me} = ? \
+             ORDER BY w.cited_by_count DESC NULLS LAST, w.id LIMIT ?"
+        );
+        let rows = conn
+            .prepare(&sql)?
+            .query_map(params![run, work_id, limit as i64], |r| {
+                Ok(CitedWork {
+                    id: r.get(0)?,
+                    title: r.get(1)?,
+                    year: r.get(2)?,
+                    cited: r.get(3)?,
+                    cluster: r.get(4)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    };
+    let count = |side: &str, me: &str| -> Result<i64> {
+        let sql = format!(
+            "SELECT count(*) FROM citations c JOIN works w ON w.id = c.{side} WHERE c.{me} = ?"
+        );
+        Ok(conn.query_row(&sql, params![work_id], |r| r.get(0))?)
+    };
+    let references = if direction != Direction::CitedBy {
+        list("cited_id", "citing_id")?
+    } else {
+        Vec::new()
+    };
+    let cited_by = if direction != Direction::References {
+        list("citing_id", "cited_id")?
+    } else {
+        Vec::new()
+    };
+    Ok(Citations {
+        id: work_id.to_string(),
+        references,
+        cited_by,
+        ref_total: count("cited_id", "citing_id")?,
+        cited_by_total: count("citing_id", "cited_id")?,
+    })
+}

@@ -133,6 +133,18 @@ fn status(state: &AppState) -> DbStatus {
 }
 
 #[tauri::command]
+pub fn citations(
+    state: State<AppState>,
+    run: String,
+    id: String,
+    direction: Option<String>,
+    limit: Option<u32>,
+) -> Reply<queries::Citations> {
+    let direction = queries::Direction::parse(direction.as_deref().unwrap_or("both"))?;
+    queries::citations(&state.db(), &run, &id, direction, limit.unwrap_or(20))
+}
+
+#[tauri::command]
 pub fn db_status(state: State<AppState>) -> DbStatus {
     status(&state)
 }

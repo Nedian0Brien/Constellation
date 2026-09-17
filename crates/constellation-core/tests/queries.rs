@@ -195,6 +195,50 @@ fn detail_is_scoped_to_run() {
 }
 
 #[test]
+fn citations_lists_both_directions_in_corpus() {
+    use queries::Direction;
+    let f = populate();
+    let c = queries::citations(&f.db, "a", "1", Direction::Both, 20).unwrap();
+    // 1이 인용한 x-outside는 코퍼스 밖이라 빠지고, 1을 인용한 2·3만 남는다.
+    assert!(c.references.is_empty());
+    assert_eq!(
+        c.cited_by
+            .iter()
+            .map(|w| (w.id.as_str(), w.cluster))
+            .collect::<Vec<_>>(),
+        vec![("2", Some(0)), ("3", Some(1))]
+    );
+    assert_eq!((c.ref_total, c.cited_by_total), (0, 2));
+    // limit은 목록만 자르고 총계는 그대로. 방향을 좁혀도 총계는 둘 다 온다.
+    let one = queries::citations(&f.db, "a", "1", Direction::References, 1).unwrap();
+    assert!(one.cited_by.is_empty());
+    assert_eq!(one.cited_by_total, 2);
+    let r = queries::citations(&f.db, "a", "3", Direction::Both, 20).unwrap();
+    assert_eq!(
+        r.references
+            .iter()
+            .map(|w| w.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["1"]
+    );
+    // 다른 run에서는 주제가 없다.
+    let b = queries::citations(&f.db, "b", "3", Direction::Both, 20).unwrap();
+    assert_eq!(b.references[0].cluster, None);
+    assert_eq!(
+        queries::citations(&f.db, "a", "nope", Direction::Both, 20)
+            .unwrap_err()
+            .status,
+        404
+    );
+    assert_eq!(
+        queries::citations(&f.db, "a", "1", Direction::Both, 0)
+            .unwrap_err()
+            .status,
+        422
+    );
+}
+
+#[test]
 fn map_prefers_default_model_and_is_columnar() {
     let f = populate();
     let m = queries::map(&f.db, None).unwrap();
