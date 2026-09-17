@@ -25,11 +25,14 @@ import {
 import { clusterColor, regionTexture } from "./map/regions";
 const view = new OrthographicView({ id: "research-map" });
 // 논문 제목 상자. `.paper-name`의 11px/1.4 글꼴과 2px 4px 안쪽 여백, 220px 최대 폭에
-// 맞춘다. 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8).
+// 맞춘다. 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의
+// 줄 간격이기도 하다.
 const TITLE_MAX_WIDTH = 220,
   TITLE_PADDING = 8,
   TITLE_GAP_X = 8,
   TITLE_HEIGHT = 20 + 4;
+// 기준 배율 위로 확대할 수 있는 단계. 25600%.
+const ZOOM_RANGE = 8;
 // 제목 폭을 실제 글꼴로 잰다. 캔버스가 없으면 글자 수로 어림한다.
 function titleMeasurer(): (text: string) => number {
   const ctx =
@@ -283,14 +286,19 @@ export default function MapView() {
         })),
     [points, a.ids, map, widths],
   );
-  // 논문마다 제목이 켜지는 배율. 좌표·제목 폭·피인용수로만 정하므로 이동해도
-  // 바뀌지 않는다. 바닥은 기준 배율을 내림한 값 — 그 아래 값은 어차피 쓰이지
-  // 않고(하위 분야 단계는 기준+1부터), 내림해 두면 사이드바를 여닫아 지도
-  // 크기가 조금 바뀌어도 다시 계산하지 않는다(1만 편에 약 60ms).
-  const revealFloor = Math.floor(home.zoom);
+  // 논문마다 제목이 켜지는 배율과 줄. 좌표·제목 폭·피인용수로만 정하므로 이동해도
+  // 바뀌지 않는다. 바닥과 최대 배율은 기준 배율(지도 크기에 따라 다름)에서 온다.
+  // 1만 편에 약 120ms라 지도 크기가 바뀔 때는 멎은 뒤에 한 번만 다시 계산한다 —
+  // 사이드바를 여닫는 동안은 이전 값을 쓴다(절대 배율이라 그대로 유효하다).
+  const [settledHome, setSettledHome] = useState(home.zoom);
+  useEffect(() => {
+    const t = setTimeout(() => setSettledHome(home.zoom), 250);
+    return () => clearTimeout(t);
+  }, [home.zoom]);
   const reveals = useMemo(
-    () => revealZooms(boxes, revealFloor, TITLE_HEIGHT),
-    [boxes, revealFloor],
+    () =>
+      revealZooms(boxes, settledHome, TITLE_HEIGHT, settledHome + ZOOM_RANGE),
+    [boxes, settledHome],
   );
   // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 투영할 이유가 없다.
   const showTitles = level !== "field";
@@ -307,7 +315,8 @@ export default function MapView() {
                 x,
                 y,
                 selected: id === state.selected,
-                reveal: reveals[k],
+                reveal: reveals.zoom[k],
+                row: reveals.row[k],
               };
             }),
             size.width,
@@ -444,7 +453,7 @@ export default function MapView() {
         viewState={{
           ...camera,
           minZoom: home.zoom - 2,
-          maxZoom: home.zoom + 8,
+          maxZoom: home.zoom + ZOOM_RANGE,
         }}
         controller={{ dragRotate: false }}
         onViewStateChange={({ viewState: next }) => {
@@ -481,7 +490,11 @@ export default function MapView() {
               data-active={on}
               data-selected={l.selected || undefined}
               title={l.text}
-              style={{ left: l.x, top: l.y + 7, opacity }}
+              style={{
+                left: l.x,
+                top: l.y + 7 + TITLE_HEIGHT * l.row,
+                opacity,
+              }}
               tabIndex={on ? 0 : -1}
               aria-hidden={!on}
               onClick={() => update({ selected: l.id })}
@@ -527,7 +540,7 @@ export default function MapView() {
           onClick={() =>
             move({
               ...camera,
-              zoom: Math.min(home.zoom + 8, camera.zoom + 0.6),
+              zoom: Math.min(home.zoom + ZOOM_RANGE, camera.zoom + 0.6),
             })
           }
         >

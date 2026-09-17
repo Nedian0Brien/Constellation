@@ -94,29 +94,30 @@ describe("per-paper reveal zoom", () => {
   });
   it("leaves far-apart labels unconstrained", () => {
     const r = revealZooms([box(0, 0, 1), box(50, 50, 2)], 0, H);
-    expect([...r]).toEqual([-Infinity, -Infinity]);
+    expect([...r.zoom]).toEqual([-Infinity, -Infinity]);
+    expect([...r.row]).toEqual([0, 0]);
   });
   it("makes the lower-priority neighbour wait until the labels separate", () => {
     // 100px 상자 둘이 0.5단위 떨어져 있다: 가로로 떨어지려면 200px/단위 = 2^7.64.
-    const r = revealZooms([box(0, 0, 1), box(0.5, 0, 5)], 0, H);
+    const r = revealZooms([box(0, 0, 1), box(0.5, 0, 5)], 0, H).zoom;
     expect(r[1]).toBe(-Infinity);
     expect(r[0]).toBeCloseTo(Math.log2(200), 5);
     // 세로로 먼저 떨어지면 그쪽이 이긴다: 24px/0.2단위 = 120px/단위.
-    const v = revealZooms([box(0, 0, 1), box(0.5, 0.2, 5)], 0, H);
+    const v = revealZooms([box(0, 0, 1), box(0.5, 0.2, 5)], 0, H).zoom;
     expect(v[0]).toBeCloseTo(Math.log2(120), 5);
   });
   it("ignores separations below the floor and ties by input order", () => {
-    expect([...revealZooms([box(0, 0, 1), box(0.5, 0, 1)], 8, H)]).toEqual([
-      -Infinity,
-      -Infinity,
-    ]);
-    const r = revealZooms([box(0, 0, 1), box(0.5, 0, 1)], 0, H);
+    expect([...revealZooms([box(0, 0, 1), box(0.5, 0, 1)], 8, H).zoom]).toEqual(
+      [-Infinity, -Infinity],
+    );
+    const r = revealZooms([box(0, 0, 1), box(0.5, 0, 1)], 0, H).zoom;
     expect(r[0]).toBe(-Infinity);
     expect(r[1]).toBeCloseTo(Math.log2(200), 5);
   });
-  it("never reveals a label sitting on a higher-priority one", () => {
+  it("never reveals a label sitting on a higher-priority one without a max zoom", () => {
     const r = revealZooms([box(1, 1, 9), box(1, 1, 3)], 0, H);
-    expect([...r]).toEqual([-Infinity, Infinity]);
+    expect([...r.zoom]).toEqual([-Infinity, Infinity]);
+    expect(r.unresolved).toBe(1);
   });
   it("shows a label as soon as it has room, even if a bigger neighbour is still blocked", () => {
     // X(0)가 A(0.5)를 2^7.64까지 막는다. B(0.9)는 X와 2^6.80에서 떨어지고 A와는
@@ -126,7 +127,7 @@ describe("per-paper reveal zoom", () => {
       [box(0, 0, 100), box(0.5, 0, 50), box(0.9, 0, 0)],
       0,
       H,
-    );
+    ).zoom;
     expect(r[0]).toBe(-Infinity);
     expect(r[2]).toBeCloseTo(Math.log2(100 / 0.9), 5);
     expect(r[1]).toBeCloseTo(Math.log2(100 / 0.4), 5);
@@ -134,7 +135,11 @@ describe("per-paper reveal zoom", () => {
   it("lets a label appear before a neighbour that is still blocked", () => {
     // k(0) ← j(0.5) ← i(1.0): j는 k와 2^7.64에서 떨어지고, i는 j가 켜질 때 이미
     // 떨어져 있으므로 k와 떨어지는 2^6.64에서 켜진다 — j보다 먼저.
-    const r = revealZooms([box(0, 0, 9), box(0.5, 0, 5), box(1, 0, 1)], 0, H);
+    const r = revealZooms(
+      [box(0, 0, 9), box(0.5, 0, 5), box(1, 0, 1)],
+      0,
+      H,
+    ).zoom;
     expect(r[1]).toBeCloseTo(Math.log2(200), 5);
     expect(r[2]).toBeCloseTo(Math.log2(100), 5);
   });
@@ -146,36 +151,74 @@ describe("per-paper reveal zoom", () => {
     const boxes = Array.from({ length: 600 }, () =>
       box(rand() * 60, rand() * 60, Math.floor(rand() * 50), 60 + rand() * 160),
     );
-    const floor = 4;
-    const r = revealZooms(boxes, floor, H);
+    const floor = 4,
+      maxZoom = 11;
+    const r = revealZooms(boxes, floor, H, maxZoom);
     let prev = new Set<number>();
-    for (let z = floor; z <= 12; z += 0.5) {
+    for (let z = floor; z <= maxZoom; z += 0.5) {
       const on = new Set<number>();
       boxes.forEach((_, i) => {
-        if (Math.max(r[i], floor) <= z) on.add(i);
+        if (Math.max(r.zoom[i], floor) <= z) on.add(i);
       });
       expect([...prev].every((i) => on.has(i))).toBe(true);
       const list = [...on],
         scale = 2 ** z;
-      const collide = (p: LabelBox, q: LabelBox) =>
-        Math.abs(p.x - q.x) * scale < (p.width + q.width) / 2 &&
-        Math.abs(p.y - q.y) * scale < H;
+      // 줄을 내린 라벨은 세로로 줄 수 × H만큼 아래에 있다.
+      const collide = (i: number, j: number, ri = r.row[i]) =>
+        Math.abs(boxes[i].x - boxes[j].x) * scale <
+          (boxes[i].width + boxes[j].width) / 2 &&
+        Math.abs((boxes[i].y - boxes[j].y) * scale + H * (ri - r.row[j])) < H;
       let overlaps = 0,
         hiddenWithRoom = 0;
       for (let a = 0; a < list.length; a++)
         for (let b = a + 1; b < list.length; b++)
-          if (collide(boxes[list[a]], boxes[list[b]])) overlaps++;
-      // 안 켜진 라벨은 켜진 라벨 하나와는 반드시 겹친다 — 자리가 있으면 켜진다.
-      boxes.forEach((p, i) => {
-        if (!on.has(i) && !list.some((j) => collide(p, boxes[j])))
-          hiddenWithRoom++;
+          if (collide(list[a], list[b])) overlaps++;
+      // 안 켜진 라벨은 점 바로 아래(0줄)로는 켜진 라벨 하나와 반드시 겹친다 —
+      // 자리가 있으면 켜진다.
+      boxes.forEach((_, i) => {
+        if (!on.has(i) && !list.some((j) => collide(i, j, 0))) hiddenWithRoom++;
       });
       expect(overlaps).toBe(0);
       expect(hiddenWithRoom).toBe(0);
       prev = on;
     }
-    expect(prev.size).toBeGreaterThan(500);
-    expect([...r].filter((z) => z > floor).length).toBeGreaterThan(50);
+    // 최대 배율 한 단계 아래에서는 전부 켜져 있다.
+    expect(prev.size).toBe(boxes.length);
+    expect(r.unresolved).toBe(0);
+    expect([...r.zoom].filter((z) => z > floor).length).toBeGreaterThan(50);
+    expect([...r.row].filter((row) => row > 0).length).toBeGreaterThan(0);
+  });
+  it("stacks a label under a neighbour it can never leave, by the nearest free row", () => {
+    // 같은 자리 둘: 0줄로는 영원히 못 떨어지니 1줄로 내려 바닥에서 켠다.
+    const pair = revealZooms([box(1, 1, 9), box(1, 1, 3)], 0, H, 8);
+    expect([...pair.zoom]).toEqual([-Infinity, -Infinity]);
+    expect([...pair.row]).toEqual([0, 1]);
+    // 셋이면 세 줄. 1줄은 앞선 1줄과 같은 자리라 2줄로.
+    const three = revealZooms(
+      [box(1, 1, 9), box(1, 1, 3), box(1, 1, 1)],
+      0,
+      H,
+      8,
+    );
+    expect([...three.row]).toEqual([0, 1, 2]);
+    expect(three.unresolved).toBe(0);
+    // 아래 점의 라벨을 1줄로 내리면 위 점의 0줄과 어떤 배율에서도 안 겹친다.
+    const below = revealZooms([box(0, 0, 9), box(0, 0.001, 3)], 0, H, 8);
+    expect([...below.row]).toEqual([0, 1]);
+    expect(below.zoom[1]).toBe(-Infinity);
+    // 위 점의 라벨은 1줄로 내리면 아래 점의 0줄과 두 배(48px)로 벌어져야 하므로
+    // 최대 배율(256px/단위)에서 못 벗어난다. 2줄은 겹치는 구간(24000~72000)이
+    // 최대 배율 너머라 범위 안에서 안 겹친다.
+    const above = revealZooms([box(0, 0.001, 9), box(0, 0, 3)], 0, H, 8);
+    expect([...above.row]).toEqual([0, 2]);
+    expect(above.zoom[1]).toBe(-Infinity);
+    // 최대 배율이 없으면 어떤 줄로도 못 벗어나니 가장 일찍 켜지는 0줄에 둔다.
+    const open = revealZooms([box(0, 0.001, 9), box(0, 0, 3)], 0, H);
+    expect([...open.row]).toEqual([0, 0]);
+    expect(open.zoom[1]).toBeCloseTo(Math.log2(24 / 0.001), 5);
+    // 0줄로 최대 배율까지 켜지면 내리지 않는다.
+    const fine = revealZooms([box(0, 0, 9), box(0.5, 0, 3)], 0, H, 10);
+    expect([...fine.row]).toEqual([0, 0]);
   });
   it("fades each label in over one zoom step above its reveal or the floor", () => {
     expect(labelOpacity(5, -Infinity, 4.5)).toBeCloseTo(0.5);
