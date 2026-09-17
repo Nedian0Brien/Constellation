@@ -18,27 +18,32 @@ test("real corpus: map, list, selection, history, reload and panels", async ({
   const text = await title.textContent();
   await title.click();
   await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toBeHidden();
+  // 상세는 Dialog다. 딥링크로 새로고침해도 열린 채이고, Escape는 선택을 지운다.
   await expect(page.getByTestId("inspector").locator("h2")).toHaveText(text!);
-  const selectedURL = page.url();
-  await page.getByRole("button", { name: "계층 트리", exact: true }).click();
-  await expect(page.locator(".tree-wrap")).toBeVisible();
-  expect(new URL(page.url()).searchParams.get("selected")).toBe(
-    new URL(selectedURL).searchParams.get("selected"),
-  );
-  await page.goBack();
+  expect(new URL(page.url()).searchParams.has("selected")).toBe(true);
+  await page.reload();
+  await expect(page.getByTestId("inspector").locator("h2")).toHaveText(text!);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("inspector")).toBeHidden();
+  expect(new URL(page.url()).searchParams.has("selected")).toBe(false);
   await expect(map).toBeVisible();
+  // 에이전트 패널: 헤더 버튼으로 열고, 새로고침 뒤에도 열린 채이며, ✕로 닫는다.
+  const chatToggle = page.getByRole("button", {
+    name: "에이전트 패널 전환",
+    exact: true,
+  });
+  await chatToggle.click();
+  await expect(page.getByTestId("agent-chat")).toBeVisible();
+  await expect(chatToggle).toHaveAttribute("aria-pressed", "true");
   await page.reload();
-  await expect(page.getByTestId("inspector").locator("h2")).toHaveText(text!);
+  await expect(page.getByTestId("agent-chat")).toBeVisible();
   await page
-    .getByRole("button", { name: "상세 패널 전환", exact: true })
+    .getByRole("button", { name: "에이전트 패널 닫기", exact: true })
     .click();
-  await expect(
-    page.getByRole("button", { name: "상세 패널 전환", exact: true }),
-  ).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("agent-chat")).toBeHidden();
   await page.reload();
-  await expect(
-    page.getByRole("button", { name: "상세 패널 전환", exact: true }),
-  ).toHaveAttribute("aria-pressed", "false");
+  await expect(chatToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("agent-chat")).toBeHidden();
   // 탐색 사이드바: 헤더 버튼으로 접고, 새로고침 뒤에도 접힌 채이며, ⌘B로 다시 편다.
   const nav = page.locator('[data-slot="sidebar"][data-side="left"]');
   await page
@@ -204,7 +209,7 @@ test("unknown selection and malformed persisted layout remain recoverable", asyn
   page,
 }) => {
   await page.addInitScript(() =>
-    localStorage.setItem("constellation.layout.v2", "{broken"),
+    localStorage.setItem("constellation.layout.v3", "{broken"),
   );
   await page.goto("/?node=999999&page=-5&view=bad");
   await expect(page.getByTestId("research-map")).toBeVisible();
@@ -235,9 +240,63 @@ test("explicit region selection replaces paper detail with the real cluster", as
     .click();
   await page.getByTestId("paper-title").first().click();
   await expect(page.getByTestId("inspector").locator("h2")).toBeVisible();
+  // Dialog가 지도를 덮으므로 먼저 닫는다(선택 해제). 그다음 주제 라벨을 고른다.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("inspector")).toBeHidden();
   await page
     .getByRole("button", { name: clusters[0].label, exact: true })
     .click();
   await expect(page.getByTestId("inspector").locator("h2")).toHaveText(clusters[0].label);
   expect(new URL(page.url()).searchParams.has("selected")).toBe(false);
+  expect(new URL(page.url()).searchParams.has("cluster")).toBe(true);
+});
+test("agent chat: canned stream renders, runs a frontend tool, and survives reload", async ({
+  page,
+}) => {
+  // 실제 Claude 없이 프론트 쪽 파이프라인만 검사한다. 서버 응답은 assistant-ui
+  // 데이터 스트림 형식으로 흉내 내고, 웹뷰가 실행한 zoom 도구의 결과가
+  // tool-result 로 돌아오는지, 지도가 실제로 움직이는지 본다.
+  const results: { toolCallId: string; result: unknown }[] = [];
+  await page.route("**/api/agent/tool-result", async (route) => {
+    results.push(route.request().postDataJSON());
+    await route.fulfill({ json: { ok: true, delivered: true } });
+  });
+  await page.route("**/api/agent", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "x-vercel-ai-data-stream": "v1",
+      },
+      body: [
+        'b:{"toolCallId":"toolu_e2e","toolName":"zoom"}',
+        'c:{"toolCallId":"toolu_e2e","argsTextDelta":"{\\"steps\\":2}","isFinal":true}',
+        '0:"확대했습니다."',
+        "",
+      ].join("\n"),
+    }),
+  );
+  await page.goto("/");
+  const map = page.getByTestId("research-map");
+  await expect(map).toBeVisible();
+  const before = await map.getAttribute("data-camera");
+  await page
+    .getByRole("button", { name: "에이전트 패널 전환", exact: true })
+    .click();
+  const chat = page.getByTestId("agent-chat");
+  await expect(chat).toContainText("무엇을 찾아볼까요?");
+  await chat.getByRole("textbox", { name: "메시지 입력" }).fill("확대해 줘");
+  await chat.getByRole("button", { name: "보내기", exact: true }).click();
+  await expect(chat).toContainText("확대했습니다.");
+  await expect.poll(() => results.length).toBe(1);
+  expect(results[0]).toMatchObject({
+    toolCallId: "toolu_e2e",
+    result: { steps: 2 },
+  });
+  await expect(map).not.toHaveAttribute("data-camera", before!);
+  await page.reload();
+  await expect(page.getByTestId("agent-chat")).toContainText("확대했습니다.");
+  await page.getByRole("button", { name: "새 대화", exact: true }).click();
+  await expect(page.getByTestId("agent-chat")).toContainText("무엇을 찾아볼까요?");
+  await expect(page.getByTestId("agent-chat")).not.toContainText("확대했습니다.");
 });

@@ -4,6 +4,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
+import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import DetailPanel from "../panels/DetailPanel";
 import ClusterPanel from "../panels/ClusterPanel";
@@ -13,6 +14,7 @@ import ClusterPanel from "../panels/ClusterPanel";
 // 클릭) 선택을 지운다. 논문이 주제·분야보다 우선한다.
 export function InspectorDialog() {
   const { state, update } = useExploration();
+  const a = useAnalysis();
   const kind = state.selected
     ? "paper"
     : state.cluster !== undefined
@@ -20,9 +22,16 @@ export function InspectorDialog() {
       : state.node !== undefined
         ? "node"
         : null;
+  // 주제·분야는 분석 결과에 있는 것만 연다. 없는 id 는 스테이지의 안내
+  // (`.invalid-region`)가 맡고, 결과를 받기 전에는 열었다 닫지 않는다.
+  const open =
+    kind === "paper" ||
+    (kind === "cluster" &&
+      !!a.clusters.data?.some((c) => c.cluster_id === state.cluster)) ||
+    (kind === "node" && !!a.tree.data?.nodes.some((n) => n.id === state.node));
   return (
     <Dialog
-      open={kind !== null}
+      open={open}
       onOpenChange={(open) => {
         if (!open)
           update({ selected: undefined, cluster: undefined, node: undefined });
