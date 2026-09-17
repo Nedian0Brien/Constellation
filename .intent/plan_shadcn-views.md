@@ -49,3 +49,10 @@ npm run test:e2e
 ```
 
 브라우저 경로는 spec 완료 기준과 같다.
+
+## 구현 중 계획에서 더한 것 — 2026-09-17
+
+- 4·5단계를 한 커밋으로 묶었다. 지운 셀렉터의 마지막 사용처가 Flow 상세라 분리하면 중간 커밋에서 스타일이 깨진다.
+- Slider의 `data-horizontal:w-full`이 `w-28`을 이겨 연도 입력이 30px로 눌렸다. 같은 변형으로 `data-horizontal:w-28`을 줘 해결했다.
+- 반응형 클래스는 shadcn의 `md`(768px) 대신 셸 기준 `max-[960px]:`을 썼다. 모바일 판정 훅과 같은 폭이다.
+- `CardTitle`은 `render`를 받지 않아 `h2` 대신 `div`에 id를 둔다. `aria-labelledby`는 그대로 동작한다.
