@@ -128,7 +128,7 @@ export function ExploreToolbar() {
           />
         </Field>
         <Slider
-          className="data-horizontal:w-28 max-md:data-horizontal:w-20"
+          className="data-horizontal:w-28 max-[960px]:data-horizontal:w-20"
           thumbLabels={["시작 연도 범위", "종료 연도 범위"]}
           min={lo}
           max={Math.max(lo + 1, hi)}
