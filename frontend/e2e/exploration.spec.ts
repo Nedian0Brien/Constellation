@@ -114,11 +114,20 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
   const map = page.getByTestId("research-map");
   await expect(map).toHaveAttribute("data-label-level", "field");
   await map.focus();
-  for (let i = 0; i < 7; i++) await map.press("+");
+  // 논문 제목은 기준 배율의 2^6 이상에서만 켜진다. + 한 번에 0.5씩.
+  for (let i = 0; i < 11; i++) await map.press("+");
+  await expect(map).toHaveAttribute("data-label-level", "topic");
+  await expect(page.locator(".paper-name[data-active=true]")).toHaveCount(0);
+  for (let i = 0; i < 2; i++) await map.press("+");
   await expect(map).toHaveAttribute("data-label-level", "paper");
   await expect(
     page.locator(".paper-name[data-active=true]").first(),
   ).toBeVisible();
+  // 화면 안의 논문 수와 라벨 수가 같다 — 개수 제한이나 겹침 억제가 없다.
+  const shown = await page.locator(".paper-name[data-active=true]").count();
+  expect(shown).toBeGreaterThan(0);
+  await map.press("ArrowRight");
+  await expect(page.locator(".paper-name[data-active=true]").first()).toBeVisible();
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();

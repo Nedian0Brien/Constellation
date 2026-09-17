@@ -1104,10 +1104,13 @@ input:focus-visible,
   pointer-events: auto;
 }
 .paper-name {
+  /* 점 바로 아래, 가로 중앙. 겹침을 피하지 않으므로 같은 배율이면 늘 같은 자리다. */
   position: absolute;
-  transform: translateY(-50%);
+  transform: translateX(-50%);
+  /* absolute 요소는 오른쪽 가장자리 근처에서 남은 폭만큼 줄어든다. 내용 폭으로 고정한다. */
+  width: max-content;
   max-width: 260px;
-  text-align: left;
+  text-align: center;
   font-size: 11px;
   line-height: 1.4;
   border: 0;
@@ -1121,6 +1124,9 @@ input:focus-visible,
 .paper-name[data-active="true"] {
   opacity: 1;
   pointer-events: auto;
+}
+.paper-name[data-selected="true"] {
+  z-index: 1;
 }
 .map-caption {
   position: absolute;

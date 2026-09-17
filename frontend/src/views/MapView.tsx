@@ -11,10 +11,11 @@ import { useStore, type Camera } from "../store";
 import { Button } from "../components/ui/button";
 import {
   labelLevel,
+  PAPER_LABEL_ZOOM,
   regionLabels,
   homeCamera,
   descendants,
-  avoidCollisions,
+  visibleTitles,
 } from "./map/labels";
 import { clusterColor, regionTexture } from "./map/regions";
 const view = new OrthographicView({ id: "research-map" });
@@ -167,7 +168,8 @@ export default function MapView() {
     () => regionTexture(map, a.clusters.data ?? []),
     [map, a.clusters.data],
   );
-  const level = labelLevel(camera.zoom - home.zoom);
+  const relativeZoom = camera.zoom - home.zoom;
+  const level = labelLevel(relativeZoom);
   const top = useMemo(
     () => regionLabels(a.tree.data, a.clusters.data ?? [], 0),
     [a.tree.data, a.clusters.data],
@@ -180,26 +182,30 @@ export default function MapView() {
     () => regionLabels(a.tree.data, a.clusters.data ?? [], 2),
     [a.tree.data, a.clusters.data],
   );
+  // 문턱 반 단계 아래부터 목록을 만든다. 축소해 꺼질 때 240ms 페이드가 끝날 때까지
+  // DOM이 남아야 하고, 그 아래에서는 1만 개를 투영할 이유가 없다.
+  const showTitles = relativeZoom >= PAPER_LABEL_ZOOM - 0.5;
   const titles = useMemo(
     () =>
-      avoidCollisions(
-        points
-          .filter((p) => a.ids.has(p.id))
-          .sort((p, q) => map.cited[q.i] - map.cited[p.i])
-          .map((p) => {
-            const [x, y] = viewport.project(p.position);
-            return {
-              id: p.id,
-              text: map.title[p.i],
-              x,
-              y,
-              selected: p.id === state.selected,
-            };
-          }),
-        size.width,
-        size.height,
-      ),
-    [points, a.ids, viewport, map, state.selected, size],
+      showTitles
+        ? visibleTitles(
+            points
+              .filter((p) => a.ids.has(p.id))
+              .map((p) => {
+                const [x, y] = viewport.project(p.position);
+                return {
+                  id: p.id,
+                  text: map.title[p.i],
+                  x,
+                  y,
+                  selected: p.id === state.selected,
+                };
+              }),
+            size.width,
+            size.height,
+          )
+        : [],
+    [showTitles, points, a.ids, viewport, map, state.selected, size],
   );
   const layers = [
     ...(texture
@@ -375,13 +381,8 @@ export default function MapView() {
             key={l.id}
             className="paper-name"
             data-active={level === "paper"}
-            style={{
-              left: Math.min(
-                l.x + 12,
-                size.width - Math.min(260, l.text.length * 6.4) - 8,
-              ),
-              top: l.y,
-            }}
+            data-selected={l.selected || undefined}
+            style={{ left: l.x, top: l.y + 7 }}
             tabIndex={level === "paper" ? 0 : -1}
             aria-hidden={level !== "paper"}
             onClick={() => update({ selected: l.id })}

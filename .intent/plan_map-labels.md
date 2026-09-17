@@ -35,3 +35,7 @@ date: 2026-09-17
 ```sh
 cd frontend && npm run test -- --run && npm run build && npm run lint && npm run test:e2e
 ```
+
+## 구현 중 계획에서 더한 것 — 2026-09-17
+
+- `.paper-name`에 `width: max-content`. absolute 요소는 오른쪽 가장자리 근처에서 남은 폭만큼 줄어들어 라벨이 세로로 길게 접혔다.

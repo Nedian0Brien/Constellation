@@ -1,7 +1,16 @@
 import type { MapData, TreeData, ClusterInfo } from "../../api";
 export type LabelLevel = "field" | "topic" | "paper";
+// 논문 제목이 켜지는 배율(기준 배율 대비 log2). 6 = 6400%.
+// 실측(SciNCL run, 지도 영역 1184×830): 800%에서 가장 빽빽한 화면에 980편,
+// 6400%에서 79편, 12800%에서 35편이 들어온다. 겹침 억제 없이 전부 그리므로
+// 이 값이 한 화면의 라벨 수를 정한다.
+export const PAPER_LABEL_ZOOM = 6;
 export function labelLevel(relativeZoom: number): LabelLevel {
-  return relativeZoom < 1 ? "field" : relativeZoom < 3 ? "topic" : "paper";
+  return relativeZoom < 1
+    ? "field"
+    : relativeZoom < PAPER_LABEL_ZOOM
+      ? "topic"
+      : "paper";
 }
 export function descendants(
   tree: TreeData | null | undefined,
@@ -79,38 +88,19 @@ export interface PositionedLabel {
   y: number;
   selected?: boolean;
 }
-export function avoidCollisions(
+// 뷰포트 밖의 라벨만 뺀다. 정렬·개수 제한·겹침 판정을 두지 않아 같은 배율의
+// 같은 화면이면 항상 같은 라벨이 보인다. 여백은 라벨 폭의 절반(130px)이다.
+const margin = 130;
+export function visibleTitles(
   labels: PositionedLabel[],
   width: number,
   height: number,
 ): PositionedLabel[] {
-  const boxes: { x: number; y: number; w: number; h: number }[] = [];
-  return [...labels]
-    .sort((a, b) => Number(!!b.selected) - Number(!!a.selected))
-    .filter((l) => {
-      const w = Math.min(260, l.text.length * 6.4),
-        h = l.text.length > 40 ? 36 : 20;
-      if (l.x < 14 || l.x > width - 14 || l.y < 45 || l.y > height - 60)
-        return false;
-      const box = {
-        x: Math.min(l.x + 12, width - w - 8),
-        y: l.y - h / 2,
-        w,
-        h,
-      };
-      if (
-        !l.selected &&
-        boxes.some(
-          (b) =>
-            box.x < b.x + b.w + 8 &&
-            box.x + box.w + 8 > b.x &&
-            box.y < b.y + b.h + 5 &&
-            box.y + box.h + 5 > b.y,
-        )
-      )
-        return false;
-      boxes.push(box);
-      return true;
-    })
-    .slice(0, 100);
+  return labels.filter(
+    (l) =>
+      l.x >= -margin &&
+      l.x <= width + margin &&
+      l.y >= -40 &&
+      l.y <= height + 40,
+  );
 }
