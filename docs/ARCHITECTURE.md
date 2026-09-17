@@ -169,7 +169,7 @@ constellation stats                  # 초록 커버리지, 연도 분포, 중�
 
 프론트의 서버 데이터는 TanStack Query가 관리한다. `app/navigation.ts`가 URL 입력을 검증하고 `use-exploration.ts`가 탐색 상태를 변경한다. 기본 run을 처음 결정할 때 기존 링크의 선택과 필터를 보존하며, 사용자가 모델을 바꿀 때만 run 종속 선택을 해제한다. Zustand에는 run별 카메라 등 일시 상태를 둔다.
 
-`AppShell`은 shadcn Sidebar·Resizable·Sheet를 조합한다. 논문 목록은 지도 위의 오버레이이고 패널 크기·접힘은 버전이 있는 로컬 저장 값으로 복원한다. `views/map/labels.ts`는 실제 계층 트리와 가시 영역을 사용하며 라벨 중첩을 줄인다.
+`AppShell`은 shadcn `SidebarProvider` 아래에 좌측 `Sidebar collapsible="icon"`(탐색)과 우측 `Sidebar side="right" collapsible="none"`(`Inspector`)을 둔다. 공식 좌·우 사이드바 블록처럼 우측은 앱이 렌더링 여부로 열고 닫는다. 논문 목록은 지도 위의 오버레이이고 두 패널의 열림 상태는 버전이 있는 로컬 저장 값(`constellation.layout.v2`)으로 복원한다. `views/map/labels.ts`는 실제 계층 트리와 가시 영역을 사용하며 라벨 중첩을 줄인다.
 
 - `GET /api/works`: run·q·year_from·year_to·sort·order·page·page_size를 받아 `{items,total,page,page_size}` 반환.
 - `GET /api/matches`: 동일한 run·검색·연도 조건의 `{ids,total}` 반환.
