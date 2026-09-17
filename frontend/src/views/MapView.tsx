@@ -172,6 +172,42 @@ export interface MapBridge {
   pick(x: number, y: number): string | null;
 }
 const EMPTY_TITLES: Title[] = [];
+// 영역 이름 하나. 켜진 동안만 자리를 옮기고, 꺼지면 마지막 자리에 그대로 두어 240ms
+// 페이드아웃만 한다 — 매 프레임 65개의 위치를 갱신하던 것이 스타일 재계산의 대부분이었다.
+// 한 번도 켜진 적 없는 이름은 만들지 않는다. 마지막 자리는 이전 렌더의 값을 state에
+// 남기는 방식으로 기억한다(https://react.dev/reference/react/useState#storing-information-from-previous-renders).
+function RegionName({
+  label,
+  placed,
+  opacity,
+  onClick,
+}: {
+  label: string;
+  placed: [number, number] | undefined;
+  opacity: number;
+  onClick: () => void;
+}) {
+  const [last, setLast] = useState(placed);
+  if (placed && (!last || placed[0] !== last[0] || placed[1] !== last[1]))
+    setLast(placed);
+  const at = placed ?? last;
+  if (!at) return null;
+  const visible = !!placed;
+  const [x, y] = at;
+  return (
+    <button
+      className="region-name"
+      title={label}
+      data-active={visible}
+      style={{ left: x, top: y, opacity: visible ? opacity : 0 }}
+      tabIndex={visible ? 0 : -1}
+      aria-hidden={!visible}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
 export default function MapView() {
   const a = useAnalysis(),
     { state, update } = useExploration(),
@@ -643,51 +679,29 @@ export default function MapView() {
       },
     }),
   ];
-  // 영역 이름은 켜진 것만 자리를 옮긴다. 꺼진 이름은 마지막 자리에 그대로 두어
-  // 240ms 페이드아웃만 하고, 한 번도 켜진 적 없는 이름은 만들지 않는다 — 매 프레임
-  // 65개의 위치를 갱신하던 것이 스타일 재계산의 대부분이었다.
-  const lastPlaced = useRef(new Map<string, [number, number]>());
-  const renderRegions = (
-    items: typeof top,
-    active: boolean,
-    prefix: string,
-  ) => {
-    return items.map((n) => {
-      const placed = shownRegions.get(n.id);
-      const visible = active && !!placed;
-      if (visible) lastPlaced.current.set(n.id, placed!);
-      const at = visible ? placed! : lastPlaced.current.get(n.id);
-      if (!at) return null;
-      const [x, y] = at;
-      return (
-        <button
-          key={prefix + n.id}
-          className="region-name"
-          title={n.label}
-          data-active={visible}
-          style={{ left: x, top: y, opacity: visible ? regionOpacity : 0 }}
-          tabIndex={visible ? 0 : -1}
-          aria-hidden={!visible}
-          onClick={() => {
-            update({
-              node: n.node,
-              selected: undefined,
-              cluster: n.node === undefined ? n.cluster : undefined,
-            });
-            move({
-              target: [n.x, n.y, 0],
-              zoom: Math.max(
-                camera.zoom + 0.8,
-                home.zoom + (prefix === "top" ? 1.2 : 3),
-              ),
-            });
-          }}
-        >
-          {n.label}
-        </button>
-      );
-    });
-  };
+  const renderRegions = (items: typeof top, active: boolean, prefix: string) =>
+    items.map((n) => (
+      <RegionName
+        key={prefix + n.id}
+        label={n.label}
+        placed={active ? shownRegions.get(n.id) : undefined}
+        opacity={regionOpacity}
+        onClick={() => {
+          update({
+            node: n.node,
+            selected: undefined,
+            cluster: n.node === undefined ? n.cluster : undefined,
+          });
+          move({
+            target: [n.x, n.y, 0],
+            zoom: Math.max(
+              camera.zoom + 0.8,
+              home.zoom + (prefix === "top" ? 1.2 : 3),
+            ),
+          });
+        }}
+      />
+    ));
   return (
     <div
       ref={container}
