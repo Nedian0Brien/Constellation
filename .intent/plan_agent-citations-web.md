@@ -35,6 +35,12 @@ date: 2026-09-18
 
 `git add`는 파일을 지정한다.
 
+## 구현 중 계획에서 더한 것 — 2026-09-18
+
+- Vite 프록시 대상은 `CONSTELLATION_API` 환경 변수로 바꾼다(기본 8000). 이 세션의 서버는 8001이 이미 쓰여 8002에 띄웠다. `vite.config.ts`에는 기본값만 들어간다.
+- 모델이 OpenAlex 표기(`W123`)로 논문을 가리키면 `paperId`가 `openalex:W123`으로 맞춘다. 웹 도구를 쓰고 나면 그 표기를 쓰기 쉽다.
+- `compare_papers`의 `ids` 스키마는 `minItems`·`maxItems` 없이 두고 실행기에서 2–6을 검사한다. 서버의 스키마 변환기가 모르는 키워드는 모든 턴을 400으로 막는다.
+
 ## 가장 위험한 단계
 
 3단계다. `WebSearch`가 이 기계의 `claude` 로그인 종류에서 되는지는 실행해 봐야 안다. 안 되면 `WebFetch`만 열고 프롬프트에서 검색은 OpenAlex `search` 엔드포인트(`https://api.openalex.org/works?search=…`)로 대신하게 한다. 되돌리기: `server.ts`의 두 줄만 지우면 1·2단계는 그대로 남는다.
