@@ -198,7 +198,12 @@ pub fn works(
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    Ok(PaperPage { items, total, page, page_size })
+    Ok(PaperPage {
+        items,
+        total,
+        page,
+        page_size,
+    })
 }
 
 /// 같은 조건에 맞는 논문 id 전체. 지도 강조와 건수에 쓴다.
@@ -301,7 +306,12 @@ pub fn work(db: &Database, work_id: &str, run: Option<&str>) -> Result<Work> {
             "SELECT topic, kind FROM work_topics WHERE work_id = ? \
              ORDER BY score DESC NULLS LAST LIMIT 12",
         )?
-        .query_map(params![work_id], |r| Ok(Topic { name: r.get(0)?, kind: r.get(1)? }))?
+        .query_map(params![work_id], |r| {
+            Ok(Topic {
+                name: r.get(0)?,
+                kind: r.get(1)?,
+            })
+        })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let refs_in_corpus: i64 = conn.query_row(
         "SELECT count(*) FROM citations c JOIN works w ON w.id = c.cited_id WHERE c.citing_id = ?",

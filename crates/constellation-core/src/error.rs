@@ -11,7 +11,10 @@ pub struct Error {
 
 impl Error {
     pub fn new(status: u16, message: impl Into<String>) -> Self {
-        Self { status, message: message.into() }
+        Self {
+            status,
+            message: message.into(),
+        }
     }
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(404, message)

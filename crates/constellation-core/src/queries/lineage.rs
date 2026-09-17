@@ -69,14 +69,21 @@ pub fn lineage(
     }
     let mut edges: Vec<LineageEdge> = main
         .iter()
-        .map(|(a, b, c)| LineageEdge { from: a.clone(), to: b.clone(), spc: *c, main: true })
+        .map(|(a, b, c)| LineageEdge {
+            from: a.clone(),
+            to: b.clone(),
+            spc: *c,
+            main: true,
+        })
         .collect();
 
     if let Some(seed) = seed {
         let mut frontier: Vec<String> = vec![seed.to_string()];
         keep.insert(seed.to_string());
-        let mut seen_edge: HashSet<(String, String)> =
-            edges.iter().map(|e| (e.from.clone(), e.to.clone())).collect();
+        let mut seen_edge: HashSet<(String, String)> = edges
+            .iter()
+            .map(|e| (e.from.clone(), e.to.clone()))
+            .collect();
         for _ in 0..depth {
             if frontier.is_empty() || keep.len() > limit as usize {
                 break;
@@ -94,7 +101,9 @@ pub fn lineage(
             values.push(Value::Int(limit as i32));
             let rows: Vec<(String, String, f64)> = conn
                 .prepare(&sql)?
-                .query_map(params_from_iter(values), |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .query_map(params_from_iter(values), |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             // Python은 set을 썼지만 다음 프론티어의 순서는 IN 절 안에서만 쓰여
             // 결과에 영향이 없다. 여기서는 발견 순서를 유지한다.
@@ -104,7 +113,12 @@ pub fn lineage(
                     break;
                 }
                 if seen_edge.insert((a.clone(), b.clone())) {
-                    edges.push(LineageEdge { from: a.clone(), to: b.clone(), spc: c, main: false });
+                    edges.push(LineageEdge {
+                        from: a.clone(),
+                        to: b.clone(),
+                        spc: c,
+                        main: false,
+                    });
                 }
                 for x in [a, b] {
                     if keep.insert(x.clone()) {
@@ -123,15 +137,18 @@ pub fn lineage(
     );
     let rows: Vec<LineageNode> = conn
         .prepare(&sql)?
-        .query_map(params_from_iter(ids.iter().map(|i| Value::Text(i.clone()))), |r| {
-            Ok(LineageNode {
-                id: r.get(0)?,
-                title: r.get(1)?,
-                year: r.get(2)?,
-                cited: r.get(3)?,
-                venue: r.get(4)?,
-            })
-        })?
+        .query_map(
+            params_from_iter(ids.iter().map(|i| Value::Text(i.clone()))),
+            |r| {
+                Ok(LineageNode {
+                    id: r.get(0)?,
+                    title: r.get(1)?,
+                    year: r.get(2)?,
+                    cited: r.get(3)?,
+                    venue: r.get(4)?,
+                })
+            },
+        )?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     // 메인패스 노드: 엣지 순서대로 처음 본 순서, 그 뒤 연도로 안정 정렬 (Python과 같다).
@@ -147,5 +164,11 @@ pub fn lineage(
     let by_id: HashMap<&str, &LineageNode> = rows.iter().map(|n| (n.id.as_str(), n)).collect();
     main_ids.sort_by_key(|i| by_id.get(i.as_str()).and_then(|n| n.year).unwrap_or(0));
 
-    Ok(LineageData { run_id: run.to_string(), seed: seed.map(str::to_string), nodes: rows, edges, main_path: main_ids })
+    Ok(LineageData {
+        run_id: run.to_string(),
+        seed: seed.map(str::to_string),
+        nodes: rows,
+        edges,
+        main_path: main_ids,
+    })
 }

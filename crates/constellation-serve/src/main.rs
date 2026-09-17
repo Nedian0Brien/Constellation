@@ -20,7 +20,11 @@ use tower_http::cors::CorsLayer;
 #[command(about = "Constellation 개발용 API 서버")]
 struct Args {
     /// DuckDB 파일 경로
-    #[arg(long, env = "CONSTELLATION_DB", default_value = "data/constellation.duckdb")]
+    #[arg(
+        long,
+        env = "CONSTELLATION_DB",
+        default_value = "data/constellation.duckdb"
+    )]
     db: PathBuf,
     #[arg(long, default_value_t = 8000)]
     port: u16,
@@ -37,8 +41,13 @@ impl From<Error> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let status = StatusCode::from_u16(self.0.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        (status, Json(serde_json::json!({ "detail": self.0.message }))).into_response()
+        let status =
+            StatusCode::from_u16(self.0.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        (
+            status,
+            Json(serde_json::json!({ "detail": self.0.message })),
+        )
+            .into_response()
     }
 }
 
@@ -83,7 +92,10 @@ async fn map(State(db): State<Database>, Query(p): Params) -> Reply<queries::Map
     ok(queries::map(&db, p.get("run").map(String::as_str))?)
 }
 
-async fn clusters(State(db): State<Database>, Query(p): Params) -> Reply<Vec<queries::ClusterInfo>> {
+async fn clusters(
+    State(db): State<Database>,
+    Query(p): Params,
+) -> Reply<Vec<queries::ClusterInfo>> {
     ok(queries::clusters(&db, &required(&p, "run")?)?)
 }
 
@@ -95,19 +107,36 @@ async fn flow(State(db): State<Database>, Query(p): Params) -> Reply<queries::Fl
     ok(queries::flow(&db, &required(&p, "run")?)?)
 }
 
-async fn flow_papers(State(db): State<Database>, Query(p): Params) -> Reply<Vec<queries::WorkBrief>> {
+async fn flow_papers(
+    State(db): State<Database>,
+    Query(p): Params,
+) -> Reply<Vec<queries::WorkBrief>> {
     let run = required(&p, "run")?;
-    let window = int(&p, "window")?.ok_or_else(|| ApiError(Error::invalid("window 값이 필요합니다.")))?;
-    let cluster = int(&p, "cluster")?.ok_or_else(|| ApiError(Error::invalid("cluster 값이 필요합니다.")))?;
+    let window =
+        int(&p, "window")?.ok_or_else(|| ApiError(Error::invalid("window 값이 필요합니다.")))?;
+    let cluster =
+        int(&p, "cluster")?.ok_or_else(|| ApiError(Error::invalid("cluster 값이 필요합니다.")))?;
     let limit = bounded(int(&p, "limit")?, 15, 60, "limit")?;
-    ok(queries::flow_papers(&db, &run, window as i32, cluster as i32, limit)?)
+    ok(queries::flow_papers(
+        &db,
+        &run,
+        window as i32,
+        cluster as i32,
+        limit,
+    )?)
 }
 
 async fn lineage(State(db): State<Database>, Query(p): Params) -> Reply<queries::LineageData> {
     let run = required(&p, "run")?;
     let depth = bounded(int(&p, "depth")?, 2, 4, "depth")?;
     let limit = bounded(int(&p, "limit")?, 240, 600, "limit")?;
-    ok(queries::lineage(&db, &run, p.get("seed").map(String::as_str), depth, limit)?)
+    ok(queries::lineage(
+        &db,
+        &run,
+        p.get("seed").map(String::as_str),
+        depth,
+        limit,
+    )?)
 }
 
 async fn cluster_detail(
@@ -115,7 +144,11 @@ async fn cluster_detail(
     Path(cluster_id): Path<i32>,
     Query(p): Params,
 ) -> Reply<queries::ClusterDetail> {
-    ok(queries::cluster_detail(&db, &required(&p, "run")?, cluster_id)?)
+    ok(queries::cluster_detail(
+        &db,
+        &required(&p, "run")?,
+        cluster_id,
+    )?)
 }
 
 fn paper_filter(p: &HashMap<String, String>) -> Result<PaperFilter, ApiError> {
@@ -136,7 +169,14 @@ async fn works(State(db): State<Database>, Query(p): Params) -> Reply<queries::P
     if page < 1 || page_size < 1 || page > 1_000_000 || page_size > 100 {
         return Err(Error::invalid("잘못된 페이지 범위입니다.").into());
     }
-    ok(queries::works(&db, filter, sort, order, page as u32, page_size as u32)?)
+    ok(queries::works(
+        &db,
+        filter,
+        sort,
+        order,
+        page as u32,
+        page_size as u32,
+    )?)
 }
 
 async fn matches(State(db): State<Database>, Query(p): Params) -> Reply<queries::Matches> {
@@ -148,7 +188,11 @@ async fn work(
     Path(work_id): Path<String>,
     Query(p): Params,
 ) -> Reply<queries::Work> {
-    ok(queries::work(&db, &work_id, p.get("run").map(String::as_str))?)
+    ok(queries::work(
+        &db,
+        &work_id,
+        p.get("run").map(String::as_str),
+    )?)
 }
 
 async fn health(State(db): State<Database>) -> Reply<queries::Health> {
@@ -182,7 +226,12 @@ async fn main() {
         .layer(cors)
         .with_state(db);
     let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
-    let listener = tokio::net::TcpListener::bind(addr).await.expect("포트를 열지 못했다");
-    println!("constellation-serve: http://{addr} (db: {})", args.db.display());
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("포트를 열지 못했다");
+    println!(
+        "constellation-serve: http://{addr} (db: {})",
+        args.db.display()
+    );
     axum::serve(listener, app).await.expect("서버 종료");
 }

@@ -49,11 +49,22 @@ pub struct Health {
 
 pub fn health(db: &Database) -> Result<Health> {
     if !db.exists() {
-        return Ok(Health { ok: false, reason: Some("DB 없음".into()), works: None, projection_runs: None });
+        return Ok(Health {
+            ok: false,
+            reason: Some("DB 없음".into()),
+            works: None,
+            projection_runs: None,
+        });
     }
     let conn = db.connect()?;
     let works: i64 = conn.query_row("SELECT count(*) FROM works", [], |r| r.get(0))?;
-    let runs: i64 =
-        conn.query_row("SELECT count(*) FROM runs WHERE kind='project'", [], |r| r.get(0))?;
-    Ok(Health { ok: true, reason: None, works: Some(works), projection_runs: Some(runs) })
+    let runs: i64 = conn.query_row("SELECT count(*) FROM runs WHERE kind='project'", [], |r| {
+        r.get(0)
+    })?;
+    Ok(Health {
+        ok: true,
+        reason: None,
+        works: Some(works),
+        projection_runs: Some(runs),
+    })
 }

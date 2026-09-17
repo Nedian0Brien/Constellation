@@ -82,7 +82,12 @@ pub fn cluster_detail(db: &Database, run: &str, cluster_id: i32) -> Result<Clust
              ORDER BY w.cited_by_count DESC NULLS LAST LIMIT 12",
         )?
         .query_map(params![run, cluster_id], |r| {
-            Ok(WorkBrief { id: r.get(0)?, title: r.get(1)?, year: r.get(2)?, cited: r.get(3)? })
+            Ok(WorkBrief {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                year: r.get(2)?,
+                cited: r.get(3)?,
+            })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
@@ -92,7 +97,12 @@ pub fn cluster_detail(db: &Database, run: &str, cluster_id: i32) -> Result<Clust
              WHERE c.run_id = ? AND c.cluster_id = ? AND w.year IS NOT NULL \
              GROUP BY w.year ORDER BY w.year",
         )?
-        .query_map(params![run, cluster_id], |r| Ok(YearCount { year: r.get(0)?, n: r.get(1)? }))?
+        .query_map(params![run, cluster_id], |r| {
+            Ok(YearCount {
+                year: r.get(0)?,
+                n: r.get(1)?,
+            })
+        })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     Ok(ClusterDetail {

@@ -63,7 +63,9 @@ pub fn flow(db: &Database, run: &str) -> Result<FlowData> {
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     if windows.is_empty() {
-        return Err(Error::not_found("이 분석에는 시간대별 흐름 결과가 없습니다."));
+        return Err(Error::not_found(
+            "이 분석에는 시간대별 흐름 결과가 없습니다.",
+        ));
     }
     let clusters = conn
         .prepare(
@@ -101,7 +103,12 @@ pub fn flow(db: &Database, run: &str) -> Result<FlowData> {
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    Ok(FlowData { run_id: run.to_string(), windows, clusters, flows })
+    Ok(FlowData {
+        run_id: run.to_string(),
+        windows,
+        clusters,
+        flows,
+    })
 }
 
 /// 한 창-클러스터에 속한 논문들 (피인용 상위).
@@ -124,7 +131,12 @@ pub fn flow_papers(
              ORDER BY w.cited_by_count DESC NULLS LAST LIMIT ?",
         )?
         .query_map(params![run, window, cluster, limit], |r| {
-            Ok(WorkBrief { id: r.get(0)?, title: r.get(1)?, year: r.get(2)?, cited: r.get(3)? })
+            Ok(WorkBrief {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                year: r.get(2)?,
+                cited: r.get(3)?,
+            })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(rows)

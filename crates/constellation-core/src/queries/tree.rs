@@ -75,6 +75,13 @@ pub fn tree(db: &Database, run: &str) -> Result<TreeData> {
         let node: i32 = r.get(2)?;
         by_level.entry(level).or_default().push(node);
     }
-    let levels = by_level.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-    Ok(TreeData { run_id: run.to_string(), nodes, levels })
+    let levels = by_level
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+    Ok(TreeData {
+        run_id: run.to_string(),
+        nodes,
+        levels,
+    })
 }
