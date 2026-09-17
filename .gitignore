@@ -23,3 +23,6 @@ Thumbs.db
 # browser test artifacts
 frontend/test-results/
 frontend/playwright-report/
+
+# git worktrees (one per session)
+.worktree/
