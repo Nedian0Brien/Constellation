@@ -285,8 +285,11 @@ test("agent chat: canned stream renders, runs a frontend tool, and survives relo
     .click();
   const chat = page.getByTestId("agent-chat");
   await expect(chat).toContainText("무엇을 찾아볼까요?");
-  await chat.getByRole("textbox", { name: "메시지 입력" }).fill("확대해 줘");
-  await chat.getByRole("button", { name: "보내기", exact: true }).click();
+  // 기본 입력 경로는 Enter 다(Shift+Enter 는 줄바꿈). 버튼은 있는지만 본다.
+  const input = chat.getByRole("textbox", { name: "메시지 입력" });
+  await input.fill("확대해 줘");
+  await expect(chat.getByRole("button", { name: "보내기", exact: true })).toBeEnabled();
+  await input.press("Enter");
   await expect(chat).toContainText("확대했습니다.");
   await expect.poll(() => results.length).toBe(1);
   expect(results[0]).toMatchObject({
