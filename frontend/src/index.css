@@ -1197,61 +1197,13 @@ input:focus-visible,
   padding: 12px 18px;
   border-bottom: 1px solid var(--border);
 }
-.search-field {
-  flex: 1;
-  min-width: 170px;
-}
-.search-control {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  border-bottom: 1px solid var(--input);
-}
-.search-control > svg {
-  width: 15px;
-  height: 15px;
-  color: var(--muted-foreground);
-  flex-shrink: 0;
-}
-.search-control [data-slot="input"] {
-  border: 0;
-  box-shadow: none;
-  height: 30px;
-  background: none;
-  padding: 0;
-  border-radius: 0;
-}
-.search-control:focus-within {
-  border-color: var(--ring);
-}
-.year-filter {
-  display: flex;
-  gap: 9px;
-  width: 235px;
-  align-items: center;
-}
-.year-filter [data-slot="field"] {
-  width: 55px;
-}
-.year-filter input {
-  font: 11px var(--font-mono);
-  padding: 3px;
-  width: 55px;
-  height: 27px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: center;
-}
-.year-filter [data-slot="slider"] {
-  width: 105px;
-}
 .filter-result {
   font: 10px var(--font-mono);
   color: var(--muted-foreground);
   min-width: 44px;
 }
-.year-filter input::-webkit-inner-spin-button {
+/* 연도 숫자 입력은 슬라이더와 짝이라 스핀 버튼을 숨긴다. */
+[data-slot="input"][type="number"]::-webkit-inner-spin-button {
   appearance: none;
 }
 [data-slot="button"] {
@@ -1597,12 +1549,6 @@ input:focus-visible,
     padding: 10px 12px;
     gap: 10px;
   }
-  .year-filter {
-    width: 205px;
-  }
-  .year-filter [data-slot="slider"] {
-    width: 75px;
-  }
   .filter-result {
     font-size: 9px;
   }
@@ -1642,9 +1588,6 @@ input:focus-visible,
   .header-tools [data-slot="button"] {
     min-width: 28px;
   }
-  .search-field {
-    min-width: 145px;
-  }
   .paper-table th:first-child {
     width: 60%;
   }
@@ -1676,9 +1619,6 @@ input:focus-visible,
 }
 .filter-result {
   white-space: nowrap;
-}
-.year-filter {
-  flex-shrink: 0;
 }
 .header-tools {
   min-width: 0;
