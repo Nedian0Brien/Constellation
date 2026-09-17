@@ -11,6 +11,10 @@ import { useStore, type Camera } from "../store";
 import { Button } from "../components/ui/button";
 import {
   labelLevel,
+  PAPER_LABEL_ZOOM,
+  paperLabelOpacity,
+  clampRegionLabel,
+  regionRadii,
   regionLabels,
   homeCamera,
   descendants,
@@ -181,15 +185,22 @@ export default function MapView() {
     () => regionLabels(a.tree.data, a.clusters.data ?? [], 2),
     [a.tree.data, a.clusters.data],
   );
-  // 영역 라벨 가시성. 배율 단계마다 한 묶음만 켜지고, 화면 밖이거나 겹치는
-  // 라벨은 숨긴다. 켜진 영역 라벨이 하나도 없으면 논문 제목이 대신 보인다.
+  const radii = useMemo(
+    () => regionRadii(map, a.tree.data, a.clusters.data ?? []),
+    [map, a.tree.data, a.clusters.data],
+  );
+  // 영역 라벨 배치. 배율 단계마다 한 묶음만 켜진다. 중심이 화면 안이면 그 자리에,
+  // 중심은 밖이지만 화면 중앙이 영역 안(반지름 이내)이면 가장자리에 붙인다.
+  // 그래서 영역을 확대해 들어가도 이름이 남는다. 겹치는 라벨은 큰 영역이 이긴다.
   const regionSet = level === "field" ? top : relativeZoom < 2 ? sub : leaves;
   const shownRegions = useMemo(() => {
     const boxes: { x: number; y: number; w: number; h: number }[] = [];
-    const out = new Set<string>();
-    if (level === "paper") return out;
+    const out = new Map<string, [number, number]>();
+    // 문턱을 넘어도 반 단계까지는 영역 이름이 옅어지며 남는다.
+    if (relativeZoom >= PAPER_LABEL_ZOOM + 0.5) return out;
+    const [cx, cy] = viewport.unproject([size.width / 2, size.height / 2]);
     for (const n of [...regionSet].sort((a, b) => b.size - a.size)) {
-      const [x, y] = viewport.project([n.x, n.y, 0]);
+      let [x, y] = viewport.project([n.x, n.y, 0]);
       const w = Math.min(205, n.label.length * 10),
         h = Math.ceil(n.label.length / 20) * 23;
       const inside =
@@ -197,8 +208,12 @@ export default function MapView() {
         x < size.width - w / 2 &&
         y > 55 + h / 2 &&
         y < size.height - 75 - h / 2;
+      const covering =
+        Math.hypot(cx - n.x, cy - n.y) <= (radii.get(n.id) ?? 0);
+      if (!inside && !covering) continue;
+      if (!inside)
+        [x, y] = clampRegionLabel(x, y, w, h, size.width, size.height);
       if (
-        !inside ||
         boxes.some(
           (b) =>
             Math.abs(x - b.x) < (w + b.w) / 2 + 12 &&
@@ -207,14 +222,21 @@ export default function MapView() {
       )
         continue;
       boxes.push({ x, y, w, h });
-      out.add(n.id);
+      out.set(n.id, [x, y]);
     }
     return out;
-  }, [level, regionSet, viewport, size]);
-  // 논문 제목이 켜지는 조건: 문턱 이상이거나, 하위 분야 단계인데 화면에 영역 이름이
-  // 하나도 없을 때(영역 중심이 화면 밖으로 나간 경우). 상위 분야 단계에서는 켜지 않는다.
-  const paperLabelsOn =
-    level === "paper" || (level === "topic" && shownRegions.size === 0);
+  }, [relativeZoom, regionSet, viewport, size, radii]);
+  // 논문 제목 불투명도: 확대에 따라 서서히 진해진다. 하위 분야 단계인데 화면에 영역
+  // 이름이 하나도 없으면(영역 사이 빈 곳) 바로 켠다. 상위 분야 단계에서는 켜지 않는다.
+  const paperOpacity =
+    level === "field"
+      ? 0
+      : level === "topic" && shownRegions.size === 0
+        ? 1
+        : paperLabelOpacity(relativeZoom);
+  const paperLabelsOn = paperOpacity > 0;
+  // 영역 이름은 같은 곡선을 거꾸로 따라 옅어진다.
+  const regionOpacity = 1 - paperLabelOpacity(relativeZoom);
   // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 투영할 이유가 없다.
   const showTitles = level !== "field";
   const titles = useMemo(
@@ -291,15 +313,16 @@ export default function MapView() {
     prefix: string,
   ) => {
     return items.map((n) => {
-      const [x, y] = viewport.project([n.x, n.y, 0]);
-      const visible = active && shownRegions.has(n.id);
+      const placed = shownRegions.get(n.id);
+      const [x, y] = placed ?? viewport.project([n.x, n.y, 0]);
+      const visible = active && !!placed;
       return (
         <button
           key={prefix + n.id}
           className="region-name"
           title={n.label}
           data-active={visible}
-          style={{ left: x, top: y }}
+          style={{ left: x, top: y, opacity: visible ? regionOpacity : 0 }}
           tabIndex={visible ? 0 : -1}
           aria-hidden={!visible}
           onClick={() => {
@@ -329,6 +352,7 @@ export default function MapView() {
       data-testid="research-map"
       data-label-level={level}
       data-paper-labels={paperLabelsOn}
+      data-paper-opacity={paperOpacity.toFixed(2)}
       data-camera={`${camera.zoom.toFixed(4)}:${camera.target.slice(0, 2).join(",")}`}
       tabIndex={0}
       aria-label="연구 지도. 방향키 이동, 더하기와 빼기로 확대 축소"
@@ -386,7 +410,7 @@ export default function MapView() {
         )}
         {renderRegions(
           leaves,
-          level === "topic" && camera.zoom - home.zoom >= 2,
+          relativeZoom >= 2 && relativeZoom < PAPER_LABEL_ZOOM + 0.5,
           "leaf",
         )}
         {titles.map((l) => (
@@ -396,7 +420,7 @@ export default function MapView() {
             data-active={paperLabelsOn}
             data-selected={l.selected || undefined}
             title={l.text}
-            style={{ left: l.x, top: l.y + 7 }}
+            style={{ left: l.x, top: l.y + 7, opacity: paperOpacity }}
             tabIndex={paperLabelsOn ? 0 : -1}
             aria-hidden={!paperLabelsOn}
             onClick={() => update({ selected: l.id })}

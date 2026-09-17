@@ -105,3 +105,63 @@ export function visibleTitles(
       l.y <= height + 40,
   );
 }
+
+// ── 영역이 화면을 덮고 있는 동안 이름을 붙들어 두기 ─────────────────
+// 영역의 반지름: 소속 논문이 중심에서 떨어진 거리의 90분위. 상위 노드는
+// 하위 주제 전부를 합쳐 잰다. 지도 데이터가 바뀔 때 한 번만 계산한다.
+export function regionRadii(
+  map: MapData,
+  tree: TreeData | null | undefined,
+  clusters: ClusterInfo[],
+): Map<string, number> {
+  const byCluster = new Map<number, number[]>();
+  for (let i = 0; i < map.n; i++) {
+    const c = map.cluster[i];
+    if (c < 0 || !Number.isFinite(map.x[i]) || !Number.isFinite(map.y[i]))
+      continue;
+    let arr = byCluster.get(c);
+    if (!arr) byCluster.set(c, (arr = []));
+    arr.push(i);
+  }
+  const radius = (ids: Iterable<number>, cx: number, cy: number) => {
+    const d: number[] = [];
+    for (const c of ids)
+      for (const i of byCluster.get(c) ?? [])
+        d.push(Math.hypot(map.x[i]! - cx, map.y[i]! - cy));
+    if (!d.length) return 0;
+    d.sort((a, b) => a - b);
+    return d[Math.min(d.length - 1, Math.floor(d.length * 0.9))];
+  };
+  const out = new Map<string, number>();
+  for (const c of clusters)
+    if (c.x !== null && c.y !== null)
+      out.set(`c${c.cluster_id}`, radius([c.cluster_id], c.x, c.y));
+  for (const n of tree?.nodes ?? [])
+    if (n.x !== null && n.y !== null)
+      out.set(`n${n.id}`, radius(descendants(tree, n.id), n.x, n.y));
+  return out;
+}
+
+// 논문 제목 불투명도. 문턱 반 단계 아래(2263%)에서 0, 반 단계 위(4525%)에서 1로
+// 확대에 따라 서서히 진해진다. 영역 이름은 같은 곡선을 거꾸로 따라 옅어진다.
+export function paperLabelOpacity(relativeZoom: number): number {
+  const from = PAPER_LABEL_ZOOM - 0.5,
+    to = PAPER_LABEL_ZOOM + 0.5;
+  return Math.min(1, Math.max(0, (relativeZoom - from) / (to - from)));
+}
+
+// 영역 중심이 화면 밖이어도 화면 중앙이 영역 안(반지름 이내)이면 이름을 가장자리에
+// 붙여 둔다. 돌려주는 좌표는 화면 안으로 조인 위치다.
+export function clampRegionLabel(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  width: number,
+  height: number,
+): [number, number] {
+  return [
+    Math.min(Math.max(x, w / 2 + 16), width - w / 2 - 16),
+    Math.min(Math.max(y, 55 + h / 2), height - 75 - h / 2),
+  ];
+}

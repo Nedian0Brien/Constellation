@@ -40,3 +40,4 @@ cd frontend && npm run test -- --run && npm run build && npm run lint && npm run
 
 - `.paper-name`에 `width: max-content`. absolute 요소는 오른쪽 가장자리 근처에서 남은 폭만큼 줄어들어 라벨이 세로로 길게 접혔다.
 - 사용자가 결과를 보고 지시한 대로: 문턱 6 → 5, 하위 분야 단계에서 영역 이름이 화면에 없으면 논문 제목을 켬, 배경 제거, 한 줄 `…` 줄임. `renderRegions`의 가시성 판정을 `shownRegions` useMemo로 빼서 두 곳이 같은 결과를 쓴다.
+- 두 번째 지시: `regionRadii`·`clampRegionLabel`·`paperLabelOpacity`를 `labels.ts`에 더하고 테스트 3개 추가. `shownRegions`가 배치 좌표까지 돌려 렌더가 그대로 쓴다. `.region-name`·`.paper-name`의 `opacity`는 인라인으로 옮기고 CSS는 포인터 이벤트만 켠다.

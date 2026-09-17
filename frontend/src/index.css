@@ -1100,7 +1100,6 @@ input:focus-visible,
   transition: opacity 240ms var(--ease);
 }
 .region-name[data-active="true"] {
-  opacity: 1;
   pointer-events: auto;
 }
 .paper-name {
@@ -1129,7 +1128,6 @@ input:focus-visible,
   transition: opacity 240ms var(--ease);
 }
 .paper-name[data-active="true"] {
-  opacity: 1;
   pointer-events: auto;
 }
 .paper-name[data-selected="true"] {
