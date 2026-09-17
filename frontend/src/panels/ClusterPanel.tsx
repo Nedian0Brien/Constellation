@@ -14,9 +14,10 @@ import {
 } from "../components/ui/item";
 import { fetchClusterDetail } from "../api";
 import { useWorkspace } from "../hooks/use-workspace";
+import { WorkList } from "./WorkList";
 
-// 목록 행은 선택 동작이라 button으로 그린다. Item의 hover는 링크에만 붙어 있어
-// 버튼에도 같은 피드백을 준다.
+// 하위 주제 행은 선택 동작이라 button으로 그린다. Item의 hover는 링크에만
+// 붙어 있어 버튼에도 같은 피드백을 준다.
 const rowClass = "cursor-pointer text-left hover:bg-muted";
 
 // 인스펙터 본문. 래퍼·헤더·닫기 버튼은 Inspector가 그린다.
@@ -39,7 +40,7 @@ export default function ClusterPanel() {
     const ids = descendants(workspace.tree, node.id);
     return (
       <div className="flex flex-col gap-4">
-        <span className="cl-eyebrow">연구 분야</span>
+        <span className="eyebrow">연구 분야</span>
         <h2 className="text-lg leading-snug font-semibold tracking-tight">
           {node.label}
         </h2>
@@ -48,7 +49,7 @@ export default function ClusterPanel() {
           <Badge variant="secondary">{ids.size}개 하위 주제</Badge>
         </div>
         <Separator />
-        <span className="cl-sec">하위 연구 주제</span>
+        <span className="eyebrow">하위 연구 주제</span>
         <ItemGroup>
           {workspace.clusters
             .filter((c) => ids.has(c.cluster_id))
@@ -93,7 +94,7 @@ export default function ClusterPanel() {
   const peak = Math.max(1, ...d.by_year.map((y) => y.n));
   return (
     <div className="flex flex-col gap-4">
-      <span className="cl-eyebrow">주제 덩어리 #{d.cluster_id}</span>
+      <span className="eyebrow">주제 덩어리 #{d.cluster_id}</span>
       <h2 className="text-lg leading-snug font-semibold tracking-tight">
         {d.label}
       </h2>
@@ -115,7 +116,7 @@ export default function ClusterPanel() {
       {d.by_year.length > 1 && (
         <>
           <Separator />
-          <span className="cl-sec">연도 분포</span>
+          <span className="eyebrow">연도 분포</span>
           <div className="spark">
             {d.by_year.map((y) => (
               <i
@@ -132,24 +133,8 @@ export default function ClusterPanel() {
         </>
       )}
       <Separator />
-      <span className="cl-sec">피인용 상위</span>
-      <ItemGroup>
-        {d.top_works.map((w) => (
-          <Item
-            key={w.id}
-            size="sm"
-            className={rowClass}
-            render={<button type="button" onClick={() => select(w.id)} />}
-          >
-            <ItemContent>
-              <ItemTitle className="line-clamp-2">{w.title}</ItemTitle>
-              <ItemDescription className="tabular-nums">
-                {w.year ?? "—"} · 피인용 {w.cited.toLocaleString()}
-              </ItemDescription>
-            </ItemContent>
-          </Item>
-        ))}
-      </ItemGroup>
+      <span className="eyebrow">피인용 상위</span>
+      <WorkList works={d.top_works} onSelect={select} />
     </div>
   );
 }
