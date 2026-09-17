@@ -11,13 +11,13 @@ test("real corpus: map, list, selection, history, reload and panels", async ({
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
-  await expect(page.locator(".paper-overlay")).toBeVisible();
+  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toBeVisible();
   await expect(map).toBeVisible();
   await expect(map).toHaveAttribute("data-camera", before!);
-  const title = page.locator(".paper-title-button").first();
+  const title = page.getByTestId("paper-title").first();
   const text = await title.textContent();
   await title.click();
-  await expect(page.locator(".paper-overlay")).toBeHidden();
+  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toBeHidden();
   await expect(page.getByTestId("inspector").locator("h2")).toHaveText(text!);
   const selectedURL = page.url();
   await page.getByRole("button", { name: "계층 트리", exact: true }).click();
@@ -64,11 +64,11 @@ test("query filters, empty results, sort, paging and scoped IDs", async ({
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
-  await expect(page.locator(".paper-title-button").first()).toBeVisible();
+  await expect(page.getByTestId("paper-title").first()).toBeVisible();
   const data = await (
     await request.get("/api/matches", { params: { run, q: "retrieval" } })
   ).json();
-  await expect(page.locator(".overlay-header")).toContainText(
+  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toContainText(
     data.total.toLocaleString(),
   );
   await page.getByRole("button", { name: "다음 페이지", exact: true }).click();
@@ -79,11 +79,11 @@ test("query filters, empty results, sort, paging and scoped IDs", async ({
   await page
     .getByRole("textbox", { name: "논문 검색", exact: true })
     .fill("zzzz-no-paper-zzzz");
-  await expect(page.locator(".paper-overlay")).toContainText(
+  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toContainText(
     "검색 결과가 없습니다",
   );
   await page.getByRole("textbox", { name: "논문 검색", exact: true }).fill("x");
-  await expect(page.locator(".paper-overlay")).toContainText("두 글자 이상");
+  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toContainText("두 글자 이상");
 });
 test("analysis views and missing artifacts in a different model", async ({
   page,
@@ -149,7 +149,7 @@ test("mobile overlays and no horizontal overflow", async ({ page }) => {
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
-  await page.locator(".paper-title-button").first().click();
+  await page.getByTestId("paper-title").first().click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByTestId("inspector").locator("h2")).toBeVisible();
 });
@@ -233,7 +233,7 @@ test("explicit region selection replaces paper detail with the real cluster", as
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
-  await page.locator(".paper-title-button").first().click();
+  await page.getByTestId("paper-title").first().click();
   await expect(page.getByTestId("inspector").locator("h2")).toBeVisible();
   await page
     .getByRole("button", { name: clusters[0].label, exact: true })
