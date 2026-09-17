@@ -20,7 +20,7 @@ date: 2026-09-17
 ## 원하는 결과
 
 - 좌측 탐색은 shadcn `Sidebar collapsible="icon"`이다. 접으면 아이콘 레일이 남고, `SidebarRail` 클릭·`SidebarTrigger`·`⌘B`로 열고 닫는다. 좁은 창에서는 Sidebar가 내장한 Sheet로 열린다.
-- 우측 인스펙터는 shadcn `Sidebar side="right" collapsible="offcanvas"`다. 논문·주제를 선택하면 열리고 선택을 지우면 닫힌다. 헤더 버튼으로도 여닫는다.
+- 우측 인스펙터는 shadcn `Sidebar side="right"`다(접기 방식은 spec에서 정한다). 논문·주제를 선택하면 열리고 선택을 지우면 닫힌다. 헤더 버튼으로도 여닫는다.
 - 두 패널의 열림 상태는 새로고침 뒤에도 유지된다.
 - 인스펙터 내용(논문 상세·주제 상세·빈 상태)은 `Badge`·`Empty`·`Item`·`Separator`·`Skeleton`·`Button`으로 구성한다. ✕ 버튼과 `<aside>` 래퍼는 셸이 한 번만 그린다.
 - 좌측 주제 목록(45개)은 `SidebarInput`으로 이름을 걸러 볼 수 있고, 개수는 `SidebarMenuBadge`로 표시한다.
