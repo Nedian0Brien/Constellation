@@ -6,9 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "data"
-RAW = DATA / "raw"
-DB_PATH = DATA / "constellation.duckdb"
 
 
 def _load_dotenv(path: Path = ROOT / ".env") -> None:
@@ -20,6 +17,16 @@ def _load_dotenv(path: Path = ROOT / ".env") -> None:
             continue
         k, v = line.split("=", 1)
         os.environ.setdefault(k.strip(), v.strip())
+
+
+_load_dotenv()
+# Explicit paths are resolved independently of the shell's current directory.
+_data_override = os.environ.get("CONSTELLATION_DATA_DIR")
+DATA = Path(_data_override).expanduser() if _data_override else ROOT / "data"
+if not DATA.is_absolute():
+    DATA = ROOT / DATA
+RAW = DATA / "raw"
+DB_PATH = DATA / "constellation.duckdb"
 
 
 @dataclass(frozen=True)

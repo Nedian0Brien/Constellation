@@ -1,390 +1,472 @@
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useReducedMotion } from "../hooks/use-reduced-motion";
+import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import DeckGL from "@deck.gl/react";
-import { ScatterplotLayer, TextLayer } from "@deck.gl/layers";
-import { OrthographicView } from "@deck.gl/core";
-import { useStore } from "../store";
-
-const YEAR_RAMP: [number, number, number][] = [
-  [ 31,  74, 106], [ 27, 110, 133], [ 42, 145, 140],
-  [ 92, 176, 122], [175, 199,  84], [246, 213,  53],
-];
-const CITED_RAMP: [number, number, number][] = [
-  [ 60,  72,  88], [ 71, 105, 145], [ 74, 145, 168],
-  [110, 182, 160], [200, 200, 110], [232, 154,  70],
-];
-const HAS_ABS: [number, number, number] = [42, 145, 140];
-const NO_ABS: [number, number, number] = [206, 106, 96];
-const NOISE: [number, number, number] = [104, 116, 130];
-
-type RGB = [number, number, number];
-
-function ramp(t: number, stops: RGB[]): RGB {
-  const c = Math.max(0, Math.min(1, t)) * (stops.length - 1);
-  const i = Math.min(Math.floor(c), stops.length - 2);
-  const f = c - i;
-  const a = stops[i], b = stops[i + 1];
-  return [
-    Math.round(a[0] + (b[0] - a[0]) * f),
-    Math.round(a[1] + (b[1] - a[1]) * f),
-    Math.round(a[2] + (b[2] - a[2]) * f),
-  ];
-}
-
-function hsl(h: number, s: number, l: number): RGB {
-  const S = s / 100, L = l / 100;
-  const k = (n: number) => (n + h / 30) % 12;
-  const a = S * Math.min(L, 1 - L);
-  const f = (n: number) =>
-    L - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
-}
-
-// 45개 덩어리를 구분하려면 색상환을 황금각으로 돌아야 인접 색이 안 겹친다.
-function clusterColor(id: number): RGB {
-  if (id < 0) return NOISE;
-  return hsl((id * 137.508) % 360, 52 + (id % 3) * 9, 55 + (id % 4) * 4);
-}
-
-const rgbStr = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
-
-/** 연도 → 0..1. 선형 min-max가 아니라 분위 척도다.
- *
- *  코퍼스는 2014–2026에 92%가 몰려 있고 backfill로 들어온 1945–2013이
- *  꼬리를 만든다. 선형으로 칠하면 실제로 보고 싶은 13년이 색상 범위의
- *  16%에 압축되어 전부 노란색이 된다. 논문 수 기준으로 나누면 색이
- *  고르게 퍼지고, 대신 색 간격이 시간 간격과 비례하지 않는다 —
- *  그래서 범례 눈금도 분위 위치에 찍는다.
- */
-function useYearScale(years: (number | null)[] | undefined) {
-  return useMemo(() => {
-    if (!years) return null;
-    const ys = years.filter((y): y is number => y != null).sort((a, b) => a - b);
-    if (!ys.length) return null;
-    const n = ys.length;
-    const pos = new Map<number, number>();
-    let i = 0;
-    while (i < n) {
-      let j = i;
-      while (j < n && ys[j] === ys[i]) j++;
-      pos.set(ys[i], (i + j) / 2 / n);   // 동률 구간의 중앙
-      i = j;
-    }
-    const quantile = (q: number) => ys[Math.min(n - 1, Math.floor(q * n))];
-    return { pos, quantile, min: ys[0], max: ys[n - 1] };
-  }, [years]);
-}
-
-function Legend() {
-  const map = useStore((s) => s.map);
-  const colorBy = useStore((s) => s.colorBy);
-  const clusters = useStore((s) => s.clusters);
-  const scale = useYearScale(map?.year);
-  if (!map) return null;
-
-  if (colorBy === "cluster") {
-    const noise = map.cluster.filter((c) => c < 0).length;
-    return (
-      <div className="legend">
-        <div className="lg-title">주제 덩어리</div>
-        <div className="lg-swatches">
-          {clusters.slice(0, 12).map((c) => (
-            <i key={c.cluster_id}
-               style={{ background: rgbStr(clusterColor(c.cluster_id)) }}
-               title={`${c.label} (${c.size.toLocaleString()}편)`} />
-          ))}
-        </div>
-        <div className="lg-note">
-          {clusters.length}개 덩어리 · 미분류 {noise.toLocaleString()}편 (
-          {Math.round((noise / map.n) * 100)}%). 라벨을 클릭하면 그 덩어리만 남는다.
-        </div>
-      </div>
-    );
-  }
-
-  if (colorBy === "abstract") {
-    const nNo = map.has_abstract.filter((h) => !h).length;
-    return (
-      <div className="legend">
-        <div className="lg-title">초록 유무</div>
-        <div className="lg-cats">
-          <span><i style={{ background: rgbStr(HAS_ABS) }} />있음 {(map.n - nNo).toLocaleString()}</span>
-          <span><i style={{ background: rgbStr(NO_ABS) }} />없음 {nNo.toLocaleString()}</span>
-        </div>
-        <div className="lg-note">초록이 없으면 제목만으로 임베딩된다 — 위치 신뢰도가 낮다.</div>
-      </div>
-    );
-  }
-
-  if (colorBy === "year") {
-    const grad = `linear-gradient(to right, ${YEAR_RAMP.map(rgbStr).join(",")})`;
-    const ticks = scale ? [0, 0.25, 0.5, 0.75, 0.999].map(scale.quantile) : [];
-    return (
-      <div className="legend">
-        <div className="lg-title">발행연도</div>
-        <div className="lg-bar" style={{ background: grad }} />
-        <div className="lg-ticks">
-          {ticks.map((y, i) => <span key={i}>{y}</span>)}
-        </div>
-        <div className="lg-note">
-          논문 수 기준 분위 척도 — 눈금은 균등하지만 연도 간격은 다르다.
-          코퍼스의 92%가 2014년 이후라 선형으로 칠하면 전부 같은 색이 된다.
-        </div>
-      </div>
-    );
-  }
-
-  const grad = `linear-gradient(to right, ${CITED_RAMP.map(rgbStr).join(",")})`;
-  return (
-    <div className="legend">
-      <div className="lg-title">피인용수</div>
-      <div className="lg-bar" style={{ background: grad }} />
-      <div className="lg-ends">
-        <span>0</span>
-        <span>{Math.max(...map.cited).toLocaleString()}</span>
-      </div>
-      <div className="lg-note">로그 척도. 점 크기도 피인용수를 따른다.</div>
-    </div>
-  );
-}
-
+import { ScatterplotLayer, BitmapLayer } from "@deck.gl/layers";
+import { OrthographicView, OrthographicViewport } from "@deck.gl/core";
+import type { PickingInfo } from "@deck.gl/core";
+import { Minus, Plus, RotateCcw } from "lucide-react";
+import { useAnalysis } from "../hooks/use-analysis";
+import { useExploration } from "../hooks/use-exploration";
+import { useStore, type Camera } from "../store";
+import { Button } from "../components/ui/button";
+import {
+  labelLevel,
+  regionLabels,
+  homeCamera,
+  descendants,
+  avoidCollisions,
+} from "./map/labels";
+import { clusterColor, regionTexture } from "./map/regions";
+const view = new OrthographicView({ id: "research-map" });
 export default function MapView() {
-  const map = useStore((s) => s.map);
-  const colorBy = useStore((s) => s.colorBy);
-  const yearRange = useStore((s) => s.yearRange);
-  const selected = useStore((s) => s.selected);
-  const highlighted = useStore((s) => s.highlighted);
-  const select = useStore((s) => s.select);
-  const clusters = useStore((s) => s.clusters);
-  const selectedCluster = useStore((s) => s.selectedCluster);
-  const selectCluster = useStore((s) => s.selectCluster);
-  const tree = useStore((s) => s.tree);
-  const selectedNode = useStore((s) => s.selectedNode);
-
-  const [viewState, setViewState] = useState<any>(null);
-  const [hoverInfo, setHoverInfo] = useState<any>(null);
-  const home = useRef<any>(null);
-  const scale = useYearScale(map?.year);
-
-  const positions = useMemo(() => {
-    if (!map) return null;
-    const a = new Float32Array(map.n * 2);
-    for (let i = 0; i < map.n; i++) {
-      a[i * 2] = map.x[i];
-      a[i * 2 + 1] = map.y[i];
-    }
-    return a;
-  }, [map]);
-
-  // run이 바뀌면 좌표계 자체가 달라진다. 홈 뷰를 다시 잡아야 한다.
+  const a = useAnalysis(),
+    { state, update } = useExploration(),
+    map = a.map.data!;
+  const container = useRef<HTMLDivElement>(null),
+    [size, setSize] = useState({ width: 800, height: 600 });
+  const saved = useStore((s) => s.cameras[map.run_id]),
+    setCamera = useStore((s) => s.setCamera);
+  const home = useMemo(
+    () => homeCamera(map, size.width, size.height),
+    [map, size],
+  );
+  const camera = saved ?? home,
+    frame = useRef(0);
+  const reduced = useReducedMotion();
+  const [hover, setHover] = useState<PickingInfo | null>(null);
   useEffect(() => {
-    if (!map || home.current?.run === map.run_id) return;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (let i = 0; i < map.n; i++) {
-      if (map.x[i] < minX) minX = map.x[i];
-      if (map.x[i] > maxX) maxX = map.x[i];
-      if (map.y[i] < minY) minY = map.y[i];
-      if (map.y[i] > maxY) maxY = map.y[i];
-    }
-    const span = Math.max(maxX - minX, maxY - minY) || 1;
-    const vs = {
-      target: [(minX + maxX) / 2, (minY + maxY) / 2, 0],
-      zoom: Math.log2(620 / span),
-      minZoom: -4,
-      maxZoom: 12,
+    if (reduced) cancelAnimationFrame(frame.current);
+  }, [reduced]);
+  useEffect(() => {
+    const o = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0 && entry.contentRect.height > 0)
+        setSize({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+    });
+    if (container.current) o.observe(container.current);
+    return () => {
+      o.disconnect();
+      cancelAnimationFrame(frame.current);
     };
-    home.current = { ...vs, run: map.run_id };
-    setViewState(vs);
-  }, [map]);
-
-  // 트리에서 가지를 고르면 그 아래 잎 클러스터들만 지도에 남긴다.
-  const nodeClusters = useMemo(() => {
-    if (!tree || selectedNode == null) return null;
-    const byId = new Map(tree.nodes.map((n) => [n.id, n]));
-    const out = new Set<number>();
-    const stack = [selectedNode];
-    while (stack.length) {
-      const n = byId.get(stack.pop()!);
-      if (!n) continue;
-      if (n.cluster_id != null) out.add(n.cluster_id);
-      if (n.left != null) stack.push(n.left);
-      if (n.right != null) stack.push(n.right);
-    }
-    return out;
-  }, [tree, selectedNode]);
-
-  const colors = useMemo(() => {
-    if (!map) return null;
-    const out = new Uint8Array(map.n * 4);
-    const maxLog = Math.log1p(Math.max(1, ...map.cited));
-
-    for (let i = 0; i < map.n; i++) {
-      let c: RGB;
-      if (colorBy === "cluster") {
-        c = clusterColor(map.cluster[i]);
-      } else if (colorBy === "year") {
-        const y = map.year[i];
-        c = y == null ? NOISE : ramp(scale?.pos.get(y) ?? 0.5, YEAR_RAMP);
-      } else if (colorBy === "cited") {
-        c = ramp(Math.log1p(map.cited[i]) / maxLog, CITED_RAMP);
-      } else {
-        c = map.has_abstract[i] ? HAS_ABS : NO_ABS;
+  }, []);
+  const move = useCallback(
+    (next: Camera, animate = true) => {
+      cancelAnimationFrame(frame.current);
+      if (!animate || reduced) {
+        setCamera(map.run_id, next);
+        return;
       }
-
-      const y = map.year[i];
-      const inRange = y == null || (y >= yearRange[0] && y <= yearRange[1]);
-      const isSel = map.id[i] === selected;
-      const inCluster = selectedCluster == null || map.cluster[i] === selectedCluster;
-      const isHi = highlighted.size > 0 && highlighted.has(map.id[i]);
-
-      let alpha = inRange ? 190 : 16;
-      if (nodeClusters && inRange)
-        alpha = nodeClusters.has(map.cluster[i]) ? 235 : 20;
-      if (selectedCluster != null && inRange) alpha = inCluster ? 235 : 22;
-      if (highlighted.size > 0 && inRange) alpha = isHi ? 240 : 26;
-      if (isSel) alpha = 255;
-
-      out[i * 4] = isSel ? 255 : c[0];
-      out[i * 4 + 1] = isSel ? 255 : c[1];
-      out[i * 4 + 2] = isSel ? 255 : c[2];
-      out[i * 4 + 3] = alpha;
-    }
-    return out;
-  }, [map, colorBy, yearRange, selected, highlighted, selectedCluster, scale, nodeClusters]);
-
-  const radii = useMemo(() => {
-    if (!map) return null;
-    const a = new Float32Array(map.n);
-    const maxLog = Math.log1p(Math.max(1, ...map.cited));
-    for (let i = 0; i < map.n; i++) {
-      a[i] = 1.4 + 3.4 * (Math.log1p(map.cited[i]) / maxLog);
-    }
-    return a;
+      const from = useStore.getState().cameras[map.run_id] ?? home,
+        start = performance.now();
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - start) / 280),
+          f = 1 - (1 - t) ** 3;
+        setCamera(map.run_id, {
+          zoom: from.zoom + (next.zoom - from.zoom) * f,
+          target: from.target.map(
+            (v, i) => v + (next.target[i] - v) * f,
+          ) as Camera["target"],
+        });
+        if (t < 1) frame.current = requestAnimationFrame(tick);
+      };
+      frame.current = requestAnimationFrame(tick);
+    },
+    [map.run_id, home, reduced, setCamera],
+  );
+  const viewport = useMemo(
+    () => new OrthographicViewport({ ...camera, ...size }),
+    [camera, size],
+  );
+  const lastSelected = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!state.selected || lastSelected.current === state.selected) return;
+    lastSelected.current = state.selected;
+    const i = map.id.indexOf(state.selected);
+    if (i < 0) return;
+    const [x, y] = viewport.project([map.x[i], map.y[i], 0]);
+    if (x < 70 || y < 70 || x > size.width - 70 || y > size.height - 70)
+      move({ ...camera, target: [map.x[i], map.y[i], 0] });
+  }, [state.selected, map, viewport, move, camera, size.width, size.height]);
+  const selectedIndex = map.id.indexOf(state.selected ?? "");
+  const points = useMemo(
+    () =>
+      map.id.map((id, i) => ({
+        id,
+        i,
+        position: [map.x[i], map.y[i], 0] as [number, number, number],
+      })),
+    [map],
+  );
+  const nodeClusters = useMemo(
+    () =>
+      state.node !== undefined && a.tree.data
+        ? descendants(a.tree.data, state.node)
+        : null,
+    [a.tree.data, state.node],
+  );
+  const yearRank = useMemo(() => {
+    const years = [
+      ...new Set(map.year.filter((y): y is number => y !== null)),
+    ].sort((a, b) => a - b);
+    return new Map(years.map((y, i) => [y, i / Math.max(1, years.length - 1)]));
   }, [map]);
-
-  // 45개 라벨을 한꺼번에 띄우면 읽을 수 없다. 줌에 따라 늘린다.
-  const visibleLabels = useMemo(() => {
-    if (!clusters.length || !viewState || !home.current) return [];
-    const step = viewState.zoom - home.current.zoom;
-    const k = Math.round(Math.max(6, Math.min(clusters.length, 6 * Math.pow(1.9, step))));
-    return clusters.slice(0, k);
-  }, [clusters, viewState]);
-
-  if (!map || !positions || !colors || !radii || !viewState) {
-    return <div className="map-empty">지도를 불러오는 중…</div>;
-  }
-
-  const layers: any[] = [
+  const maxLog = Math.log1p(Math.max(1, ...map.cited));
+  const colors = useMemo(
+    () =>
+      points.map((p) => {
+        let c = clusterColor(map.cluster[p.i]);
+        if (state.color === "year") {
+          const v =
+            map.year[p.i] === null ? null : yearRank.get(map.year[p.i]!);
+          c =
+            v === null
+              ? [130, 131, 142]
+              : [
+                  100 + Math.round(140 * (v ?? 0)),
+                  110 + Math.round(130 * (v ?? 0)),
+                  135 + Math.round(110 * (v ?? 0)),
+                ];
+        }
+        if (state.color === "cited") {
+          const v = Math.log1p(map.cited[p.i]) / maxLog;
+          c = [
+            120 + Math.round(120 * v),
+            110 + Math.round(85 * v),
+            145 - Math.round(35 * v),
+          ];
+        }
+        if (state.color === "abstract")
+          c = map.has_abstract[p.i] ? [141, 223, 193] : [255, 161, 174];
+        const hit =
+          a.valid &&
+          a.ids.has(p.id) &&
+          (state.cluster === undefined || map.cluster[p.i] === state.cluster) &&
+          (!nodeClusters || nodeClusters.has(map.cluster[p.i]));
+        return (
+          p.id === state.selected
+            ? [255, 255, 255, 255]
+            : [...c, hit ? 205 : 18]
+        ) as [number, number, number, number];
+      }),
+    [
+      points,
+      map,
+      state.color,
+      state.selected,
+      state.cluster,
+      nodeClusters,
+      a.ids,
+      a.valid,
+      yearRank,
+      maxLog,
+    ],
+  );
+  const texture = useMemo(
+    () => regionTexture(map, a.clusters.data ?? []),
+    [map, a.clusters.data],
+  );
+  const level = labelLevel(camera.zoom - home.zoom);
+  const top = useMemo(
+    () => regionLabels(a.tree.data, a.clusters.data ?? [], 0),
+    [a.tree.data, a.clusters.data],
+  );
+  const sub = useMemo(
+    () => regionLabels(a.tree.data, a.clusters.data ?? [], 1),
+    [a.tree.data, a.clusters.data],
+  );
+  const leaves = useMemo(
+    () => regionLabels(a.tree.data, a.clusters.data ?? [], 2),
+    [a.tree.data, a.clusters.data],
+  );
+  const titles = useMemo(
+    () =>
+      avoidCollisions(
+        points
+          .filter((p) => a.ids.has(p.id))
+          .sort((p, q) => map.cited[q.i] - map.cited[p.i])
+          .map((p) => {
+            const [x, y] = viewport.project(p.position);
+            return {
+              id: p.id,
+              text: map.title[p.i],
+              x,
+              y,
+              selected: p.id === state.selected,
+            };
+          }),
+        size.width,
+        size.height,
+      ),
+    [points, a.ids, viewport, map, state.selected, size],
+  );
+  const layers = [
+    ...(texture
+      ? [
+          new BitmapLayer({
+            id: "soft-regions",
+            image: texture.image,
+            bounds: texture.bounds,
+            opacity: state.color === "cluster" ? 0.7 : 0.2,
+            pickable: false,
+          }),
+        ]
+      : []),
     new ScatterplotLayer({
-      id: "works",
-      data: {
-        length: map.n,
-        attributes: {
-          getPosition: { value: positions, size: 2 },
-          getFillColor: { value: colors, size: 4 },
-          getRadius: { value: radii, size: 1 },
-        },
-      } as any,
+      id: "papers",
+      data: points,
+      getPosition: (p) => p.position,
+      getFillColor: (p) => colors[p.i],
+      getRadius: (p) =>
+        state.color === "cited"
+          ? 1.5 + (3 * Math.log1p(map.cited[p.i])) / maxLog
+          : 1.5,
       radiusUnits: "pixels",
-      radiusMinPixels: 1.4,
-      radiusMaxPixels: 16,
+      radiusMinPixels: 1.3,
       pickable: true,
       autoHighlight: true,
       highlightColor: [255, 255, 255, 255],
-      updateTriggers: {
-        getFillColor: [colorBy, yearRange, selected, highlighted, selectedCluster, selectedNode],
-      },
-      onHover: (info: any) => setHoverInfo(info?.index >= 0 ? info : null),
-      onClick: (info: any) => {
-        if (info?.index >= 0) select(map.id[info.index]);
+      updateTriggers: { getFillColor: [colors], getRadius: [state.color] },
+      onHover: (info) => setHover(info.index >= 0 ? info : null),
+      onClick: (info) => {
+        if (info.object) update({ selected: info.object.id });
       },
     }),
+    new ScatterplotLayer({
+      id: "selected-halo",
+      data: selectedIndex >= 0 ? [points[selectedIndex]] : [],
+      getPosition: (p) => p.position,
+      getRadius: 10,
+      radiusUnits: "pixels",
+      filled: false,
+      stroked: true,
+      getLineColor: [232, 232, 236, 210],
+      lineWidthUnits: "pixels",
+      getLineWidth: 1,
+      pickable: false,
+    }),
   ];
-
-  if (visibleLabels.length) {
-    layers.push(
-      new TextLayer({
-        id: "cluster-labels",
-        data: visibleLabels,
-        getPosition: (d: any) => [d.x, d.y],
-        getText: (d: any) => d.label,
-        getSize: 11.5,
-        sizeUnits: "pixels",
-        getColor: (d: any) =>
-          selectedCluster == null || d.cluster_id === selectedCluster
-            ? [232, 238, 245, 255]
-            : [232, 238, 245, 70],
-        getTextAnchor: "middle",
-        getAlignmentBaseline: "center",
-        background: true,
-        getBackgroundColor: (d: any) =>
-          d.cluster_id === selectedCluster ? [16, 51, 58, 235] : [12, 17, 23, 195],
-        backgroundPadding: [5, 3, 5, 3],
-        fontFamily: '"IBM Plex Sans KR", system-ui, sans-serif',
-        characterSet: "auto",
-        maxWidth: 220,
-        pickable: true,
-        updateTriggers: {
-          getColor: [selectedCluster],
-          getBackgroundColor: [selectedCluster],
-        },
-        onClick: (info: any) => {
-          const d = info?.object;
-          if (d) selectCluster(selectedCluster === d.cluster_id ? null : d.cluster_id);
-        },
-      }),
-    );
-  }
-
-  const atHome =
-    home.current &&
-    Math.abs(viewState.zoom - home.current.zoom) < 0.01 &&
-    Math.abs(viewState.target[0] - home.current.target[0]) < 0.01 &&
-    Math.abs(viewState.target[1] - home.current.target[1]) < 0.01;
-
+  const renderRegions = (
+    items: typeof top,
+    active: boolean,
+    prefix: string,
+  ) => {
+    const boxes: { x: number; y: number; w: number; h: number }[] = [];
+    return [...items]
+      .sort((a, b) => b.size - a.size)
+      .map((n) => {
+        const [x, y] = viewport.project([n.x, n.y, 0]);
+        const w = Math.min(205, n.label.length * 10),
+          h = Math.ceil(n.label.length / 20) * 23;
+        let visible =
+          active &&
+          x > w / 2 &&
+          x < size.width - w / 2 &&
+          y > 55 + h / 2 &&
+          y < size.height - 75 - h / 2;
+        if (
+          visible &&
+          boxes.some(
+            (b) =>
+              Math.abs(x - b.x) < (w + b.w) / 2 + 12 &&
+              Math.abs(y - b.y) < (h + b.h) / 2 + 10,
+          )
+        )
+          visible = false;
+        if (visible) boxes.push({ x, y, w, h });
+        return (
+          <button
+            key={prefix + n.id}
+            className="region-name"
+            title={n.label}
+            data-active={visible}
+            style={{ left: x, top: y }}
+            tabIndex={visible ? 0 : -1}
+            aria-hidden={!visible}
+            onClick={() => {
+              update({
+                node: n.node,
+                selected: undefined,
+                cluster: n.node === undefined ? n.cluster : undefined,
+              });
+              move({
+                target: [n.x, n.y, 0],
+                zoom: Math.max(
+                  camera.zoom + 0.8,
+                  home.zoom + (prefix === "top" ? 1.2 : 3),
+                ),
+              });
+            }}
+          >
+            {n.label}
+          </button>
+        );
+      });
+  };
   return (
-    <div className="map-wrap">
+    <div
+      ref={container}
+      className="map-wrap"
+      data-testid="research-map"
+      data-label-level={level}
+      data-camera={`${camera.zoom.toFixed(4)}:${camera.target.slice(0, 2).join(",")}`}
+      tabIndex={0}
+      aria-label="연구 지도. 방향키 이동, 더하기와 빼기로 확대 축소"
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (["+", "=", "-"].includes(e.key)) {
+          e.preventDefault();
+          move(
+            { ...camera, zoom: camera.zoom + (e.key === "-" ? -0.5 : 0.5) },
+            false,
+          );
+        } else if (e.key.startsWith("Arrow")) {
+          e.preventDefault();
+          const d = 40 / 2 ** camera.zoom;
+          move(
+            {
+              ...camera,
+              target: [
+                camera.target[0] +
+                  (e.key === "ArrowLeft" ? -d : e.key === "ArrowRight" ? d : 0),
+                camera.target[1] +
+                  (e.key === "ArrowUp" ? -d : e.key === "ArrowDown" ? d : 0),
+                0,
+              ],
+            },
+            false,
+          );
+        }
+      }}
+    >
       <DeckGL
-        views={new OrthographicView({ id: "ortho" })}
-        viewState={viewState}
-        onViewStateChange={({ viewState: vs }: any) => setViewState(vs)}
+        pickingRadius={6}
+        views={view}
+        viewState={{
+          ...camera,
+          minZoom: home.zoom - 2,
+          maxZoom: home.zoom + 8,
+        }}
         controller={{ dragRotate: false }}
+        onViewStateChange={({ viewState: next }) => {
+          cancelAnimationFrame(frame.current);
+          setCamera(map.run_id, next as Camera);
+        }}
         layers={layers}
-        getCursor={({ isDragging }: any) =>
-          isDragging ? "grabbing" : hoverInfo ? "pointer" : "grab"
+        getCursor={({ isDragging }) =>
+          isDragging ? "grabbing" : hover ? "pointer" : "grab"
         }
       />
-
-      <Legend />
-
-      {!atHome && (
-        <button className="reset" onClick={() => setViewState({ ...home.current })}>
-          전체 보기로
-        </button>
-      )}
-
-      {selectedCluster != null && (
-        <button className="clearcl" onClick={() => selectCluster(null)}>
-          덩어리 선택 해제
-        </button>
-      )}
-
-      {!hoverInfo && selectedCluster == null && (
-        <div className="hint">
-          점 위에 올리면 논문, 클릭하면 상세. 라벨을 누르면 그 덩어리만 남는다.
-        </div>
-      )}
-
-      {hoverInfo && (
-        <div className="tooltip" style={{ left: hoverInfo.x + 14, top: hoverInfo.y + 14 }}>
-          <div className="tt-title">{map.title[hoverInfo.index]}</div>
-          <div className="tt-meta">
-            {map.year[hoverInfo.index] ?? "연도 미상"} · 피인용{" "}
-            {map.cited[hoverInfo.index].toLocaleString()}
-            {map.cluster[hoverInfo.index] >= 0 &&
-              " · " +
-                (clusters.find((c) => c.cluster_id === map.cluster[hoverInfo.index])
-                  ?.label ?? `덩어리 ${map.cluster[hoverInfo.index]}`)}
-            {!map.has_abstract[hoverInfo.index] && " · 초록 없음"}
+      <div className="map-labels" aria-label="지도 라벨">
+        {renderRegions(top, level === "field", "top")}
+        {renderRegions(
+          sub,
+          level === "topic" && camera.zoom - home.zoom < 2,
+          "sub",
+        )}
+        {renderRegions(
+          leaves,
+          level === "topic" && camera.zoom - home.zoom >= 2,
+          "leaf",
+        )}
+        {titles.map((l) => (
+          <button
+            key={l.id}
+            className="paper-name"
+            data-active={level === "paper"}
+            style={{
+              left: Math.min(
+                l.x + 12,
+                size.width - Math.min(260, l.text.length * 6.4) - 8,
+              ),
+              top: l.y,
+            }}
+            tabIndex={level === "paper" ? 0 : -1}
+            aria-hidden={level !== "paper"}
+            onClick={() => update({ selected: l.id })}
+          >
+            {l.text}
+          </button>
+        ))}
+      </div>
+      <div className="map-caption">
+        <span className="eyebrow">
+          {level === "field"
+            ? "상위 분야"
+            : level === "topic"
+              ? "하위 분야"
+              : "논문 제목"}
+        </span>
+        <span>
+          {a.clusters.data?.length ?? 0}개 주제 · {map.n.toLocaleString()}편
+        </span>
+      </div>
+      <div className="map-controls">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="지도 축소"
+          onClick={() =>
+            move({
+              ...camera,
+              zoom: Math.max(home.zoom - 2, camera.zoom - 0.6),
+            })
+          }
+        >
+          <Minus />
+        </Button>
+        <span className="mono">
+          {Math.round(100 * 2 ** (camera.zoom - home.zoom))}%
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="지도 확대"
+          onClick={() =>
+            move({
+              ...camera,
+              zoom: Math.min(home.zoom + 8, camera.zoom + 0.6),
+            })
+          }
+        >
+          <Plus />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="지도 전체 보기"
+          onClick={() => {
+            update({ cluster: undefined, node: undefined });
+            move(home);
+          }}
+        >
+          <RotateCcw />
+        </Button>
+      </div>
+      <div className="map-footnote">
+        {state.color === "year"
+          ? "발행연도 · 밝을수록 최근 · 연도 미상은 회색"
+          : state.color === "cited"
+            ? "피인용수 · 색·크기 로그 척도"
+            : state.color === "abstract"
+              ? "초록 있음: 녹색 / 없음: 분홍"
+              : "색상: 연구 주제 · 미분류: 회색"}
+        <br />
+        지도 거리는 차원 축소 결과입니다. 인용 관계와 함께 확인하세요.
+      </div>
+      {hover && (
+        <div
+          className="tooltip"
+          style={{
+            left: Math.min(hover.x + 14, size.width - 290),
+            top: Math.min(hover.y + 12, size.height - 100),
+          }}
+        >
+          <strong>{map.title[hover.index]}</strong>
+          <div>
+            {map.year[hover.index] ?? "연도 미상"} · 피인용{" "}
+            {map.cited[hover.index].toLocaleString()}
           </div>
         </div>
       )}

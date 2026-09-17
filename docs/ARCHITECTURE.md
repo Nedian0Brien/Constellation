@@ -164,3 +164,15 @@ constellation stats                  # 초록 커버리지, 연도 분포, 중�
 ```
 
 `constellation stats`를 M0에 넣는 이유 — OpenAlex 초록 커버리지가 이 프로젝트의 최대 미지수다. 첫 수집 직후 바로 측정할 수단이 있어야 한다.
+
+## 제품 기반 업데이트 — 2026-09-12
+
+프론트의 서버 데이터는 TanStack Query가 관리한다. `app/navigation.ts`가 URL 입력을 검증하고 `use-exploration.ts`가 탐색 상태를 변경한다. 기본 run을 처음 결정할 때 기존 링크의 선택과 필터를 보존하며, 사용자가 모델을 바꿀 때만 run 종속 선택을 해제한다. Zustand에는 run별 카메라 등 일시 상태를 둔다.
+
+`AppShell`은 shadcn Sidebar·Resizable·Sheet를 조합한다. 논문 목록은 지도 위의 오버레이이고 패널 크기·접힘은 버전이 있는 로컬 저장 값으로 복원한다. `views/map/labels.ts`는 실제 계층 트리와 가시 영역을 사용하며 라벨 중첩을 줄인다.
+
+- `GET /api/works`: run·q·year_from·year_to·sort·order·page·page_size를 받아 `{items,total,page,page_size}` 반환.
+- `GET /api/matches`: 동일한 run·검색·연도 조건의 `{ids,total}` 반환.
+- `GET /api/works/{id}?run=...`: 선택 논문이 해당 run에 포함되는지 검증.
+
+두 목록 조회는 `db/queries.py`의 조건을 공유한다. 검색은 제목·초록의 부분 문자열이며, SQL 매개변수로 전달한다. 연도 미상은 기간 필터에 포함한다. 기본 데이터 경로는 저장소의 `data/`; `CONSTELLATION_DATA_DIR`로 재정의할 수 있다. API는 읽기 전용이고 테스트는 임시 DB를 사용한다.
