@@ -178,6 +178,41 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
   );
   for (const [title, on] of before)
     if (after.has(title)) expect(after.get(title), title ?? "").toBe(on);
+  // 휠로 확대한 뒤 키로 확대해도 지도가 따라온다. deck이 주는 viewState의 내부 값
+  // (zoomX·zoomY)을 그대로 저장하면 뒤의 키 확대가 배율 표시와 라벨만 바꾸고 지도는
+  // 그대로라 라벨이 제자리에 못 박힌다.
+  const zoomOf = async () =>
+    Number((await map.getAttribute("data-camera"))!.split(":")[0]);
+  const box = (await map.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const beforeWheel = await zoomOf();
+  await page.mouse.wheel(0, 120);
+  await expect.poll(zoomOf).not.toBe(beforeWheel);
+  // 화면 중앙에서 조금 떨어진 제목 하나를 잡아 둔다(너무 멀면 확대 뒤 화면 밖).
+  // 확대하면 제자리에서 밀려나야 한다.
+  const pin = await page.locator(".paper-name").evaluateAll(
+    (els, mid) => {
+      const e = els.find((el) => {
+        const dx = Math.abs(parseFloat(el.style.left) - mid[0]),
+          dy = Math.abs(parseFloat(el.style.top) - mid[1]);
+        return dx > 40 && dx < mid[0] / 2 && dy < mid[1] / 2;
+      });
+      return e
+        ? { title: e.getAttribute("title") ?? "", left: e.style.left }
+        : null;
+    },
+    [box.width / 2, box.height / 2],
+  );
+  expect(pin).not.toBeNull();
+  await map.press("+");
+  await expect
+    .poll(() =>
+      page
+        .getByTitle(pin!.title, { exact: true })
+        .first()
+        .evaluate((e) => (e as HTMLElement).style.left),
+    )
+    .not.toBe(pin!.left);
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();

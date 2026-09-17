@@ -18,9 +18,9 @@ import {
   regionRadii,
   regionLabels,
   revealZooms,
+  MAX_ROWS,
   homeCamera,
   descendants,
-  visibleTitles,
 } from "./map/labels";
 import { clusterColor, regionTexture } from "./map/regions";
 const view = new OrthographicView({ id: "research-map" });
@@ -30,7 +30,18 @@ const view = new OrthographicView({ id: "research-map" });
 const TITLE_MAX_WIDTH = 220,
   TITLE_PADDING = 8,
   TITLE_GAP_X = 8,
-  TITLE_HEIGHT = 20 + 4;
+  TITLE_HEIGHT = 20 + 4,
+  // 화면 밖이어도 이만큼 안이면 그린다: 가로는 라벨 폭의 절반, 세로는 쌓인 줄까지.
+  TITLE_MARGIN_X = TITLE_MAX_WIDTH / 2 + TITLE_GAP_X,
+  TITLE_MARGIN_Y = TITLE_HEIGHT * (MAX_ROWS + 1);
+interface PositionedTitle {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  selected: boolean;
+  opacity: number;
+}
 // 기준 배율 위로 확대할 수 있는 단계. 25600%.
 const ZOOM_RANGE = 8;
 // 제목 폭을 실제 글꼴로 잰다. 캔버스가 없으면 글자 수로 어림한다.
@@ -302,29 +313,50 @@ export default function MapView() {
   );
   // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 투영할 이유가 없다.
   const showTitles = level !== "field";
-  const titles = useMemo(
-    () =>
-      showTitles
-        ? visibleTitles(
-            boxes.map((b, k) => {
-              const [x, y] = viewport.project([b.x, b.y, 0]);
-              const id = map.id[b.i];
-              return {
-                id,
-                text: map.title[b.i],
-                x,
-                y,
-                selected: id === state.selected,
-                reveal: reveals.zoom[k],
-                row: reveals.row[k],
-              };
-            }),
-            size.width,
-            size.height,
-          )
-        : [],
-    [showTitles, boxes, reveals, viewport, map, state.selected, size],
-  );
+  // 카메라가 움직일 때마다 돈다. 화면(여백 포함)을 지도 좌표로 되돌려 그 안의 점만
+  // 투영하고, 지금 배율에서 불투명도가 0인 제목은 아예 만들지 않는다 — 1만 개를
+  // 투영하고 수백 개를 투명하게 그리던 것이 확대·축소 렉의 원인이었다.
+  const titles = useMemo(() => {
+    if (!showTitles) return [];
+    const [wx0, wy0] = viewport.unproject([-TITLE_MARGIN_X, -TITLE_MARGIN_Y]),
+      [wx1, wy1] = viewport.unproject([
+        size.width + TITLE_MARGIN_X,
+        size.height + TITLE_MARGIN_Y,
+      ]);
+    const out: PositionedTitle[] = [];
+    for (let k = 0; k < boxes.length; k++) {
+      const b = boxes[k];
+      if (b.x < wx0 || b.x > wx1 || b.y < wy0 || b.y > wy1) continue;
+      const id = map.id[b.i],
+        selected = id === state.selected,
+        // 제목마다 제 배율에서 서서히 진해진다. 선택한 논문은 이웃에 가려지지 않는다.
+        opacity = selected
+          ? paperOpacity
+          : labelOpacity(camera.zoom, reveals.zoom[k], paperFloor);
+      if (opacity <= 0) continue;
+      const [x, y] = viewport.project([b.x, b.y, 0]);
+      out.push({
+        id,
+        text: map.title[b.i],
+        x,
+        y: y + 7 + TITLE_HEIGHT * reveals.row[k],
+        selected,
+        opacity,
+      });
+    }
+    return out;
+  }, [
+    showTitles,
+    boxes,
+    reveals,
+    viewport,
+    size,
+    map,
+    state.selected,
+    paperOpacity,
+    paperFloor,
+    camera.zoom,
+  ]);
   const layers = [
     ...(texture
       ? [
@@ -371,6 +403,10 @@ export default function MapView() {
       pickable: false,
     }),
   ];
+  // 영역 이름은 켜진 것만 자리를 옮긴다. 꺼진 이름은 마지막 자리에 그대로 두어
+  // 240ms 페이드아웃만 하고, 한 번도 켜진 적 없는 이름은 만들지 않는다 — 매 프레임
+  // 65개의 위치를 갱신하던 것이 스타일 재계산의 대부분이었다.
+  const lastPlaced = useRef(new Map<string, [number, number]>());
   const renderRegions = (
     items: typeof top,
     active: boolean,
@@ -378,8 +414,11 @@ export default function MapView() {
   ) => {
     return items.map((n) => {
       const placed = shownRegions.get(n.id);
-      const [x, y] = placed ?? viewport.project([n.x, n.y, 0]);
       const visible = active && !!placed;
+      if (visible) lastPlaced.current.set(n.id, placed!);
+      const at = visible ? placed! : lastPlaced.current.get(n.id);
+      if (!at) return null;
+      const [x, y] = at;
       return (
         <button
           key={prefix + n.id}
@@ -417,6 +456,7 @@ export default function MapView() {
       data-label-level={level}
       data-paper-labels={paperLabelsOn}
       data-paper-opacity={paperOpacity.toFixed(2)}
+      data-reveal-floor={settledHome.toFixed(4)}
       data-camera={`${camera.zoom.toFixed(4)}:${camera.target.slice(0, 2).join(",")}`}
       tabIndex={0}
       aria-label="연구 지도. 방향키 이동, 더하기와 빼기로 확대 축소"
@@ -458,7 +498,14 @@ export default function MapView() {
         controller={{ dragRotate: false }}
         onViewStateChange={({ viewState: next }) => {
           cancelAnimationFrame(frame.current);
-          setCamera(map.run_id, next as Camera);
+          // deck이 주는 viewState에는 zoomX·zoomY·width 같은 제 내부 값이 딸려 온다.
+          // 그대로 저장하면 뒤에 zoom만 바꾸는 키·버튼 확대가 zoomX·zoomY에 눌려
+          // 지도는 그대로인데 배율 표시와 라벨만 바뀐다. 카메라 두 값만 남긴다.
+          const { target = camera.target, zoom = camera.zoom } = next;
+          setCamera(map.run_id, {
+            target: [target[0], target[1], 0],
+            zoom: typeof zoom === "number" ? zoom : camera.zoom,
+          });
         }}
         layers={layers}
         getCursor={({ isDragging }) =>
@@ -477,32 +524,19 @@ export default function MapView() {
           relativeZoom >= 2 && relativeZoom < PAPER_LABEL_ZOOM + 0.5,
           "leaf",
         )}
-        {titles.map((l) => {
-          // 제목마다 제 배율에서 서서히 진해진다. 선택한 논문은 이웃에 가려지지 않는다.
-          const opacity = l.selected
-            ? paperOpacity
-            : labelOpacity(camera.zoom, l.reveal, paperFloor);
-          const on = opacity > 0;
-          return (
-            <button
-              key={l.id}
-              className="paper-name"
-              data-active={on}
-              data-selected={l.selected || undefined}
-              title={l.text}
-              style={{
-                left: l.x,
-                top: l.y + 7 + TITLE_HEIGHT * l.row,
-                opacity,
-              }}
-              tabIndex={on ? 0 : -1}
-              aria-hidden={!on}
-              onClick={() => update({ selected: l.id })}
-            >
-              {l.text}
-            </button>
-          );
-        })}
+        {titles.map((l) => (
+          <button
+            key={l.id}
+            className="paper-name"
+            data-active="true"
+            data-selected={l.selected || undefined}
+            title={l.text}
+            style={{ left: l.x, top: l.y, opacity: l.opacity }}
+            onClick={() => update({ selected: l.id })}
+          >
+            {l.text}
+          </button>
+        ))}
       </div>
       <div className="map-caption">
         <span className="eyebrow">

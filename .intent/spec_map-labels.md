@@ -21,7 +21,9 @@ date: 2026-09-17
 - [x] E2E 시나리오 4가 하위 분야 단계에서 영역 이름과 논문 제목 중 하나만 켜져 있는지, 3200% 이상에서 제목이 보이는지, 축소하면 상위 분야로 돌아오는지 확인한다.
 - [x] `revealZooms(boxes, floor, height)`가 논문마다 켜지는 절대 배율(log2 px/단위)을 준다. 이웃 j와 떨어지는 배율은 s = min(((w_i+w_j)/2)/|dx|, h/|dy|). 바닥 배율에서 피인용순(같으면 입력 순)으로 자리를 잡고, 막힌 라벨은 "켜진 이웃과 다 떨어지는 배율"을 열쇠로 힙에 넣어 배율 순으로 켠다. 꺼낼 때 그사이 켜진 이웃만 다시 보고(켜진 순서 도장), 열쇠가 오르면 다시 넣는다. 불변식: 어떤 배율에서든 안 켜진 라벨은 켜진 라벨 하나와 겹친다. 바닥보다 낮은 값은 -Infinity, 같은 자리는 Infinity(격자에 넣지 않아 남을 막지 않음). 격자(바닥 배율에서 라벨이 닿는 거리)에는 켜진 라벨만 든다.
 - [x] `revealZooms(boxes, floor, height, maxZoom)`는 `{ zoom, row, unresolved }`를 돌려준다. 0줄의 켜지는 배율이 `2^(maxZoom−1)`을 넘으면 1줄부터 `MAX_ROWS`(4)줄까지 그 배율 안에 켜지는 첫 줄을 고른다(되는지는 최대 배율 기준의 좁은 창으로, 켜지는 배율은 되는 줄에서만 잰다). 없으면 지금 줄까지 포함해 가장 일찍 켜지는 줄. 줄이 다른 두 라벨의 세로 간격은 f = dy·배율 + h·Δr이고 |f| < h인 배율 구간 (lo, hi)에서 겹친다 — 구간이 바닥 아래거나 최대 배율 위면 범위 안에서 안 겹치고, 아니면 hi부터 떨어진다. 줄을 내린 라벨은 0줄 격자와 따로 두고, 이웃 창은 현재 열쇠 m 기준(가로 maxW/m, 세로 h(1+줄 차이)/m)으로 좁힌다. `maxZoom`이 없으면(Infinity) 줄을 내리지 않는다.
-- [x] `labelOpacity(zoom, reveal, floor)` = clamp(zoom − max(reveal, floor), 0, 1). `paperLabelOpacity`는 reveal = -Infinity, floor = PAPER_LABEL_ZOOM − 0.5인 경우다.
+- [x] `labelOpacity(zoom, reveal, floor)` = clamp(zoom − max(reveal, floor), 0, 1).
+- [x] 카메라가 움직일 때 `MapView`는 화면(여백: 가로 118px·세로 120px)을 지도 좌표로 되돌려 그 안의 점만 투영하고, 불투명도가 0인 제목은 DOM에 만들지 않는다(`visibleTitles` 삭제). 영역 이름은 켜진 것만 자리를 옮기고, 꺼진 것은 마지막 자리에 두어 페이드아웃만 한다. `.paper-name`은 `transition` 대신 처음 나타날 때 240ms 키프레임 페이드.
+- [x] deck의 `onViewStateChange`가 주는 viewState에서 `target`·`zoom`만 저장한다. `zoomX`·`zoomY`가 딸려 오면 뒤의 키·버튼 확대가 지도를 못 움직이고 배율 표시·라벨만 바뀐다. E2E 4번이 휠 확대 뒤 `+`로 제목 위치가 옮겨지는지 본다. `paperLabelOpacity`는 reveal = -Infinity, floor = PAPER_LABEL_ZOOM − 0.5인 경우다.
 - [x] `MapView`: 제목 폭은 캔버스 `measureText`(11px, body 글꼴)로 지도마다 한 번 잰다(캔버스가 없으면 글자 수 × 6). 상자 폭 = min(220, 글자 폭 + 8) + 8, 높이 24. `boxes`는 필터에 든 유한 좌표 논문, `reveals`는 `[boxes, home.zoom]`에 memo. 바닥은 상위 분야 단계 Infinity, 하위 분야 단계에서 영역 이름이 없으면 -Infinity, 그 외 `home.zoom + PAPER_LABEL_ZOOM − 0.5`. 제목마다 `labelOpacity(camera.zoom, reveal, floor)`를 인라인 `opacity`로, `top: y + 7 + 24·row`, `data-active`는 0보다 클 때. 선택한 논문은 `labelOpacity(camera.zoom, -Infinity, floor)`. `reveals`는 실제 `home.zoom`과 `home.zoom + ZOOM_RANGE`(8)로 계산하되 `home.zoom`이 바뀌면 250ms 멎은 뒤(`settledHome`)에 다시 계산한다.
 - [x] `labels.test.ts`: 떨어진 쌍은 비구속, 가까운 쌍은 낮은 우선순위가 log2(200)에서 켜짐, 세로 분리, 바닥 아래 무시·입력 순 동률, 같은 자리 Infinity, 막힌 이웃보다 먼저 켜지는 사슬, 자리가 나면 상위 이웃이 막혀 있어도 켜지고 상위 이웃이 기다림, 무작위 600개(최대 배율 11)에서 배율 단조·줄을 반영한 겹침 0·"안 켜진 라벨은 0줄로는 켜진 라벨과 겹침"·최대 배율에서 전부 켜짐·`unresolved` 0 검사. 쌓기: 같은 자리 둘은 [0,1]줄, 셋은 [0,1,2]줄, 아래 점은 1줄로 바닥에서 켜짐, 위 점은 1줄이 두 배로 벌어져야 해 2줄(겹치는 구간이 최대 배율 너머), 최대 배율이 없으면 0줄 유지, 0줄로 되면 안 내림.
 - [x] E2E 시나리오 4: 3200% 이상에서 켜진 제목의 DOM 상자끼리 겹치지 않고, 이동 뒤에도 화면에 남은 제목의 `data-active`가 그대로다.
@@ -51,6 +53,8 @@ date: 2026-09-17
 - 줄을 내린 라벨은 아래쪽 점의 0줄 라벨과만 겹칠 수 있다(위쪽 점의 라벨은 제 점 위에 있다). 처음엔 방향을 거꾸로 잡아 무작위 검사에서 겹침 1이 나왔다.
 - 이웃 창을 열쇠 m으로 좁히지 않으면 pop마다 이웃 칸 300여 개를 훑어 실데이터에서 300ms가 넘었다. 좁히면 110~150ms.
 - 되는 줄이 없을 때 지금 줄을 그대로 두면 25600%에서 안 켜지는 논문이 61 → 165편이 된다. 가장 일찍 켜지는 줄로 바꾸는 전수 검사가 그 차이를 만든다.
+- 확대·축소 한 단계당 CPU(CDP Performance, 800×880 DPR 2, 빽빽한 자리): 고치기 전 개발 서버 약 15ms(1만 점 투영 + 투명 제목 수백 개 DOM), 고친 뒤 개발 5.6ms·프로덕션 2.9~4.3ms. 남는 것은 React 렌더와 deck 자체다. 개발 서버는 React 19 dev 런타임(jsxDEV) 때문에 프로덕션의 두 배쯤 느리다.
+- 휠 확대 뒤 키 확대에서 라벨이 수백 개 겹쳐 보인 것은 `revealZooms`가 아니라 `zoomX`·`zoomY` 저장 버그였다. 모델 투영과 DOM 위치를 견줘 잡았다.
 - E2E 4번은 `+`를 눌러 확대한다. 한 번에 0.5씩이므로 6 이상 가려면 12번.
 
 ## 완료 기준

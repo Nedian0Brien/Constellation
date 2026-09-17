@@ -1103,8 +1103,9 @@ input:focus-visible,
   pointer-events: auto;
 }
 .paper-name {
-  /* 점 바로 아래, 가로 중앙. 겹침을 피하지 않으므로 같은 배율이면 늘 같은 자리다.
-     한 줄로 줄이고(…) 배경 없이 그림자만 둔다. */
+  /* 점 바로 아래(쌓이면 한 줄씩 아래), 가로 중앙. 같은 배율이면 늘 같은 자리다.
+     한 줄로 줄이고(…) 배경 없이 그림자만 둔다. 불투명도는 배율에 따라 인라인으로
+     오고, 0인 제목은 아예 그리지 않는다. 처음 나타날 때만 짧게 페이드한다. */
   position: absolute;
   transform: translateX(-50%);
   /* absolute 요소는 오른쪽 가장자리 근처에서 남은 폭만큼 줄어든다. 내용 폭으로 고정한다. */
@@ -1123,12 +1124,12 @@ input:focus-visible,
   text-shadow:
     0 1px 3px var(--background),
     0 0 8px var(--background);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 240ms var(--ease);
+  animation: paper-name-in 240ms var(--ease);
 }
-.paper-name[data-active="true"] {
-  pointer-events: auto;
+@keyframes paper-name-in {
+  from {
+    opacity: 0;
+  }
 }
 .paper-name[data-selected="true"] {
   z-index: 1;

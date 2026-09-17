@@ -82,30 +82,6 @@ export function homeCamera(map: MapData, width: number, height: number) {
     ),
   };
 }
-export interface PositionedLabel {
-  id: string;
-  text: string;
-  x: number;
-  y: number;
-  selected?: boolean;
-}
-// 뷰포트 밖의 라벨만 뺀다. 화면에 따른 정렬·개수 제한·겹침 판정을 두지 않아 같은
-// 배율의 같은 화면이면 항상 같은 라벨이 보인다. 여백은 라벨 폭의 절반(130px)이다.
-const margin = 130;
-export function visibleTitles<T extends PositionedLabel>(
-  labels: T[],
-  width: number,
-  height: number,
-): T[] {
-  return labels.filter(
-    (l) =>
-      l.x >= -margin &&
-      l.x <= width + margin &&
-      l.y >= -40 &&
-      l.y <= height + 40,
-  );
-}
-
 // ── 영역이 화면을 덮고 있는 동안 이름을 붙들어 두기 ─────────────────
 // 영역의 반지름: 소속 논문이 중심에서 떨어진 거리의 90분위. 상위 노드는
 // 하위 주제 전부를 합쳐 잰다. 지도 데이터가 바뀔 때 한 번만 계산한다.
