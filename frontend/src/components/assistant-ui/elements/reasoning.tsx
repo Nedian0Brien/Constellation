@@ -1,5 +1,8 @@
 "use client";
 
+// NOTE(constellation): 트리거 라벨을 한국어로. 원본: agent-chat-framework
+// src/registry/assistant-ui/elements/reasoning.tsx
+
 import {
   createContext,
   useCallback,
@@ -192,7 +195,7 @@ function ReasoningTrigger({
           active && "shimmer motion-reduce:animate-none",
         )}
       >
-        Reasoning{durationText}
+        사고 과정{durationText}
       </span>
       <ChevronDownIcon
         data-slot="reasoning-trigger-chevron"

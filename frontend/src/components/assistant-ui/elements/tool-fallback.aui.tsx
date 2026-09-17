@@ -1,5 +1,8 @@
 "use client";
 
+// NOTE(constellation): 카드 라벨을 한국어로. 원본: agent-chat-framework
+// src/registry/assistant-ui/elements/tool-fallback.aui.tsx
+
 import { memo, useCallback, useRef, useState } from "react";
 import {
   AlertCircleIcon,
@@ -141,7 +144,7 @@ function ToolFallbackTrigger({
     status?.type === "incomplete" && status.reason === "cancelled";
 
   const Icon = statusIconMap[statusType];
-  const label = isCancelled ? "Cancelled tool" : "Used tool";
+  const label = isCancelled ? "취소된 도구" : "도구";
 
   return (
     <CollapsibleTrigger
@@ -285,7 +288,7 @@ function ToolFallbackError({
   if (!errorText) return null;
 
   const isCancelled = status.reason === "cancelled";
-  const headerText = isCancelled ? "Cancelled reason:" : "Error:";
+  const headerText = isCancelled ? "취소 이유:" : "오류:";
 
   return (
     <div

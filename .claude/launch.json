@@ -24,6 +24,14 @@
         "dev"
       ],
       "port": 5173
+    },
+    {
+      "name": "constellation-agent",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "agent/src/server.ts"
+      ],
+      "port": 8787
     }
   ]
 }

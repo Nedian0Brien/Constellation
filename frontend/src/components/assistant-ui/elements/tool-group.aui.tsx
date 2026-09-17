@@ -1,5 +1,8 @@
 "use client";
 
+// NOTE(constellation): 그룹 라벨을 한국어로. 원본: agent-chat-framework
+// src/registry/assistant-ui/elements/tool-group.aui.tsx
+
 import {
   memo,
   useCallback,
@@ -101,7 +104,7 @@ function ToolGroupTrigger({
   count: number;
   active?: boolean;
 }) {
-  const label = `${count} tool ${count === 1 ? "call" : "calls"}`;
+  const label = `도구 호출 ${count}건`;
 
   return (
     <CollapsibleTrigger

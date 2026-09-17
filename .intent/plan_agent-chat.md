@@ -23,7 +23,9 @@ date: 2026-09-18
 | `frontend/src/components/assistant-ui/elements/*.tsx`(11), `src/hooks/use-{copy-to-clipboard,attachment-src}.ts`, `src/components/ui/{avatar,collapsible,dialog}.tsx` (신규) | `npx shadcn@latest add @acf/thread-aui avatar collapsible dialog` 설치본 |
 | `frontend/package.json`, `package-lock.json` | assistant-ui 계열·remark-gfm 추가 |
 | `frontend/vite.config.ts` | `/api/agent` → 8787 프록시(`/api`보다 앞) |
-| `frontend/src/agent/{AgentProvider,AgentTools}.tsx`, `agent/{context,resolve,history}.ts`, `agent/*.test.ts` (신규) | 런타임·도구 12개·시스템 프롬프트·좌표 해석·localStorage 히스토리 |
+| `frontend/src/agent/AgentProvider.tsx`(런타임·도구 등록·맥락), `agent/use-agent-thread.ts`, `agent/{context,resolve,history,tools}.ts`, `agent/agent.test.ts` (신규) | 런타임·도구 12개·시스템 프롬프트·좌표 해석·localStorage 히스토리 |
+| `frontend/src/components/assistant-ui/elements/{thread.aui,reasoning,tool-group.aui,tool-fallback.aui,markdown-text}.tsx` | 화면 문자열 한국어화, 첨부 버튼 제거 (`NOTE(constellation)`) |
+| `frontend/package.json` | `@types/json-schema` (도구 스키마 타입) |
 | `frontend/src/store.ts` | `cameraRequest`·`annotations`와 setter. `detailOpen` 제거 |
 | `frontend/src/views/MapView.tsx` | `cameraRequest` 소비 효과, 주석 SVG 오버레이 |
 | `frontend/src/index.css` | `.map-annotations` 스타일, 채팅 패널 보정 |
@@ -46,6 +48,12 @@ date: 2026-09-18
 7. `tauri dev`에서 스펙의 브라우저 경로 한 번. 결과를 QA 문서에 적는다.
 
 `git add`는 파일을 지정한다.
+
+## 구현 중 계획에서 더한 것 — 2026-09-18
+
+- 도구 실행기가 URL 상태를 읽는 통로는 ref 가 아니라 `useRouter().state.location.search` 다. 렌더 중 ref 접근 경고를 피하고 항상 실시간 값을 읽는다.
+- `useAgentThread` 는 파일을 따로 뒀다(컴포넌트 파일에서 훅을 내보내면 Fast Refresh 경고).
+- 브라우저 확인에서 트리·갈래 화면의 노드 클릭도 Dialog 를 연다. 사용자가 고른 모달 방식의 결과이므로 그대로 두고 보고한다.
 
 ## 가장 위험한 단계
 

@@ -1,5 +1,8 @@
 "use client";
 
+// NOTE(constellation): 복사 버튼 라벨을 한국어로. 원본: agent-chat-framework
+// src/registry/assistant-ui/elements/markdown-text.tsx
+
 import "@assistant-ui/react-markdown/styles/dot.css";
 
 import {
@@ -71,7 +74,7 @@ const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
       <span className="aui-code-header-language text-muted-foreground font-medium lowercase">
         {language}
       </span>
-      <TooltipIconButton tooltip="Copy" onClick={onCopy}>
+      <TooltipIconButton tooltip="복사" onClick={onCopy}>
         {!isCopied && (
           <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
         )}
