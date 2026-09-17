@@ -1,19 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { PanelLeft, PanelRight, List, Orbit } from "lucide-react";
-import type { PanelImperativeHandle } from "react-resizable-panels";
+import { useEffect, useRef, type CSSProperties } from "react";
+import { PanelRight, List } from "lucide-react";
 import { Button } from "./ui/button";
-import { SidebarProvider } from "./ui/sidebar";
+import { SidebarProvider, SidebarTrigger, useSidebar } from "./ui/sidebar";
 import {
   TooltipProvider,
   Tooltip,
   TooltipTrigger,
   TooltipContent,
 } from "./ui/tooltip";
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "./ui/resizable";
 import { Sheet, SheetContent, SheetTitle, SheetHeader } from "./ui/sheet";
 import {
   Select,
@@ -24,63 +18,54 @@ import {
   SelectItem,
 } from "./ui/select";
 import { AppSidebar, viewNames } from "./AppSidebar";
+import { Inspector } from "./Inspector";
 import { ExploreToolbar } from "./ExploreToolbar";
 import { PaperListOverlay } from "./PaperListOverlay";
 import { DataState } from "./DataState";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { usePersistentLayout } from "../hooks/use-persistent-layout";
+import { useIsMobile } from "../hooks/use-mobile";
 import MapView from "../views/MapView";
 import TreeView from "../views/TreeView";
 import FlowView from "../views/FlowView";
 import LineageView from "../views/LineageView";
 import SkyView from "../views/SkyView";
-import DetailPanel from "../panels/DetailPanel";
-import ClusterPanel from "../panels/ClusterPanel";
-const mobileQuery = "(max-width: 959px)";
+// 우측 인스펙터 폭. 코퍼스에 인스펙터 표본이 없어 이전 값 320px를 유지한다.
+const inspectorWidth = { "--sidebar-width": "20rem" } as CSSProperties;
+// 헤더 버튼은 Provider 안에서만 사이드바 상태를 읽을 수 있다.
+function NavToggle() {
+  const { open, openMobile, isMobile } = useSidebar();
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <SidebarTrigger
+            aria-label="탐색 패널 전환"
+            aria-pressed={isMobile ? openMobile : open}
+          />
+        }
+      />
+      <TooltipContent>탐색 패널</TooltipContent>
+    </Tooltip>
+  );
+}
 export function AppShell() {
   const a = useAnalysis(),
-    { state, update } = useExploration(),
-    { prefs, save } = usePersistentLayout();
-  const nav = useRef<PanelImperativeHandle>(null),
-    detail = useRef<PanelImperativeHandle>(null);
-  const [mobile, setMobile] = useState(() => matchMedia(mobileQuery).matches),
-    [mobileNav, setMobileNav] = useState(false),
-    [mobileDetail, setMobileDetail] = useState(false);
-  const [initialLayout] = useState(prefs.layout);
+    { state, update } = useExploration();
+  const hasSelection =
+    !!state.selected || state.cluster !== undefined || state.node !== undefined;
+  const { prefs, save } = usePersistentLayout(hasSelection);
+  const isMobile = useIsMobile();
   const selectionRef = useRef(
     `${state.selected ?? ""}|${state.cluster ?? ""}|${state.node ?? ""}`,
   );
   useEffect(() => {
-    const m = matchMedia(mobileQuery),
-      change = () => setMobile(m.matches);
-    m.addEventListener("change", change);
-    return () => m.removeEventListener("change", change);
-  }, []);
-  useEffect(() => {
-    if (!mobile) {
-      if (prefs.navOpen) nav.current?.expand();
-      else nav.current?.collapse();
-      if (prefs.detailOpen) detail.current?.expand();
-      else detail.current?.collapse();
-    }
-  }, [prefs.navOpen, prefs.detailOpen, mobile]);
-  useEffect(() => {
     const selection = `${state.selected ?? ""}|${state.cluster ?? ""}|${state.node ?? ""}`;
     if (selectionRef.current === selection) return;
     selectionRef.current = selection;
-    if (
-      state.selected ||
-      state.cluster !== undefined ||
-      state.node !== undefined
-    ) {
-      if (mobile) setMobileDetail(true);
-      else save({ detailOpen: true });
-    } else {
-      setMobileDetail(false);
-      save({ detailOpen: false });
-    }
-  }, [state.selected, state.cluster, state.node, mobile, save]);
+    save({ detailOpen: hasSelection });
+  }, [state.selected, state.cluster, state.node, hasSelection, save]);
   useEffect(() => {
     if (a.run && !state.run) update({ run: a.run }, true);
   }, [a.run, state.run, update]);
@@ -91,24 +76,6 @@ export function AppShell() {
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [state.list, update]);
-  const inspector = (
-    <div className="inspector-content">
-      <span className="eyebrow inspector-heading">INSPECTOR</span>
-      {state.selected ? (
-        <DetailPanel />
-      ) : state.cluster !== undefined || state.node !== undefined ? (
-        <ClusterPanel />
-      ) : (
-        <div className="inspector-empty">
-          <Orbit />
-          <h2>별 하나에서 시작하세요</h2>
-          <p>
-            논문이나 연구 주제를 선택하면 초록과 연결 정보를 확인할 수 있습니다.
-          </p>
-        </div>
-      )}
-    </div>
-  );
   const map = a.map.data;
   const invalidRegion =
     (state.cluster !== undefined &&
@@ -190,8 +157,11 @@ export function AppShell() {
   );
   return (
     <TooltipProvider>
-      <SidebarProvider className="shell-provider">
-        <div className="product-shell">
+      <SidebarProvider
+        className="product-shell"
+        open={prefs.navOpen}
+        onOpenChange={(navOpen) => save({ navOpen })}
+      >
           <header className="product-header">
             <div className="product-brand">
               <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -235,26 +205,7 @@ export function AppShell() {
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="탐색 패널 전환"
-                      aria-pressed={mobile ? mobileNav : prefs.navOpen}
-                      onClick={() =>
-                        mobile
-                          ? setMobileNav(!mobileNav)
-                          : save({ navOpen: !prefs.navOpen })
-                      }
-                    />
-                  }
-                >
-                  <PanelLeft />
-                </TooltipTrigger>
-                <TooltipContent>탐색 패널</TooltipContent>
-              </Tooltip>
+              <NavToggle />
               <Button
                 id="paper-list-toggle"
                 variant={state.list ? "secondary" : "ghost"}
@@ -268,83 +219,38 @@ export function AppShell() {
               </Button>
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 aria-label="상세 패널 전환"
-                aria-pressed={mobile ? mobileDetail : prefs.detailOpen}
-                onClick={() =>
-                  mobile
-                    ? setMobileDetail(!mobileDetail)
-                    : save({ detailOpen: !prefs.detailOpen })
-                }
+                aria-pressed={prefs.detailOpen}
+                onClick={() => save({ detailOpen: !prefs.detailOpen })}
               >
                 <PanelRight />
               </Button>
             </div>
           </header>
           <div className="shell-body">
-            {mobile ? (
-              stage
-            ) : (
-              <ResizablePanelGroup
-                orientation="horizontal"
-                id="workspace-panels"
-                defaultLayout={initialLayout}
-                onLayoutChanged={(layout, meta) => {
-                  if (meta.isUserInteraction)
-                    save({
-                      layout,
-                      navOpen: layout.nav > 0,
-                      detailOpen: layout.detail > 0,
-                    });
-                }}
-              >
-                <ResizablePanel
-                  id="nav"
-                  panelRef={nav}
-                  defaultSize={prefs.navOpen ? 224 : 0}
-                  minSize={165}
-                  maxSize="28%"
-                  collapsible
-                  collapsedSize={0}
-                >
-                  <AppSidebar />
-                </ResizablePanel>
-                <ResizableHandle aria-label="탐색 패널 크기 조절" />
-                <ResizablePanel id="workspace" minSize={300}>
-                  {stage}
-                </ResizablePanel>
-                <ResizableHandle aria-label="상세 패널 크기 조절" />
-                <ResizablePanel
-                  id="detail"
-                  panelRef={detail}
-                  defaultSize={prefs.detailOpen ? 320 : 0}
-                  minSize={250}
-                  maxSize="40%"
-                  collapsible
-                  collapsedSize={0}
-                >
-                  {inspector}
-                </ResizablePanel>
-              </ResizablePanelGroup>
+            <AppSidebar />
+            {stage}
+            {prefs.detailOpen && !isMobile && (
+              <Inspector style={inspectorWidth} />
             )}
           </div>
-          <Sheet open={mobile && mobileNav} onOpenChange={setMobileNav}>
-            <SheetContent side="left">
-              <SheetHeader>
-                <SheetTitle>연구 탐색</SheetTitle>
-              </SheetHeader>
-              <AppSidebar onNavigate={() => setMobileNav(false)} />
-            </SheetContent>
-          </Sheet>
-          <Sheet open={mobile && mobileDetail} onOpenChange={setMobileDetail}>
-            <SheetContent>
-              <SheetHeader>
+          {/* 좁은 창의 인스펙터는 모달이라 선택이 있을 때만 연다. */}
+          <Sheet
+            open={isMobile && prefs.detailOpen && hasSelection}
+            onOpenChange={(detailOpen) => save({ detailOpen })}
+          >
+            {/* Sidebar의 모바일 Sheet처럼 기본 닫기 버튼을 숨기고 헤더의 ✕만 둔다. */}
+            <SheetContent
+              className="w-(--sidebar-width) p-0 [&>button]:hidden"
+              style={inspectorWidth}
+            >
+              <SheetHeader className="sr-only">
                 <SheetTitle>선택 상세</SheetTitle>
               </SheetHeader>
-              {inspector}
+              <Inspector className="w-full border-l-0" />
             </SheetContent>
           </Sheet>
-        </div>
       </SidebarProvider>
     </TooltipProvider>
   );

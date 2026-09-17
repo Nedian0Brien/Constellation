@@ -328,20 +328,6 @@ main {
   margin: 0 0 0.8rem;
 }
 
-.corpus-links {
-  display: flex;
-  gap: 1rem;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-faint);
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-  padding: 0.5rem 0;
-  margin-bottom: 0.9rem;
-}
-.corpus-links b {
-  color: var(--accent);
-}
 
 .abstract {
   font-size: 13px;
@@ -1105,16 +1091,14 @@ input:focus-visible,
 [hidden] {
   display: none !important;
 }
-.shell-provider {
-  width: 100%;
-  height: 100dvh;
-  min-height: 0 !important;
-}
 .product-shell {
+  /* shadcn Sidebar는 position: fixed라 헤더 높이만큼 내려 그린다. */
+  --header-height: 62px;
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100dvh;
+  min-height: 0;
   overflow: hidden;
   background: var(--background);
 }
@@ -1123,7 +1107,7 @@ input:focus-visible,
   align-items: center;
   gap: 18px;
   padding: 0 20px;
-  height: 62px;
+  height: var(--header-height);
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
 }
@@ -1161,8 +1145,9 @@ input:focus-visible,
   display: flex;
 }
 .workspace-stage {
+  /* 사이드바 사이에서 남는 폭을 다 쓴다. 폭이 고정된 인스펙터를 밀어내지 않는다. */
+  flex: 1 1 0;
   height: 100%;
-  width: 100%;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1197,50 +1182,8 @@ input:focus-visible,
   background: var(--muted-foreground);
   margin: 0 10px;
 }
-.app-sidebar {
-  width: 100% !important;
-  min-width: 0;
-}
-.app-sidebar [data-slot="sidebar-group"] {
-  padding: 18px 12px;
-}
-.app-sidebar [data-slot="sidebar-group-label"] {
-  font: 9px var(--font-mono);
-  letter-spacing: 0.1em;
-  color: var(--muted-foreground);
-  height: 30px;
-  padding: 0 8px;
-}
-.app-sidebar [data-slot="sidebar-menu-button"] {
-  height: 35px;
-  font-size: 12px;
-  border-radius: 0;
-  border-left: 1px solid transparent;
-  font-weight: 400;
-}
-.app-sidebar [data-slot="sidebar-menu-button"][data-active="true"] {
-  border-left-color: var(--primary);
-  background: var(--sidebar-accent);
-}
-.app-sidebar [data-slot="sidebar-footer"] {
-  padding: 18px 20px;
-  border-top: 1px solid var(--border);
-  gap: 6px;
-}
-.topic-dot {
-  width: 5px;
-  height: 5px;
-  flex-shrink: 0;
-  border-radius: 50%;
-}
-.cluster-count {
-  margin-left: auto;
-}
-.sidebar-note {
-  font-size: 11px;
-  color: var(--muted-foreground);
-}
-.eyebrow {
+.eyebrow,
+[data-slot="sidebar-group-label"] {
   font: 10px var(--font-mono);
   letter-spacing: 0.12em;
   color: var(--muted-foreground);
@@ -1342,15 +1285,6 @@ input:focus-visible,
 [data-slot="slider-range"] {
   background: var(--foreground);
 }
-[data-slot="resizable-handle"] {
-  background: var(--border);
-  width: 1px;
-}
-[data-slot="resizable-handle"]:focus-visible {
-  background: var(--primary);
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
 .data-state {
   padding: 28px;
   max-width: 520px;
@@ -1378,34 +1312,6 @@ input:focus-visible,
   top: 12px;
   background: var(--card);
   max-width: 320px;
-}
-.inspector-content {
-  height: 100%;
-  overflow: auto;
-  background: var(--card);
-  padding: 24px 22px;
-}
-.inspector-heading {
-  display: block;
-  margin-bottom: 20px;
-}
-.inspector-empty {
-  padding-top: 70px;
-  color: var(--muted-foreground);
-}
-.inspector-empty svg {
-  width: 36px;
-  height: 36px;
-  margin-bottom: 25px;
-}
-.inspector-empty h2 {
-  font-size: 17px;
-  color: var(--foreground);
-  margin-bottom: 14px;
-}
-.inspector-empty p {
-  font-size: 12px;
-  line-height: 1.9;
 }
 .detail {
   position: relative !important;
@@ -1656,19 +1562,16 @@ input:focus-visible,
 .lin-wrap svg text {
   font-family: var(--font-sans);
 }
-[data-slot="sheet-content"] .inspector-content {
-  padding: 16px;
-  height: auto;
-  flex: 1;
-}
 [data-slot="sheet-content"] {
   background: var(--card);
 }
 @media (max-width: 959px) {
+  .product-shell {
+    --header-height: 54px;
+  }
   .product-header {
     padding: 0 12px;
     gap: 10px;
-    height: 54px;
   }
   .collection-name,
   .header-divider {

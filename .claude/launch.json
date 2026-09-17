@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "constellation-api",
+      "runtimeExecutable": ".venv/bin/constellation",
+      "runtimeArgs": ["serve"],
+      "port": 8000
+    },
+    {
       "name": "constellation-web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
