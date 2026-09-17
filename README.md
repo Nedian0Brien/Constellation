@@ -1,31 +1,48 @@
 # Constellation
 
-논문 초록과 인용 관계로 연구 분야의 구조와 변화를 탐색하는 로컬 웹앱.
+논문 초록과 인용 관계로 연구 분야의 구조와 변화를 탐색하는 데스크톱 앱.
 
 ## 제품 기반
 
-React·Vite·shadcn/ui, TanStack Router·Query·Table, deck.gl, FastAPI·DuckDB를 사용한다.
+Tauri 2(Rust) 데스크톱 앱이 DuckDB 파일을 프로세스 안에서 직접 읽는다. 화면은 React·Vite·shadcn/ui, TanStack Router·Query·Table, deck.gl이고, 질의 계층은 Rust 크레이트 `constellation-core`다. Python은 수집·임베딩·클러스터링 파이프라인(CLI)만 맡는다.
 
 - **연구 지도**: 논문을 별로 배치하고 확대 수준에 따라 상위 분야·하위 분야·논문 제목을 표시한다. 영역 범위는 은은한 색 면, 분야 라벨은 중심의 흰색 글자다.
 - **논문 목록**: 지도를 유지한 채 오버레이로 열고 검색·연도 필터·정렬·페이지 이동·논문 선택을 제공한다.
 - **계층 트리 / 갈래 흐름 / 인용 계보 / 3D**: 기존 분석 산출물에 연결된다. 모델마다 없는 산출물은 안내한다.
 - **탐색 복원**: 검색·연도·선택·화면·목록 상태는 URL, 좌우 패널의 열림 상태는 로컬 저장소에 보관한다. 지도 위치는 현재 세션에서 run별로 유지한다.
 
-## 실행
+## 데스크톱 앱
 
-Python 3.12 이상과 Node.js가 필요하다. 기존 `data/constellation.duckdb`가 있으면 수집이나 GPU 임베딩을 다시 실행할 필요가 없다.
+Rust 1.97 이상과 Node.js가 필요하다. 첫 빌드는 DuckDB를 소스에서 컴파일하므로 몇 분 걸리고, 이후는 캐시된다.
+
+```sh
+npm --prefix frontend ci
+npx --prefix frontend tauri dev                    # 개발: Vite + Rust 앱 창
+npx --prefix frontend tauri build --bundles app    # 배포: target/release/bundle/macos/Constellation.app
+```
+
+앱은 `~/Library/Application Support/io.github.nedian0brien.constellation/constellation.duckdb`를 찾고, 없으면 화면의 **데이터베이스 열기**로 파이프라인이 만든 `.duckdb` 파일을 고른다. 고른 경로는 같은 폴더의 `settings.json`에 남는다. 빌드한 `.app`은 ad-hoc 서명이라 이 Mac에서 바로 실행되고, 다른 Mac에 배포하려면 서명·공증이 필요하다.
+
+`tauri` 명령은 저장소 루트에서 `npx --prefix frontend tauri …`로 부른다. `src-tauri/`가 루트에 있고 Tauri CLI는 현재 폴더 아래에서 그것을 찾는다.
+
+## 브라우저에서 확인
+
+Playwright E2E와 브라우저 확인은 개발용 HTTP 서버가 같은 질의 계층을 `/api/*`로 노출한다.
+
+```sh
+cargo run -p constellation-serve -- --db data/constellation.duckdb   # 127.0.0.1:8000
+npm --prefix frontend run dev                                        # http://localhost:5173, /api를 8000으로 프록시
+```
+
+## 파이프라인 (Python)
+
+수집·임베딩·클러스터링은 Python CLI다. 기존 `data/constellation.duckdb`가 있으면 다시 돌릴 필요가 없다.
 
 ```sh
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[api]'
-npm --prefix frontend ci
-
-# 각각 별도 터미널에서 실행
-.venv/bin/constellation serve
-npm --prefix frontend run dev
+uv pip install --python .venv/bin/python -e '.[embed]'
+.venv/bin/constellation --help
 ```
-
-브라우저에서 `http://localhost:5173`을 연다. 프론트는 `/api`를 사용하며 Vite가 `127.0.0.1:8000`으로 연결한다.
 
 Windows에서는 Python 경로를 `.venv/Scripts/python.exe`, CLI 경로를 `.venv/Scripts/constellation.exe`로 바꾼다.
 

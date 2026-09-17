@@ -3,14 +3,26 @@
   "configurations": [
     {
       "name": "constellation-api",
-      "runtimeExecutable": ".venv/bin/constellation",
-      "runtimeArgs": ["serve"],
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": [
+        "run",
+        "-p",
+        "constellation-serve",
+        "--",
+        "--db",
+        "data/constellation.duckdb"
+      ],
       "port": 8000
     },
     {
       "name": "constellation-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev"
+      ],
       "port": 5173
     }
   ]

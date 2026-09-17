@@ -52,3 +52,11 @@ npm run tauri build -- --bundles app && open src-tauri/target/release/bundle/mac
 ```
 
 앱: 첫 실행 빈 상태 → 데이터베이스 열기 → 지도 → 목록 → 논문 → 계층·갈래·계보·3D → 종료 후 재실행 시 같은 DB로 바로 열림.
+
+## 구현 중 계획에서 더한 것 — 2026-09-17
+
+- 루트 `Cargo.toml`의 `[profile.release] strip/lto`를 지웠다. proc-macro dylib가 깨져 `E0463`이 났다.
+- `src-tauri/tests/commands.rs`를 더했다. MockRuntime으로 프론트의 인자 모양을 검사한다. 이를 위해 `lib.rs`에 `configure(builder, db_path)`를 두고 경로를 알면 빌드 시점에 상태를 `manage`한다.
+- `tauri` 명령은 루트에서 `npx --prefix frontend tauri …`로 부른다. Tauri CLI가 현재 폴더 아래에서 `src-tauri`를 찾기 때문이다.
+- `frontend/src/index.css`에 `.stage-notice`를 더했다. 오류 안내와 데이터베이스 열기 버튼을 가운데 모은다.
+- 결과물 `.app`은 `/Applications/Constellation.app`으로 복사해 설치한다(사용자 요청 "로컬 앱으로 설치").

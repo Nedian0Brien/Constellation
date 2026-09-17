@@ -8,7 +8,7 @@
 
 | 라이브러리 | 용도 | 선택 이유 |
 |---|---|---|
-| **FastAPI** + uvicorn | API 서버 | 비동기 수집 작업과 API를 한 프로세스에서. pydantic 스키마 재사용 |
+| ~~FastAPI + uvicorn~~ | ~~API 서버~~ | 2026-09-17 Rust 질의 계층으로 대체. 아래 "데스크톱 앱 업데이트" |
 | **httpx** | HTTP 클라이언트 | 비동기 + 커넥션 풀. 소스별 rate limit을 세마포어로 제어 |
 | **pydantic v2** | 스키마 검증 | 소스마다 다른 응답을 통일 스키마로 강제하는 경계 |
 | **DuckDB** | 저장 + 쿼리 | 1만 편 규모에서 서버 불필요, parquet 직접 쿼리, 집계가 SQLite보다 빠름 |
@@ -59,7 +59,7 @@ Constellation/
 │     ├─ db/
 │     │   ├─ schema.sql
 │     │   └─ store.py       # DuckDB 접근 계층
-│     ├─ api/               # FastAPI 라우트
+│     └─ (api/ 는 2026-09-17 제거 — crates/constellation-core 로 이동)
 │     └─ cli.py             # typer 기반 CLI
 ├─ frontend/
 │  └─ src/
@@ -159,7 +159,7 @@ GET  /api/collect/{job_id}            진행 상황
 constellation collect --source openalex --query "topic:..." --limit 5000
 constellation build --model scincl --umap-neighbors 15 --min-cluster-size 25
 constellation build --refit          # UMAP 전체 재학습 (좌표가 바뀜)
-constellation serve --port 8000
+cargo run -p constellation-serve -- --db data/constellation.duckdb   # 개발용 HTTP 서버 (Rust)
 constellation stats                  # 초록 커버리지, 연도 분포, 중복률
 ```
 
@@ -176,3 +176,22 @@ constellation stats                  # 초록 커버리지, 연도 분포, 중�
 - `GET /api/works/{id}?run=...`: 선택 논문이 해당 run에 포함되는지 검증.
 
 두 목록 조회는 `db/queries.py`의 조건을 공유한다. 검색은 제목·초록의 부분 문자열이며, SQL 매개변수로 전달한다. 연도 미상은 기간 필터에 포함한다. 기본 데이터 경로는 저장소의 `data/`; `CONSTELLATION_DATA_DIR`로 재정의할 수 있다. API는 읽기 전용이고 테스트는 임시 DB를 사용한다.
+
+## 데스크톱 앱 업데이트 — 2026-09-17
+
+서빙 계층을 Python에서 Rust로 옮기고 Tauri 2 데스크톱 앱으로 묶었다.
+
+```
+Cargo.toml                         # 워크스페이스
+crates/constellation-core/         # 질의 계층 (lib). Database::open → queries::{runs, map, clusters, tree, flow, flow_papers, lineage, cluster_detail, works, matches, work, health}
+crates/constellation-serve/        # 개발용 HTTP 서버 (axum). /api/* 를 FastAPI와 같은 경로·인자로 노출
+src-tauri/                         # Tauri 앱. 명령(invoke)·설정(settings.json)·파일 대화상자
+frontend/src/api.ts                # 전송 계층: isTauri() 이면 invoke, 아니면 fetch("/api/…")
+scripts/compare-api.py             # Python 서버와 Rust 서버 응답 대조 (전환 검증용)
+```
+
+- `constellation-core`는 `duckdb-rs ~1.10505`(DuckDB 1.5.5 정적 링크)를 쓴다. Python `duckdb` 1.5.5와 같은 버전이라 저장 형식이 같다. 질의마다 읽기 전용 연결을 열고, 파이프라인이 쓰는 동안 잠기면 503으로 돌려 앱은 살려 둔다.
+- 반환 구조체·오류 상태·문구는 FastAPI 버전과 같다. 실데이터에서 11개 엔드포인트 × 32개 인자 조합을 대조해 확인했다(`scripts/compare-api.py`). `/api/search`는 프론트가 쓰지 않아 옮기지 않았다.
+- 앱의 DB 경로: `<app_config_dir>/settings.json`의 `db_path` → 없으면 `<app_data_dir>/constellation.duckdb`. `choose_database` 명령이 네이티브 대화상자로 파일을 고르고 저장한다.
+- Tauri 명령은 AbortSignal이 없다. React Query 키가 run·조건을 포함하므로 늦은 응답이 화면을 덮지 않는다.
+- Playwright E2E는 `constellation-serve` 위에서 돈다(WebDriver가 macOS Tauri를 지원하지 않는다). 명령 인자 모양은 `src-tauri/tests/commands.rs`가 MockRuntime으로 검사한다.
