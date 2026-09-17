@@ -4,6 +4,7 @@ import {
   labelLevel,
   labelOpacity,
   paperLabelOpacity,
+  paperTitleOpacity,
   clampRegionLabel,
   regionRadii,
   revealZooms,
@@ -212,6 +213,16 @@ describe("per-paper reveal zoom", () => {
     // 0줄로 최대 배율까지 켜지면 내리지 않는다.
     const fine = revealZooms([box(0, 0, 9), box(0.5, 0, 3)], 0, H, 10);
     expect([...fine.row]).toEqual([0, 0]);
+  });
+  it("crossfades between the region floor and no floor", () => {
+    // 바닥 4.5 아래(배율 4)에서 영역 이름이 나가면 제목이 0 → 1로 섞인다.
+    expect(paperTitleOpacity(4, -Infinity, 4.5, 0)).toBe(0);
+    expect(paperTitleOpacity(4, -Infinity, 4.5, 0.5)).toBeCloseTo(0.5);
+    expect(paperTitleOpacity(4, -Infinity, 4.5, 1)).toBe(1);
+    // 제 배율에 못 미친 제목은 바닥과 무관하게 0이다.
+    expect(paperTitleOpacity(4, 5, 4.5, 1)).toBe(0);
+    // 바닥 위에서는 섞어도 그대로다.
+    expect(paperTitleOpacity(5.25, -Infinity, 4.5, 0.5)).toBeCloseTo(0.875);
   });
   it("fades each label in over one zoom step above its reveal or the floor", () => {
     expect(labelOpacity(5, -Infinity, 4.5)).toBeCloseTo(0.5);

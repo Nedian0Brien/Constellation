@@ -1,9 +1,9 @@
 import { useReducedMotion } from "../hooks/use-reduced-motion";
+import { useTween } from "../hooks/use-tween";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import DeckGL, { type DeckGLRef } from "@deck.gl/react";
 import {
   ScatterplotLayer,
-  BitmapLayer,
   TextLayer,
   type TextLayerProps,
 } from "@deck.gl/layers";
@@ -16,7 +16,7 @@ import { useStore, type Camera } from "../store";
 import { Button } from "../components/ui/button";
 import {
   labelLevel,
-  labelOpacity,
+  paperTitleOpacity,
   PAPER_LABEL_ZOOM,
   paperLabelOpacity,
   clampRegionLabel,
@@ -28,10 +28,14 @@ import {
   homeCamera,
   descendants,
 } from "./map/labels";
-import { clusterColor, regionTexture } from "./map/regions";
+import { clusterColor, regionBlobs, type RegionBlob } from "./map/regions";
 import { SnapTextExtension } from "./map/text-snap";
+import { RegionGradientExtension } from "./map/region-gradient";
 const view = new OrthographicView({ id: "research-map" });
-const snapText = new SnapTextExtension();
+const snapText = new SnapTextExtension(),
+  regionGradient = new RegionGradientExtension();
+// 라벨이 켜지고 꺼지는 시간. `.region-name`의 transition과 같다.
+const LABEL_FADE_MS = 240;
 // 논문 제목 상자. 본문 글꼴 11px, 220px 최대 폭(안쪽 여백 2px 4px를 뺀 212px에
 // 글자), 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의 줄
 // 간격이기도 하다. 글자는 점 아래 9px(위 여백 7 + 안쪽 2)에서 시작한다.
@@ -314,8 +318,8 @@ export default function MapView() {
       maxLog,
     ],
   );
-  const texture = useMemo(
-    () => regionTexture(map, a.clusters.data ?? []),
+  const blobs = useMemo(
+    () => regionBlobs(map, a.clusters.data ?? []),
     [map, a.clusters.data],
   );
   const relativeZoom = camera.zoom - home.zoom;
@@ -374,15 +378,20 @@ export default function MapView() {
   }, [relativeZoom, regionSet, viewport, size, radii]);
   // 논문 제목의 바닥 배율(절대 zoom). 겹치지 않는 제목은 여기서부터 진해진다.
   // 상위 분야 단계에서는 안 켠다. 하위 분야 단계인데 화면에 영역 이름이 하나도
-  // 없으면(영역 사이 빈 곳) 바닥을 없애 겹치지 않는 제목을 바로 켠다.
+  // 없으면(영역 사이 빈 곳) 바닥을 없애 겹치지 않는 제목을 바로 켠다 — 그 순간
+  // 한꺼번에 켜지지 않도록 `regionless`를 240ms에 걸쳐 0 ↔ 1로 잇고, 두 바닥의
+  // 불투명도를 그 비율로 섞는다. 영역 이름이 같은 시간에 옅어지는 것과 교차한다.
   const paperFloor =
-    level === "field"
-      ? Infinity
-      : level === "topic" && shownRegions.size === 0
-        ? -Infinity
-        : home.zoom + PAPER_LABEL_ZOOM - 0.5;
+    level === "field" ? Infinity : home.zoom + PAPER_LABEL_ZOOM - 0.5;
+  const regionless = useTween(
+    level === "topic" && shownRegions.size === 0 ? 1 : 0,
+    LABEL_FADE_MS,
+    reduced,
+  );
+  const opacityAt = (reveal: number) =>
+    paperTitleOpacity(camera.zoom, reveal, paperFloor, regionless);
   // 겹치지 않는 제목 하나가 지금 갖는 불투명도. 선택한 논문은 이만큼은 보인다.
-  const paperOpacity = labelOpacity(camera.zoom, -Infinity, paperFloor);
+  const paperOpacity = opacityAt(-Infinity);
   const paperLabelsOn = paperOpacity > 0;
   // 영역 이름은 같은 곡선을 거꾸로 따라 옅어진다.
   const regionOpacity = 1 - paperLabelOpacity(relativeZoom);
@@ -467,8 +476,11 @@ export default function MapView() {
       revealZooms(boxes, settledHome, TITLE_HEIGHT, settledHome + ZOOM_RANGE),
     [boxes, settledHome],
   );
-  // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 거를 이유가 없다.
-  const showTitles = level !== "field";
+  // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 거를 이유가 없다
+  // — 제목이 아직 꺼지는 중이 아니라면. 바닥이 없는 동안(섞이는 중 포함)은 바닥 없이
+  // 고른다.
+  const showTitles = level !== "field" || regionless > 0;
+  const memberFloor = regionless > 0 ? -Infinity : paperFloor;
   // 제목 배열. 위치가 지도 좌표라 이동할 때는 손댈 것이 없다. 다만 TextLayer는 배열이
   // 바뀌면 글자를 전부 다시 놓으므로(수백 제목 × 수십 글자) 카메라가 조금 움직일
   // 때마다 새 배열을 주면 DOM 시절만큼 비싸진다. 그래서 카메라를 칸으로 묶는다:
@@ -497,7 +509,8 @@ export default function MapView() {
       if (Math.abs(b.x - cx) > hx || Math.abs(b.y - cy) > hy) continue;
       const id = map.id[b.i],
         isSelected = id === state.selected;
-      if (!isSelected && Math.max(reveals.zoom[k], paperFloor) >= lit) continue;
+      if (!isSelected && Math.max(reveals.zoom[k], memberFloor) >= lit)
+        continue;
       const t: Title = {
         id,
         i: b.i,
@@ -519,7 +532,7 @@ export default function MapView() {
     map,
     displays,
     state.selected,
-    paperFloor,
+    memberFloor,
     zoomStep,
     tileX,
     tileY,
@@ -528,9 +541,7 @@ export default function MapView() {
   // 제목 하나의 불투명도. 제목마다 제 배율에서 서서히 진해진다. 선택한 논문은 이웃에
   // 가려지지 않는다.
   const titleOpacity = (t: Title) =>
-    t.selected
-      ? paperOpacity
-      : labelOpacity(camera.zoom, reveals.zoom[t.k], paperFloor);
+    t.selected ? paperOpacity : opacityAt(reveals.zoom[t.k]);
   useEffect(() => {
     const el = container.current as
       (HTMLDivElement & { __map?: MapBridge }) | null;
@@ -560,17 +571,20 @@ export default function MapView() {
     };
   });
   const layers = [
-    ...(texture
-      ? [
-          new BitmapLayer({
-            id: "soft-regions",
-            image: texture.image,
-            bounds: texture.bounds,
-            opacity: state.color === "cluster" ? 0.7 : 0.2,
-            pickable: false,
-          }),
-        ]
-      : []),
+    // 영역 배경. 영역마다 옅어지는 원 하나를 GPU에서 픽셀마다 계산한다 — 어떤
+    // 배율에서도 매끈하다.
+    new ScatterplotLayer<RegionBlob>({
+      id: "soft-regions",
+      data: blobs,
+      getPosition: (b) => b.position,
+      getRadius: (b) => b.radius,
+      radiusUnits: "common",
+      getFillColor: (b) => [...b.color, 255],
+      antialiasing: false,
+      opacity: state.color === "cluster" ? 0.7 : 0.2,
+      extensions: [regionGradient],
+      pickable: false,
+    }),
     new ScatterplotLayer({
       id: "papers",
       data: points,
@@ -621,7 +635,7 @@ export default function MapView() {
       getTextAnchor: "middle",
       getAlignmentBaseline: "top",
       getColor: (t) => [...typo.color, Math.round(255 * titleOpacity(t))],
-      updateTriggers: { getColor: [camera.zoom, paperFloor] },
+      updateTriggers: { getColor: [camera.zoom, paperFloor, regionless] },
       pickable: true,
       onHover: (info) => setHover(info.object ? info : null),
       onClick: (info) => {

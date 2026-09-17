@@ -10,19 +10,22 @@ export const spectrum: [number, number, number][] = [
 export function clusterColor(id: number): [number, number, number] {
   return id < 0 ? [130, 131, 142] : spectrum[id % spectrum.length];
 }
-export function regionTexture(map: MapData, clusters: ClusterInfo[]) {
-  if (!clusters.length) return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 768;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  const minX = Math.min(...map.x) - 3,
-    maxX = Math.max(...map.x) + 3,
-    minY = Math.min(...map.y) - 3,
-    maxY = Math.max(...map.y) + 3;
-  const sx = 768 / (maxX - minX),
-    sy = 768 / (maxY - minY);
-  for (const c of clusters) {
+// 영역 배경 하나: 중심·반지름(소속 논문 거리의 RMS × 1.7, 최소 0.6 단위)·색. 그리는
+// 쪽(`RegionGradientExtension`)이 중심 0.10 → 반지름의 45%에서 0.04 → 가장자리 0으로
+// 옅어지는 원을 GPU에서 픽셀마다 계산한다. 예전에는 768px 캔버스에 그려 텍스처로
+// 붙였는데, 지도 전체를 768픽셀로 덮으니 확대하면 텍셀 하나가 100픽셀이 넘어 흐리고
+// 각졌다.
+export interface RegionBlob {
+  id: number;
+  position: [number, number];
+  radius: number;
+  color: [number, number, number];
+}
+export function regionBlobs(
+  map: MapData,
+  clusters: ClusterInfo[],
+): RegionBlob[] {
+  return clusters.map((c) => {
     let sum = 0,
       n = 0;
     for (let i = 0; i < map.n; i++)
@@ -30,19 +33,11 @@ export function regionTexture(map: MapData, clusters: ClusterInfo[]) {
         sum += (map.x[i] - c.x) ** 2 + (map.y[i] - c.y) ** 2;
         n++;
       }
-    const radius = Math.max(0.6, Math.sqrt(sum / Math.max(1, n)) * 1.7),
-      x = (c.x - minX) * sx,
-      y = (maxY - c.y) * sy;
-    const color = clusterColor(c.cluster_id),
-      g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(sx, sy) * radius);
-    g.addColorStop(0, `rgba(${color.join(",")},0.10)`);
-    g.addColorStop(0.45, `rgba(${color.join(",")},0.04)`);
-    g.addColorStop(1, `rgba(${color.join(",")},0)`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 768, 768);
-  }
-  return {
-    image: canvas,
-    bounds: [minX, minY, maxX, maxY] as [number, number, number, number],
-  };
+    return {
+      id: c.cluster_id,
+      position: [c.x, c.y],
+      radius: Math.max(0.6, Math.sqrt(sum / Math.max(1, n)) * 1.7),
+      color: clusterColor(c.cluster_id),
+    };
+  });
 }

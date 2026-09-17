@@ -32,6 +32,8 @@ date: 2026-09-17
 - [x] `labels.ts`의 `truncateTitle(measure, text, maxWidth)`: 폭 비례로 자를 자리를 어림한 뒤 한 글자씩 맞춘다. 끝 공백은 뗀다. 글 폭은 글자 폭 표(`characterSet`의 글자마다 `measureText`)의 합으로 잰다 — TextLayer가 글자마다 잰 폭을 더해 놓으므로 이 합이 실제 폭이다. 상자 폭 = min(220, 합 + 8) + 8, 줄임 폭 212.
 - [x] E2E 시나리오 4: 컨테이너의 `__map` 다리(`titles()`·`project()`·`pick()`)로 하위 분야 단계의 XOR, 논문 단계의 제목 존재, 이동 뒤 화면 안 제목 보존, 제목 클릭 → URL `selected`, 휠 뒤 `+`에서 투영이 옮겨지고 그 자리에 실제로 그 점이 그려져 있는지(픽킹) 본다. `zoomX`·`zoomY` 버그를 되살리면 실패한다(확인).
 - [x] `index.css`의 `.paper-name`·`paper-name-in` 삭제.
+- [x] 일곱 번째 지시(전환 페이드): `labels.ts`의 `paperTitleOpacity(zoom, reveal, floor, regionless)` = `labelOpacity(zoom, reveal, floor)`와 `labelOpacity(zoom, reveal, -Infinity)`를 `regionless`(0~1)로 섞은 값. `MapView`는 `useTween(하위 분야 단계 && 켜진 영역 이름 0 ? 1 : 0, 240, reduced)`로 `regionless`를 잇고(카메라 이동과 같은 ease-out, 동작 줄이기면 즉시), 제목 불투명도·`paperOpacity`·`getColor` updateTrigger에 쓴다. 제목 배열의 바닥은 `regionless > 0`이면 없음. 상위 분야 단계에서도 `regionless > 0`인 동안은 제목 배열을 만든다. `.region-name`에 `region-name-in` 240ms 키프레임. 테스트 1개 추가. E2E 4번의 XOR는 `expect.poll`.
+- [x] 일곱 번째 지시(영역 배경): `regions.ts`의 `regionTexture`를 `regionBlobs(map, clusters)`(중심·반지름·색)로 바꾸고, `MapView`가 `ScatterplotLayer`(id `soft-regions`, `radiusUnits: "common"`, `antialiasing: false`, opacity 0.7/0.2) + `RegionGradientExtension`(`fs:DECKGL_FILTER_COLOR`에서 `geometry.uv` 길이로 세 정지점 그러데이션, interleaved gradient noise ±0.5/255·2 디더)으로 그린다. `BitmapLayer` 삭제.
 - [x] `npm run test -- --run`·`build`·`lint`·`test:e2e` 통과. 브라우저에서 3200%·6400%에서 켜진 라벨이 겹치지 않고(DOM 상자 검사 0쌍), 이동해도 라벨의 불투명도가 바뀌지 않는다(39개 공통 라벨 변화 0). 네 번째 규칙 뒤: 3200%→25600% 여섯 단계와 이동 세 번에서 DOM 겹침 0, 실데이터 전체에서 배율 5·6·7·8마다 켜진 쌍 겹침 0(표본)·자리 있는데 안 켜진 라벨 0(표본 400). 쌓기 뒤: 실데이터 전체에서 배율 5·6·7·8마다 줄을 반영한 겹침 0(표본), 가장 빽빽한 자리(EMNLP 프로시딩 무리)에서 18102%·6400% DOM 겹침 0.
 
 ## 설계
@@ -64,6 +66,8 @@ date: 2026-09-17
 - TextLayer 기본값(64px SDF 아틀라스)은 11px로 줄여 그릴 때 i의 점·따옴표·마침표가 사라졌다. 아틀라스를 22px 래스터로 바꾸면 획은 살지만 시스템 글꼴의 광학 크기 때문에 11px 글자보다 4% 좁고, 캔버스 글자 다듬기(macOS 획 굵히기) 때문에 DOM보다 잉크가 33% 많았다. `_getFontRenderer`로 11px 글꼴을 DPR 배 캔버스에 `geometricPrecision`으로 그리면 잉크 양이 DOM과 같다(같은 제목에서 1644 대 1660).
 - Playwright의 `deviceScaleFactor: 2` 에뮬레이션에서는 deck 캔버스가 1×(1184×796)로 만들어져 글자가 흐리게 찍힌다 — ResizeObserver의 `devicePixelContentBoxSize`가 1×를 준다. `--force-device-scale-factor=2`를 함께 주면 2×가 된다. 흐림을 쫓느라 배경색 위에 그려 알파를 뽑는 방식까지 시도했다가 이것으로 밝혀졌다.
 - deck의 픽킹 패스는 텍스처 알파도 인스턴스 알파도 보지 않는다(multi-icon-layer-fragment의 `discard`가 `!picking.isActive` 안에 있다). 미리 넣어 둔 불투명도 0 제목이 툴팁을 띄우고 그 아래 점을 가렸다. 확장의 `fs:DECKGL_FILTER_COLOR`에서 varying으로 넘긴 알파가 0이면 버린다 — 훅 함수는 레이어 셰이더의 `in vColor` 선언보다 앞에 놓이므로 제 varying이 필요하다.
+- 566%에서 지도 전체를 300px 칸으로 훑으면 504칸 중 391칸이 영역 이름 없음, 그중 166칸에 켜진 제목이 있다(최대 128편). 영역 이름의 중심·반지름 규칙이 그대로라 큰 무리가 화면에 있어도 이름이 없을 수 있다 — 이번 지시의 범위 밖.
+- 디더 확인은 대비를 6배 키운 뒤 상자 평균으로 줄여 본다. NEAREST로 줄이면 잡음이 문턱을 넘나들어 어둡게 보인다(평균 RGB는 같다: 23.98 대 24.05).
 - 제목 클릭이 URL에 반영되기까지 약 315ms 걸린다. 점 클릭도 같다 — deck(mjolnir)이 더블클릭을 가리느라 단일 클릭을 늦게 낸다. E2E는 `expect.poll`로 기다린다.
 - 키보드 `+`·`-`도 버튼처럼 `home.zoom − 2 ~ home.zoom + 8`로 조인다. 브라우저 패널의 확대 동작이 키 확대를 여러 번 보내 288026%까지 간 것을 보고 고쳤다.
 - 프로덕션 실측(1440×950 DPR 2, CDP Tracing RunTask/단계): 성긴 자리(29편) 휠 8.8 → 7.9ms·키 이동 2.7 → 1.5ms·드래그 132 → 108ms, 가장 빽빽한 3200%(89편) 휠 13.8 → 9.3ms·키 이동 4.4 → 1.7ms·드래그 159 → 111ms. 휠에서 JS는 늘고(배열 다시 만들기·색 속성 채우기) 스타일·래스터·GPU가 줄었다.

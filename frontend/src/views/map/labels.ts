@@ -134,6 +134,22 @@ export function paperLabelOpacity(relativeZoom: number): number {
   return labelOpacity(relativeZoom, -Infinity, PAPER_LABEL_ZOOM - 0.5);
 }
 
+// 논문 제목의 불투명도. 바닥은 둘 중 하나다: 영역 이름이 화면에 있으면 `floor`, 하위
+// 분야 단계에서 하나도 없으면 없음(겹치지 않는 제목이 바로 켜진다). `regionless`
+// (0~1)로 둘을 섞는다 — 영역 이름이 240ms에 걸쳐 나가고 들어오는 것과 교차해서,
+// 바닥이 바뀌는 순간 제목이 한꺼번에 켜지거나 꺼지지 않는다.
+export function paperTitleOpacity(
+  zoom: number,
+  reveal: number,
+  floor: number,
+  regionless: number,
+): number {
+  const hard = labelOpacity(zoom, reveal, floor);
+  return regionless > 0
+    ? hard + (labelOpacity(zoom, reveal, -Infinity) - hard) * regionless
+    : hard;
+}
+
 // 한 줄에 못 들어가는 제목을 `…`로 줄인다. 글자 폭 비례로 자를 자리를 어림한 뒤
 // 실제 폭으로 한 글자씩 맞춘다 — 대개 두세 번 재면 끝나 이분 탐색보다 싸다.
 // 자른 끝의 공백은 뗀다. 말줄임표 하나가 들어갈 폭이면 `maxWidth`를 넘지 않는다.

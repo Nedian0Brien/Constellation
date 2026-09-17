@@ -75,9 +75,17 @@ date: 2026-09-17
 - 배열을 매 프레임 새로 주면 TextLayer가 글자를 전부 다시 놓으므로, 카메라를 240px·반 단계 칸으로 묶어 같은 칸 안에서는 같은 배열을 쓴다. 칸이 바뀔 때 다시 만든다.
 - E2E는 제목 DOM 대신 지도 컨테이너의 `__map` 다리(켜진 제목·deck 투영·픽킹)로 본다. 겹침 없음은 단위 테스트가 보장한다.
 
+## 사용자 지시로 바꾼 것 — 2026-09-18 (일곱 번째: 전환 페이드와 영역 배경)
+
+사용자: "확대 시 특정 줌 레벨에서 노드 라벨들이 갑자기 나타나고(영역 라벨 → 노드 라벨 전환이 순간적), 영역 배경의 해상도가 줌인 시 낮게 느껴짐."
+
+- 갑자기 나타나는 원인: 하위 분야 단계에서 화면의 영역 이름이 하나도 없어지는 순간(영역 중심이 화면 밖으로 나가고 화면 중앙이 반지름 밖) 제목의 바닥이 없어져 겹치지 않는 제목이 한꺼번에 완전히 켜졌다. 실측으로 566%에서 화면의 78%가 이 상태이고 한 화면에 최대 128편이 켜진다. 이제 바닥이 바뀌면 두 바닥의 불투명도를 240ms(영역 이름의 transition과 같은 시간·ease-out)에 걸쳐 섞어, 영역 이름이 옅어지는 동안 제목이 진해진다. 되돌아올 때는 반대. 동작 줄이기 설정이면 즉시. 처음 켜지는 영역 이름도 240ms 페이드인한다(처음 그려지는 요소에는 transition이 안 붙어 툭 나타났다).
+- 영역 배경: 768px 캔버스 텍스처를 지도 전체에 붙였으므로 확대하면 텍셀 하나가 100픽셀을 넘어 흐리고 각졌다. 영역마다 옅어지는 원 하나를 GPU 셰이더가 픽셀마다 계산하도록 바꿨다(같은 세 색 정지점: 중심 0.10 → 45%에서 0.04 → 가장자리 0). 8비트 화면에서 열두어 단계로 끊기는 띠는 픽셀 잡음 ±0.5단계로 흩는다. 어떤 배율에서도 매끈하다.
+- 양보한 것: 예전 텍스처는 지도 범위가 정사각형이 아니면 원이 타원으로 늘어났는데 이제 진짜 원이다. 영역 이름을 언제 보이는지(중심·반지름 규칙)는 그대로다 — 큰 무리가 화면에 있어도 화면 중앙이 반지름 밖이면 이름이 없고 제목이 켜진다.
+
 ## 영향 범위
 
-`frontend/src/views/map/labels.ts`(`labelLevel` 임계값, `avoidCollisions` 제거, `truncateTitle`), `labels.test.ts`, `views/MapView.tsx`(제목 배치·계산, TextLayer), `views/map/text-snap.ts`, `index.css`의 `.paper-name`(삭제), `e2e/exploration.spec.ts`의 확대 시나리오. 사용자는 지도를 보는 연구자 본인.
+`frontend/src/views/map/labels.ts`(`labelLevel` 임계값, `avoidCollisions` 제거, `truncateTitle`), `labels.test.ts`, `views/MapView.tsx`(제목 배치·계산, TextLayer), `views/map/text-snap.ts`, `views/map/region-gradient.ts`, `views/map/regions.ts`(`regionBlobs`), `hooks/use-tween.ts`, `index.css`의 `.paper-name`(삭제)·`.region-name`, `e2e/exploration.spec.ts`의 확대 시나리오. 사용자는 지도를 보는 연구자 본인.
 
 ## 제약
 

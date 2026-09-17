@@ -1098,6 +1098,13 @@ input:focus-visible,
   opacity: 0;
   pointer-events: none;
   transition: opacity 240ms var(--ease);
+  /* 처음 켜질 때도 짧게 페이드한다. 처음 그려지는 요소에는 transition이 안 붙는다. */
+  animation: region-name-in 240ms var(--ease);
+}
+@keyframes region-name-in {
+  from {
+    opacity: 0;
+  }
 }
 .region-name[data-active="true"] {
   pointer-events: auto;

@@ -138,13 +138,18 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
   const pick = (x: number, y: number) =>
     map.evaluate((el, at) => (el as Bridged).__map!.pick(at[0], at[1]), [x, y]);
   // 하위 분야 단계: 화면에 영역 이름이 있으면 그것만, 없으면 논문 제목이 보인다.
-  // 둘 중 하나는 반드시 켜져 있다. + 한 번에 0.5씩.
+  // 둘 중 하나는 반드시 켜져 있다(둘 사이는 240ms 교차 페이드). + 한 번에 0.5씩.
   for (let i = 0; i < 9; i++) await map.press("+");
   await expect(map).toHaveAttribute("data-label-level", "topic");
-  const regions = await page.locator(".region-name[data-active=true]").count();
-  const papers = (await titles()).length;
-  expect(regions > 0).not.toBe(papers > 0);
-  expect(regions + papers).toBeGreaterThan(0);
+  await expect
+    .poll(async () => {
+      const regions = await page
+        .locator(".region-name[data-active=true]")
+        .count();
+      const papers = (await titles()).length;
+      return regions > 0 !== papers > 0 && regions + papers > 0;
+    })
+    .toBe(true);
   // 기준 배율의 2^5 이상에서는 영역 이름과 무관하게 논문 제목이 켜진다. 켜진 제목끼리
   // 겹치지 않는 것은 단위 테스트(revealZooms)가 보장한다.
   for (let i = 0; i < 2; i++) await map.press("+");
