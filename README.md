@@ -48,6 +48,14 @@ npm --prefix agent start        # 127.0.0.1:8787. Vite가 /api/agent 를 여기�
 
 에이전트의 도구는 전부 웹뷰 안에서 실행된다. 서버는 도구 이름과 스키마만 알고 호출을 웹뷰에 중계한 뒤 결과를 모델에 돌려준다. 그래서 브라우저(`/api`)와 데스크톱(`invoke`) 어느 쪽에서도 같은 코드가 돈다. `tauri dev`는 Vite를 거치므로 서버만 띄우면 된다. `.app`에 서버를 사이드카로 묶는 일은 아직 하지 않았다.
 
+에이전트가 할 수 있는 일:
+
+- 코퍼스 읽기 — 주제 목록·상세, 논문 검색·상세, 한 논문의 참고문헌·피인용(`get_citations`), 분석의 메인패스와 씨앗 논문 주변 계보(`get_lineage`), 논문 2–6편 비교표(`compare_papers`: 상호 인용·같은 주제·지도 거리).
+- 지도 조작 — 필터, 카메라 이동·확대, 라벨·지시선, 논문·주제 상세 열기, 화면·색 기준 전환.
+- 웹 — Agent SDK 내장 `WebSearch`·`WebFetch`. 코퍼스 밖 후속 연구·저자·최신 피인용을 찾을 때 쓰고, 답에 출처 URL을 적는다. 파일·셸 도구는 열지 않는다.
+
+여러 워크트리가 각자 Rust 서버를 띄울 때는 `CONSTELLATION_API=http://127.0.0.1:8002 npm --prefix frontend run dev` 처럼 Vite 프록시 대상을 바꾼다.
+
 ## 파이프라인 (Python)
 
 수집·임베딩·클러스터링은 Python CLI다. 기존 `data/constellation.duckdb`가 있으면 다시 돌릴 필요가 없다.
