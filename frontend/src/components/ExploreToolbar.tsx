@@ -6,6 +6,12 @@ import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Field, FieldLabel } from "./ui/field";
 import {
+  InputGroup,
+  InputGroupInput,
+  InputGroupAddon,
+  InputGroupButton,
+} from "./ui/input-group";
+import {
   Select,
   SelectTrigger,
   SelectValue,
@@ -31,13 +37,16 @@ export function ExploreToolbar() {
     hi = years.length ? Math.max(...years) : 2026;
   return (
     <div className="explore-toolbar">
-      <Field className="search-field" data-invalid={draft.trim().length === 1}>
+      <Field
+        className="min-w-44 flex-1"
+        data-invalid={draft.trim().length === 1}
+      >
         <FieldLabel className="sr-only" htmlFor="paper-search">
           논문 검색
         </FieldLabel>
-        <div className="search-control">
-          <Search aria-hidden="true" />
-          <Input
+        {/* 애드온은 초점 관리 때문에 입력 뒤에 두고 align으로 자리를 정한다. */}
+        <InputGroup>
+          <InputGroupInput
             id="paper-search"
             value={draft}
             placeholder="논문 제목·초록 검색"
@@ -47,20 +56,24 @@ export function ExploreToolbar() {
             onCompositionEnd={() => setComposing(false)}
             onChange={(e) => setDraft(e.target.value)}
           />
+          <InputGroupAddon>
+            <Search aria-hidden="true" />
+          </InputGroupAddon>
           {draft && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="검색 지우기"
-              onClick={() => {
-                setDraft("");
-                update({ q: "" }, true);
-              }}
-            >
-              <X />
-            </Button>
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                size="icon-xs"
+                aria-label="검색 지우기"
+                onClick={() => {
+                  setDraft("");
+                  update({ q: "" }, true);
+                }}
+              >
+                <X />
+              </InputGroupButton>
+            </InputGroupAddon>
           )}
-        </div>
+        </InputGroup>
       </Field>
       <Select
         value={state.color}
@@ -95,14 +108,15 @@ export function ExploreToolbar() {
           </SelectGroup>
         </SelectContent>
       </Select>
-      <div className="year-filter">
-        <Field>
+      <div className="flex shrink-0 items-center gap-2">
+        <Field className="w-16">
           <FieldLabel className="sr-only" htmlFor="year-from">
             시작 연도
           </FieldLabel>
           <Input
             id="year-from"
             type="number"
+            className="text-center tabular-nums"
             min={lo}
             max={hi}
             value={state.from ?? lo}
@@ -114,6 +128,7 @@ export function ExploreToolbar() {
           />
         </Field>
         <Slider
+          className="data-horizontal:w-28 max-[960px]:data-horizontal:w-20"
           thumbLabels={["시작 연도 범위", "종료 연도 범위"]}
           min={lo}
           max={Math.max(lo + 1, hi)}
@@ -124,13 +139,14 @@ export function ExploreToolbar() {
               update({ from: value[0], to: value[1] }, true);
           }}
         />
-        <Field>
+        <Field className="w-16">
           <FieldLabel className="sr-only" htmlFor="year-to">
             종료 연도
           </FieldLabel>
           <Input
             id="year-to"
             type="number"
+            className="text-center tabular-nums"
             min={lo}
             max={hi}
             value={state.to ?? hi}

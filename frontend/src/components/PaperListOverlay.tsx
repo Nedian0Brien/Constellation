@@ -6,11 +6,27 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { X, ChevronLeft, ChevronRight, ArrowDown, ArrowUp } from "lucide-react";
+import { X, ArrowDown, ArrowUp } from "lucide-react";
 import { fetchPapers, type PaperRow } from "../api";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardAction,
+  CardContent,
+  CardFooter,
+} from "./ui/card";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationPrevious,
+  PaginationNext,
+} from "./ui/pagination";
 import {
   Table,
   TableHeader,
@@ -20,7 +36,16 @@ import {
   TableCell,
 } from "./ui/table";
 import { DataState } from "./DataState";
+import { cn } from "../lib/utils";
 const helper = createColumnHelper<PaperRow>();
+const pageSize = 25;
+// 페이지 링크는 진짜 URL을 갖되 클릭은 SPA 전환(replace)으로 처리한다.
+function pageHref(page: number) {
+  const url = new URL(location.href);
+  url.searchParams.set("page", String(page));
+  return url.pathname + url.search;
+}
+const disabledLink = "pointer-events-none opacity-50";
 export function PaperListOverlay() {
   const a = useAnalysis(),
     { state, update } = useExploration(),
@@ -43,9 +68,9 @@ export function PaperListOverlay() {
     if (
       result.data &&
       result.data.total > 0 &&
-      state.page > Math.ceil(result.data.total / 25)
+      state.page > Math.ceil(result.data.total / pageSize)
     )
-      update({ page: Math.ceil(result.data.total / 25) }, true);
+      update({ page: Math.ceil(result.data.total / pageSize) }, true);
   }, [result.data, state.page, update]);
   function sort(key: typeof state.sort) {
     update(
@@ -61,12 +86,14 @@ export function PaperListOverlay() {
       helper.accessor("title", {
         header: "논문 제목",
         cell: (c) => (
-          <button
-            className="paper-title-button"
+          <Button
+            variant="link"
+            data-testid="paper-title"
+            className="h-auto whitespace-normal px-0 text-left"
             onClick={() => update({ selected: c.row.original.id, list: false })}
           >
             {c.getValue()}
-          </button>
+          </Button>
         ),
       }),
       helper.accessor("year", {
@@ -88,10 +115,17 @@ export function PaperListOverlay() {
     manualSorting: true,
     rowCount: result.data?.total,
   });
+  const pages = Math.max(1, Math.ceil((result.data?.total ?? 0) / pageSize));
+  const atFirst = state.page <= 1 || result.isFetching;
+  const atLast =
+    !result.data ||
+    state.page * pageSize >= result.data.total ||
+    result.isFetching;
   return (
-    <section
-      className="paper-overlay"
+    <Card
+      role="region"
       aria-labelledby="paper-list-heading"
+      className="absolute bottom-5 left-5 z-10 max-h-[min(520px,calc(100%-75px))] w-[min(610px,calc(100%-44px))] gap-0 py-0 max-[960px]:bottom-3 max-[960px]:left-2.5 max-[960px]:w-[calc(100%-20px)]"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
@@ -99,23 +133,26 @@ export function PaperListOverlay() {
         }
       }}
     >
-      <header className="overlay-header">
-        <div>
-          <span className="eyebrow">PAPER INDEX</span>
-          <h2 id="paper-list-heading">
-            논문 목록 <span>{result.data?.total.toLocaleString() ?? "—"}</span>
-          </h2>
-        </div>
-        <Button
-          ref={close}
-          variant="ghost"
-          size="icon"
-          aria-label="논문 목록 닫기"
-          onClick={() => update({ list: false })}
-        >
-          <X />
-        </Button>
-      </header>
+      <CardHeader className="border-b py-3">
+        <span className="eyebrow">PAPER INDEX</span>
+        <CardTitle id="paper-list-heading">
+          논문 목록{" "}
+          <Badge variant="secondary" className="ml-1 tabular-nums">
+            {result.data?.total.toLocaleString() ?? "—"}
+          </Badge>
+        </CardTitle>
+        <CardAction>
+          <Button
+            ref={close}
+            variant="ghost"
+            size="icon-sm"
+            aria-label="논문 목록 닫기"
+            onClick={() => update({ list: false })}
+          >
+            <X />
+          </Button>
+        </CardAction>
+      </CardHeader>
       {!a.valid ? (
         <DataState title="검색어는 두 글자 이상 입력해주세요" />
       ) : result.isError || result.isPending ? (
@@ -127,8 +164,8 @@ export function PaperListOverlay() {
       ) : result.data?.total === 0 ? (
         <DataState title="검색 결과가 없습니다" />
       ) : (
-        <div className="paper-table">
-          <Table>
+        <CardContent className="min-h-0 flex-1 overflow-auto px-0">
+          <Table className="table-fixed">
             <TableHeader>
               {table.getHeaderGroups().map((group) => (
                 <TableRow key={group.id}>
@@ -140,6 +177,10 @@ export function PaperListOverlay() {
                     return (
                       <TableHead
                         key={h.id}
+                        className={cn(
+                          "sticky top-0 bg-card",
+                          h.id === "title" ? "w-[68%] max-[960px]:w-[60%]" : "w-[16%] max-[960px]:w-[20%]",
+                        )}
                         aria-sort={
                           state.sort === key
                             ? state.order === "asc"
@@ -159,9 +200,9 @@ export function PaperListOverlay() {
                           )}
                           {state.sort === key &&
                             (state.order === "asc" ? (
-                              <ArrowUp />
+                              <ArrowUp data-icon="inline-end" />
                             ) : (
-                              <ArrowDown />
+                              <ArrowDown data-icon="inline-end" />
                             ))}
                         </Button>
                       </TableHead>
@@ -179,7 +220,7 @@ export function PaperListOverlay() {
                   }
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                    <TableCell key={cell.id} className="align-top whitespace-normal">
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),
@@ -190,37 +231,51 @@ export function PaperListOverlay() {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </CardContent>
       )}
-      <footer className="overlay-pagination">
-        <span>연도 미상 논문 포함</span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="이전 페이지"
-          disabled={state.page <= 1 || result.isFetching}
-          onClick={() => update({ page: state.page - 1 }, true)}
-        >
-          <ChevronLeft />
-        </Button>
-        <span>
-          {state.page} /{" "}
-          {Math.max(1, Math.ceil((result.data?.total ?? 0) / 25))}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="다음 페이지"
-          disabled={
-            !result.data ||
-            state.page * 25 >= result.data.total ||
-            result.isFetching
-          }
-          onClick={() => update({ page: state.page + 1 }, true)}
-        >
-          <ChevronRight />
-        </Button>
-      </footer>
-    </section>
+      <CardFooter className="justify-between gap-2 py-2">
+        <span className="text-xs text-muted-foreground">연도 미상 논문 포함</span>
+        <Pagination className="mx-0 w-auto">
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                text="이전"
+                aria-label="이전 페이지"
+                aria-disabled={atFirst || undefined}
+                tabIndex={atFirst ? -1 : undefined}
+                className={cn(atFirst && disabledLink)}
+                href={pageHref(state.page - 1)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!atFirst) update({ page: state.page - 1 }, true);
+                }}
+              />
+            </PaginationItem>
+            <PaginationItem>
+              <span
+                className="px-2 text-xs text-muted-foreground tabular-nums"
+                aria-live="polite"
+              >
+                {state.page} / {pages}
+              </span>
+            </PaginationItem>
+            <PaginationItem>
+              <PaginationNext
+                text="다음"
+                aria-label="다음 페이지"
+                aria-disabled={atLast || undefined}
+                tabIndex={atLast ? -1 : undefined}
+                className={cn(atLast && disabledLink)}
+                href={pageHref(state.page + 1)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!atLast) update({ page: state.page + 1 }, true);
+                }}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      </CardFooter>
+    </Card>
   );
 }
