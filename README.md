@@ -44,6 +44,8 @@ npm --prefix agent ci
 npm --prefix agent start        # 127.0.0.1:8787. Vite가 /api/agent 를 여기로 프록시한다
 ```
 
+`frontend/components.json`의 `@acf` 레지스트리는 `http://127.0.0.1:3100`을 가리킨다. 설치본을 갱신하려면 프레임워크의 `public/`을 그 포트로 띄우고(`python3 -m http.server 3100`) `npx shadcn@latest add @acf/thread-aui`를 돌린다. 평소 실행에는 필요 없다.
+
 에이전트의 도구는 전부 웹뷰 안에서 실행된다. 서버는 도구 이름과 스키마만 알고 호출을 웹뷰에 중계한 뒤 결과를 모델에 돌려준다. 그래서 브라우저(`/api`)와 데스크톱(`invoke`) 어느 쪽에서도 같은 코드가 돈다. `tauri dev`는 Vite를 거치므로 서버만 띄우면 된다. `.app`에 서버를 사이드카로 묶는 일은 아직 하지 않았다.
 
 ## 파이프라인 (Python)
