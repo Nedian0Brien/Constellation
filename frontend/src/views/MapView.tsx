@@ -11,17 +11,37 @@ import { useStore, type Camera } from "../store";
 import { Button } from "../components/ui/button";
 import {
   labelLevel,
+  labelOpacity,
   PAPER_LABEL_ZOOM,
   paperLabelOpacity,
   clampRegionLabel,
   regionRadii,
   regionLabels,
+  revealZooms,
   homeCamera,
   descendants,
   visibleTitles,
 } from "./map/labels";
 import { clusterColor, regionTexture } from "./map/regions";
 const view = new OrthographicView({ id: "research-map" });
+// 논문 제목 상자. `.paper-name`의 11px/1.4 글꼴과 2px 4px 안쪽 여백, 220px 최대 폭에
+// 맞춘다. 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8).
+const TITLE_MAX_WIDTH = 220,
+  TITLE_PADDING = 8,
+  TITLE_GAP_X = 8,
+  TITLE_HEIGHT = 20 + 4;
+// 제목 폭을 실제 글꼴로 잰다. 캔버스가 없으면 글자 수로 어림한다.
+function titleMeasurer(): (text: string) => number {
+  const ctx =
+    typeof document === "undefined"
+      ? null
+      : document.createElement("canvas").getContext("2d");
+  if (!ctx)
+    return (text) => Math.min(TITLE_MAX_WIDTH, text.length * 6 + TITLE_PADDING);
+  ctx.font = `11px ${getComputedStyle(document.body).fontFamily}`;
+  return (text) =>
+    Math.min(TITLE_MAX_WIDTH, ctx.measureText(text).width + TITLE_PADDING);
+}
 export default function MapView() {
   const a = useAnalysis(),
     { state, update } = useExploration(),
@@ -208,8 +228,7 @@ export default function MapView() {
         x < size.width - w / 2 &&
         y > 55 + h / 2 &&
         y < size.height - 75 - h / 2;
-      const covering =
-        Math.hypot(cx - n.x, cy - n.y) <= (radii.get(n.id) ?? 0);
+      const covering = Math.hypot(cx - n.x, cy - n.y) <= (radii.get(n.id) ?? 0);
       if (!inside && !covering) continue;
       if (!inside)
         [x, y] = clampRegionLabel(x, y, w, h, size.width, size.height);
@@ -226,40 +245,74 @@ export default function MapView() {
     }
     return out;
   }, [relativeZoom, regionSet, viewport, size, radii]);
-  // 논문 제목 불투명도: 확대에 따라 서서히 진해진다. 하위 분야 단계인데 화면에 영역
-  // 이름이 하나도 없으면(영역 사이 빈 곳) 바로 켠다. 상위 분야 단계에서는 켜지 않는다.
-  const paperOpacity =
+  // 논문 제목의 바닥 배율(절대 zoom). 겹치지 않는 제목은 여기서부터 진해진다.
+  // 상위 분야 단계에서는 안 켠다. 하위 분야 단계인데 화면에 영역 이름이 하나도
+  // 없으면(영역 사이 빈 곳) 바닥을 없애 겹치지 않는 제목을 바로 켠다.
+  const paperFloor =
     level === "field"
-      ? 0
+      ? Infinity
       : level === "topic" && shownRegions.size === 0
-        ? 1
-        : paperLabelOpacity(relativeZoom);
+        ? -Infinity
+        : home.zoom + PAPER_LABEL_ZOOM - 0.5;
+  // 겹치지 않는 제목 하나가 지금 갖는 불투명도. 선택한 논문은 이만큼은 보인다.
+  const paperOpacity = labelOpacity(camera.zoom, -Infinity, paperFloor);
   const paperLabelsOn = paperOpacity > 0;
   // 영역 이름은 같은 곡선을 거꾸로 따라 옅어진다.
   const regionOpacity = 1 - paperLabelOpacity(relativeZoom);
+  // 제목 상자 폭: 실제 글꼴로 한 번 잰다(1만 편에 약 50ms). 필터가 바뀌어도 다시 재지 않는다.
+  const widths = useMemo(() => {
+    const measure = titleMeasurer();
+    return map.title.map((t) => measure(t) + TITLE_GAP_X);
+  }, [map]);
+  // 제목 상자: 필터에 든 논문만. 필터 밖 논문은 자리를 차지하지 않는다.
+  const boxes = useMemo(
+    () =>
+      points
+        .filter(
+          (p) =>
+            a.ids.has(p.id) &&
+            Number.isFinite(map.x[p.i]) &&
+            Number.isFinite(map.y[p.i]),
+        )
+        .map((p) => ({
+          i: p.i,
+          x: map.x[p.i],
+          y: map.y[p.i],
+          width: widths[p.i],
+          priority: map.cited[p.i],
+        })),
+    [points, a.ids, map, widths],
+  );
+  // 논문마다 제목이 켜지는 배율. 좌표·제목 폭·피인용수로만 정하므로 이동해도
+  // 바뀌지 않는다. 바닥은 하위 분야 단계의 시작(기준 배율)이다 — 그 아래 값은
+  // 어차피 쓰이지 않는다.
+  const reveals = useMemo(
+    () => revealZooms(boxes, home.zoom, TITLE_HEIGHT),
+    [boxes, home.zoom],
+  );
   // 하위 분야 단계부터 목록을 만든다. 상위 분야 단계에서는 1만 개를 투영할 이유가 없다.
   const showTitles = level !== "field";
   const titles = useMemo(
     () =>
       showTitles
         ? visibleTitles(
-            points
-              .filter((p) => a.ids.has(p.id))
-              .map((p) => {
-                const [x, y] = viewport.project(p.position);
-                return {
-                  id: p.id,
-                  text: map.title[p.i],
-                  x,
-                  y,
-                  selected: p.id === state.selected,
-                };
-              }),
+            boxes.map((b, k) => {
+              const [x, y] = viewport.project([b.x, b.y, 0]);
+              const id = map.id[b.i];
+              return {
+                id,
+                text: map.title[b.i],
+                x,
+                y,
+                selected: id === state.selected,
+                reveal: reveals[k],
+              };
+            }),
             size.width,
             size.height,
           )
         : [],
-    [showTitles, points, a.ids, viewport, map, state.selected, size],
+    [showTitles, boxes, reveals, viewport, map, state.selected, size],
   );
   const layers = [
     ...(texture
@@ -413,21 +466,28 @@ export default function MapView() {
           relativeZoom >= 2 && relativeZoom < PAPER_LABEL_ZOOM + 0.5,
           "leaf",
         )}
-        {titles.map((l) => (
-          <button
-            key={l.id}
-            className="paper-name"
-            data-active={paperLabelsOn}
-            data-selected={l.selected || undefined}
-            title={l.text}
-            style={{ left: l.x, top: l.y + 7, opacity: paperOpacity }}
-            tabIndex={paperLabelsOn ? 0 : -1}
-            aria-hidden={!paperLabelsOn}
-            onClick={() => update({ selected: l.id })}
-          >
-            {l.text}
-          </button>
-        ))}
+        {titles.map((l) => {
+          // 제목마다 제 배율에서 서서히 진해진다. 선택한 논문은 이웃에 가려지지 않는다.
+          const opacity = l.selected
+            ? paperOpacity
+            : labelOpacity(camera.zoom, l.reveal, paperFloor);
+          const on = opacity > 0;
+          return (
+            <button
+              key={l.id}
+              className="paper-name"
+              data-active={on}
+              data-selected={l.selected || undefined}
+              title={l.text}
+              style={{ left: l.x, top: l.y + 7, opacity }}
+              tabIndex={on ? 0 : -1}
+              aria-hidden={!on}
+              onClick={() => update({ selected: l.id })}
+            >
+              {l.text}
+            </button>
+          );
+        })}
       </div>
       <div className="map-caption">
         <span className="eyebrow">

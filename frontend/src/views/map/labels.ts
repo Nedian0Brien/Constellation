@@ -1,10 +1,10 @@
 import type { MapData, TreeData, ClusterInfo } from "../../api";
 export type LabelLevel = "field" | "topic" | "paper";
-// 논문 제목이 켜지는 배율(기준 배율 대비 log2). 5 = 3200%. 하위 분야 라벨은
+// 논문 제목이 켜지기 시작하는 배율(기준 배율 대비 log2). 5 = 3200%. 하위 분야 라벨은
 // 이 배율에서 꺼지므로 라벨이 하나도 없는 구간이 생기지 않는다.
 // 실측(SciNCL run, 지도 영역 1184×830): 800%에서 가장 빽빽한 화면에 980편,
-// 3200%에서 188편, 6400%에서 79편이 들어온다. 겹침 억제 없이 전부 그리므로
-// 이 값이 한 화면의 라벨 수를 정한다. 제목은 한 줄로 줄여 겹침을 줄인다.
+// 3200%에서 188편, 6400%에서 79편이 들어온다. 이웃과 겹치는 제목은 `revealZooms`가
+// 정한 더 높은 배율에서 켜진다.
 export const PAPER_LABEL_ZOOM = 5;
 export function labelLevel(relativeZoom: number): LabelLevel {
   return relativeZoom < 1
@@ -89,14 +89,14 @@ export interface PositionedLabel {
   y: number;
   selected?: boolean;
 }
-// 뷰포트 밖의 라벨만 뺀다. 정렬·개수 제한·겹침 판정을 두지 않아 같은 배율의
-// 같은 화면이면 항상 같은 라벨이 보인다. 여백은 라벨 폭의 절반(130px)이다.
+// 뷰포트 밖의 라벨만 뺀다. 화면에 따른 정렬·개수 제한·겹침 판정을 두지 않아 같은
+// 배율의 같은 화면이면 항상 같은 라벨이 보인다. 여백은 라벨 폭의 절반(130px)이다.
 const margin = 130;
-export function visibleTitles(
-  labels: PositionedLabel[],
+export function visibleTitles<T extends PositionedLabel>(
+  labels: T[],
   width: number,
   height: number,
-): PositionedLabel[] {
+): T[] {
   return labels.filter(
     (l) =>
       l.x >= -margin &&
@@ -142,12 +142,92 @@ export function regionRadii(
   return out;
 }
 
-// 논문 제목 불투명도. 문턱 반 단계 아래(2263%)에서 0, 반 단계 위(4525%)에서 1로
-// 확대에 따라 서서히 진해진다. 영역 이름은 같은 곡선을 거꾸로 따라 옅어진다.
+// 라벨 불투명도. 켜지는 배율(`reveal`)과 바닥 배율 중 높은 쪽에서 0, 한 단계(2배)
+// 위에서 1로 확대에 따라 서서히 진해진다.
+export function labelOpacity(
+  zoom: number,
+  reveal: number,
+  floor: number,
+): number {
+  return Math.min(1, Math.max(0, zoom - Math.max(reveal, floor)));
+}
+
+// 겹치지 않는 논문 제목의 불투명도. 문턱 반 단계 아래(2263%)에서 0, 반 단계 위
+// (4525%)에서 1이다. 영역 이름은 같은 곡선을 거꾸로 따라 옅어진다.
 export function paperLabelOpacity(relativeZoom: number): number {
-  const from = PAPER_LABEL_ZOOM - 0.5,
-    to = PAPER_LABEL_ZOOM + 0.5;
-  return Math.min(1, Math.max(0, (relativeZoom - from) / (to - from)));
+  return labelOpacity(relativeZoom, -Infinity, PAPER_LABEL_ZOOM - 0.5);
+}
+
+// ── 논문마다 제목이 켜지는 배율 ────────────────────────────────────
+// UMAP은 비슷한 논문을 라벨 폭보다 가깝게 놓으므로 어떤 배율에서도 "전부 켜고
+// 겹치지 않기"는 안 된다. 대신 논문마다 켜지는 배율을 좌표·제목 폭·피인용수만으로
+// 한 번 정한다. 화면(뷰포트)이 끼어들지 않으므로 이동해도 라벨이 바뀌지 않고,
+// 확대하면 더해지기만, 축소하면 빠지기만 한다. 같은 배율에서 켜진 두 라벨은
+// 겹치지 않는다.
+//
+// 절차: 피인용순(같으면 입력 순)으로 보면서, 앞선 이웃 j와 떨어지는 배율 s(i,j)를
+// 잰다. 가로로 (w_i+w_j)/2 이상 또는 세로로 h 이상 벌어지면 떨어진 것이다. j가
+// 켜진 뒤에도 겹친다면(s > reveal_j) i는 s까지 기다린다. 바닥 배율보다 낮은 s는
+// 어차피 바닥이 가리므로 -Infinity로 돌려준다.
+export interface LabelBox {
+  x: number;
+  y: number;
+  /** 라벨 상자 폭(px). 이웃과의 간격을 포함한다. */
+  width: number;
+  /** 클수록 먼저 자리를 잡는다. */
+  priority: number;
+}
+export function revealZooms(
+  boxes: LabelBox[],
+  floor: number,
+  height: number,
+): Float64Array {
+  const n = boxes.length,
+    out = new Float64Array(n).fill(-Infinity),
+    // 배율은 log2(px/단위)이므로 나눗셈만 쓰는 척도 공간에서 비교한다.
+    reveal = new Float64Array(n),
+    floorScale = 2 ** floor;
+  if (!n) return out;
+  const order = Array.from({ length: n }, (_, i) => i).sort(
+    (a, b) => boxes[b].priority - boxes[a].priority,
+  );
+  // 바닥 배율에서 라벨이 닿을 수 있는 거리(지도 단위)로 격자를 짠다. 그보다 먼
+  // 이웃과는 어떤 배율에서도 바닥 위에서 겹치지 않는다.
+  let maxW = 0,
+    minX = Infinity,
+    minY = Infinity;
+  for (const b of boxes) {
+    if (b.width > maxW) maxW = b.width;
+    if (b.x < minX) minX = b.x;
+    if (b.y < minY) minY = b.y;
+  }
+  const cellW = maxW / floorScale,
+    cellH = height / floorScale,
+    cols = new Map<number, number[]>(),
+    key = (cx: number, cy: number) => cx * 4_194_304 + cy;
+  for (const i of order) {
+    const b = boxes[i],
+      cx = Math.floor((b.x - minX) / cellW),
+      cy = Math.floor((b.y - minY) / cellH);
+    let need = floorScale;
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (const j of cols.get(key(cx + dx, cy + dy)) ?? []) {
+          const o = boxes[j],
+            sx = (b.width + o.width) / 2 / Math.abs(b.x - o.x),
+            sy = height / Math.abs(b.y - o.y),
+            s = Math.min(sx, sy);
+          // 0으로 나누면 Infinity: 같은 자리는 영원히 안 떨어진다.
+          if (s > reveal[j] && s > need) need = s;
+        }
+    reveal[i] = need;
+    if (need > floorScale) out[i] = Math.log2(need);
+    const k = key(cx, cy),
+      cell = cols.get(k);
+    if (cell) cell.push(i);
+    else cols.set(k, [i]);
+  }
+  return out;
 }
 
 // 영역 중심이 화면 밖이어도 화면 중앙이 영역 안(반지름 이내)이면 이름을 가장자리에

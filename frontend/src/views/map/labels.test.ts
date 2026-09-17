@@ -3,10 +3,13 @@ import {
   descendants,
   labelLevel,
   visibleTitles,
+  labelOpacity,
   paperLabelOpacity,
   clampRegionLabel,
   regionRadii,
+  revealZooms,
   PAPER_LABEL_ZOOM,
+  type LabelBox,
 } from "./labels";
 import type { TreeData, MapData, ClusterInfo } from "../../api";
 describe("semantic map labels", () => {
@@ -59,9 +62,7 @@ describe("region persistence and zoom ramp", () => {
   });
   it("clamps a region label into the viewport", () => {
     expect(clampRegionLabel(-300, 20, 100, 23, 800, 600)).toEqual([66, 66.5]);
-    expect(clampRegionLabel(400, 900, 100, 23, 800, 600)).toEqual([
-      400, 513.5,
-    ]);
+    expect(clampRegionLabel(400, 900, 100, 23, 800, 600)).toEqual([400, 513.5]);
   });
   it("measures a region radius from its members", () => {
     const map = {
@@ -76,5 +77,96 @@ describe("region persistence and zoom ramp", () => {
     ]);
     expect(radii.get("c0")).toBe(2);
     expect(radii.get("c1")).toBe(0);
+  });
+});
+describe("per-paper reveal zoom", () => {
+  const H = 24;
+  const box = (
+    x: number,
+    y: number,
+    priority: number,
+    width = 100,
+  ): LabelBox => ({
+    x,
+    y,
+    width,
+    priority,
+  });
+  it("leaves far-apart labels unconstrained", () => {
+    const r = revealZooms([box(0, 0, 1), box(50, 50, 2)], 0, H);
+    expect([...r]).toEqual([-Infinity, -Infinity]);
+  });
+  it("makes the lower-priority neighbour wait until the labels separate", () => {
+    // 100px 상자 둘이 0.5단위 떨어져 있다: 가로로 떨어지려면 200px/단위 = 2^7.64.
+    const r = revealZooms([box(0, 0, 1), box(0.5, 0, 5)], 0, H);
+    expect(r[1]).toBe(-Infinity);
+    expect(r[0]).toBeCloseTo(Math.log2(200), 5);
+    // 세로로 먼저 떨어지면 그쪽이 이긴다: 24px/0.2단위 = 120px/단위.
+    const v = revealZooms([box(0, 0, 1), box(0.5, 0.2, 5)], 0, H);
+    expect(v[0]).toBeCloseTo(Math.log2(120), 5);
+  });
+  it("ignores separations below the floor and ties by input order", () => {
+    expect([...revealZooms([box(0, 0, 1), box(0.5, 0, 1)], 8, H)]).toEqual([
+      -Infinity,
+      -Infinity,
+    ]);
+    const r = revealZooms([box(0, 0, 1), box(0.5, 0, 1)], 0, H);
+    expect(r[0]).toBe(-Infinity);
+    expect(r[1]).toBeCloseTo(Math.log2(200), 5);
+  });
+  it("never reveals a label sitting on a higher-priority one", () => {
+    const r = revealZooms([box(1, 1, 9), box(1, 1, 3)], 0, H);
+    expect([...r]).toEqual([-Infinity, Infinity]);
+  });
+  it("lets a label appear before a neighbour that is still blocked", () => {
+    // k(0) ← j(0.5) ← i(1.0): j는 k와 2^7.64에서 떨어지고, i는 j가 켜질 때 이미
+    // 떨어져 있으므로 k와 떨어지는 2^6.64에서 켜진다 — j보다 먼저.
+    const r = revealZooms([box(0, 0, 9), box(0.5, 0, 5), box(1, 0, 1)], 0, H);
+    expect(r[1]).toBeCloseTo(Math.log2(200), 5);
+    expect(r[2]).toBeCloseTo(Math.log2(100), 5);
+  });
+  it("is monotone in zoom and overlap-free at every zoom on random data", () => {
+    let seed = 7;
+    const rand = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+    // 바닥 배율 4(16px/단위)에서 격자 칸은 가로 13.75·세로 1.5단위. 60단위 정사각형에
+    // 600개면 칸 경계를 여러 번 넘고, 4단계 위에서도 겹치는 쌍이 남는다.
+    const boxes = Array.from({ length: 600 }, () =>
+      box(rand() * 60, rand() * 60, Math.floor(rand() * 50), 60 + rand() * 160),
+    );
+    const floor = 4;
+    const r = revealZooms(boxes, floor, H);
+    let prev = new Set<number>();
+    for (let z = floor; z <= 12; z += 0.5) {
+      const on = new Set<number>();
+      boxes.forEach((_, i) => {
+        if (Math.max(r[i], floor) <= z) on.add(i);
+      });
+      expect([...prev].every((i) => on.has(i))).toBe(true);
+      const list = [...on],
+        scale = 2 ** z;
+      let overlaps = 0;
+      for (let a = 0; a < list.length; a++)
+        for (let b = a + 1; b < list.length; b++) {
+          const p = boxes[list[a]],
+            q = boxes[list[b]];
+          if (
+            Math.abs(p.x - q.x) * scale < (p.width + q.width) / 2 &&
+            Math.abs(p.y - q.y) * scale < H
+          )
+            overlaps++;
+        }
+      expect(overlaps).toBe(0);
+      prev = on;
+    }
+    expect(prev.size).toBeGreaterThan(500);
+    expect([...r].filter((z) => z > floor).length).toBeGreaterThan(50);
+  });
+  it("fades each label in over one zoom step above its reveal or the floor", () => {
+    expect(labelOpacity(5, -Infinity, 4.5)).toBeCloseTo(0.5);
+    expect(labelOpacity(5, 6, 4.5)).toBe(0);
+    expect(labelOpacity(6.25, 6, 4.5)).toBeCloseTo(0.25);
+    expect(labelOpacity(9, 6, 4.5)).toBe(1);
+    expect(labelOpacity(3, -Infinity, -Infinity)).toBe(1);
+    expect(labelOpacity(9, -Infinity, Infinity)).toBe(0);
   });
 });
