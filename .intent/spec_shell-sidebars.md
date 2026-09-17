@@ -11,16 +11,16 @@ date: 2026-09-17
 
 ## 요구사항
 
-- [ ] 좌측 탐색은 `SidebarProvider` 하나 아래의 `Sidebar collapsible="icon"`이다. 접으면 48px 아이콘 레일에 다섯 화면 아이콘이 남고 각 아이콘에 `tooltip`으로 이름이 뜬다. `SidebarRail`, 헤더의 `SidebarTrigger`, `⌘B`/`Ctrl+B`로 여닫는다.
-- [ ] 좌측 주제 목록은 `SidebarInput`으로 라벨을 대소문자 구분 없이 걸러 보고, 항목마다 `SidebarMenuBadge`로 논문 수를 표시한다. 그룹 라벨 옆에 전체 개수를 `Badge`로 표시한다. 걸러서 0개거나 분석 결과가 없으면 `Empty`를 표시한다. 아이콘 레일 상태에서는 주제 그룹과 푸터를 숨긴다.
-- [ ] 우측 인스펙터는 `Sidebar side="right" collapsible="none"`이며 `data-testid="inspector"`를 가진다. `detailOpen`이 참일 때만 렌더링한다. 논문·주제·분야 선택이 생기거나 바뀌면 `detailOpen`이 참이 되고, 선택이 모두 지워지면 거짓이 된다. 헤더 버튼 "상세 패널 전환"(`aria-pressed`)으로도 토글한다.
-- [ ] 인스펙터 헤더는 셸이 한 번만 그린다. eyebrow(논문 / 연구 주제 / 연구 분야 / INSPECTOR)와 ✕ `Button variant="ghost" size="icon"`(aria-label "선택 해제")가 있고, ✕는 선택을 지운다.
-- [ ] `DetailPanel`·`ClusterPanel`은 `<aside>`와 ✕ 없이 내용만 돌려준다. 연도·유형·피인용·논문 수·중앙연도는 `Badge`, 코퍼스 내 참고문헌·피인용 통계와 하위 주제·피인용 상위 목록은 `ItemGroup`+`Item`, 초록 없음은 `Alert`, 주제 태그는 `Badge variant="outline"`, 절 구분은 `Separator`, 원문 링크는 `Button variant="link"`+`ExternalLink data-icon="inline-end"`다. 빈 상태는 `Empty`+`EmptyMedia variant="icon"`.
-- [ ] 두 패널의 열림 상태는 `localStorage["constellation.layout.v2"]` = `{version:2, navOpen, detailOpen}`에 저장하고 새로고침 뒤 복원한다. 값이 깨졌거나 없으면 `navOpen=true`, `detailOpen=(로드 시 URL에 selected·cluster·node 중 하나라도 있음)`으로 복구한다. v1 키는 읽지 않는다.
-- [ ] 좁은 창(≤959px)에서 좌측은 Sidebar 내장 Sheet로 열리고 항목을 고르면 닫힌다. 우측은 `Sheet side="right"`로 열리고 `SheetTitle`을 가진다. 가로 넘침이 없다.
-- [ ] `ResizablePanelGroup`, `react-resizable-panels` 의존, `components/ui/resizable.tsx`, `AppShell`의 `mobile ? … : …` 토글 분기와 `matchMedia` 상태, `index.css`의 `.app-sidebar*`·`.inspector-*`·`.corpus-links`·`.sidebar-note`·`.cluster-count`·`.topic-dot`·`[data-slot=resizable-handle]` 셀렉터를 제거한다. `.detail`·`.close`·`.tag`·`.meta-row`·`.cl-*`·`.topic*`·`.spark*`·`.eyebrow`는 `FlowView`의 갈래 상세와 다른 화면이 아직 쓰므로 남긴다. `FlowView` 상세의 shadcn 정리는 후속 변경이다.
-- [ ] 폭·높이는 design-ops `patterns/navigation.md` Implementation defaults를 따른다: 좌측 펼침 16rem, 접힘 3rem, 모바일 18rem, 항목 높이 32px(shadcn 기본). 우측 20rem은 코퍼스에 인스펙터 표본이 없어 현재 값 320px를 유지한 제품 결정이다(unverified). 헤더 높이 62px는 `--header-height`로 노출한다.
-- [ ] 지도·목록 오버레이·URL 복원·다섯 화면 전환·모델 전환은 변경 전과 같이 동작한다.
+- [x] 좌측 탐색은 `SidebarProvider` 하나 아래의 `Sidebar collapsible="icon"`이다. 접으면 48px 아이콘 레일에 다섯 화면 아이콘이 남고 각 아이콘에 `tooltip`으로 이름이 뜬다. `SidebarRail`, 헤더의 `SidebarTrigger`, `⌘B`/`Ctrl+B`로 여닫는다.
+- [x] 좌측 주제 목록은 `SidebarInput`으로 라벨을 대소문자 구분 없이 걸러 보고, 항목마다 `SidebarMenuBadge`로 논문 수를 표시한다. 그룹 라벨 옆에 전체 개수를 `Badge`로 표시한다. 걸러서 0개거나 분석 결과가 없으면 `Empty`를 표시한다. 아이콘 레일 상태에서는 주제 그룹과 푸터를 숨긴다.
+- [x] 우측 인스펙터는 `Sidebar side="right" collapsible="none"`이며 `data-testid="inspector"`를 가진다. `detailOpen`이 참일 때만 렌더링한다. 논문·주제·분야 선택이 생기거나 바뀌면 `detailOpen`이 참이 되고, 선택이 모두 지워지면 거짓이 된다. 헤더 버튼 "상세 패널 전환"(`aria-pressed`)으로도 토글한다.
+- [x] 인스펙터 헤더는 셸이 한 번만 그린다. eyebrow(논문 / 연구 주제 / 연구 분야 / INSPECTOR)와 ✕ `Button variant="ghost" size="icon"`(aria-label "선택 해제")가 있고, ✕는 선택을 지운다.
+- [x] `DetailPanel`·`ClusterPanel`은 `<aside>`와 ✕ 없이 내용만 돌려준다. 연도·유형·피인용·논문 수·중앙연도는 `Badge`, 코퍼스 내 참고문헌·피인용 통계와 하위 주제·피인용 상위 목록은 `ItemGroup`+`Item`, 초록 없음은 `Alert`, 주제 태그는 `Badge variant="outline"`, 절 구분은 `Separator`, 원문 링크는 `Button variant="link"`+`ExternalLink data-icon="inline-end"`다. 빈 상태는 `Empty`+`EmptyMedia variant="icon"`.
+- [x] 두 패널의 열림 상태는 `localStorage["constellation.layout.v2"]` = `{version:2, navOpen, detailOpen}`에 저장하고 새로고침 뒤 복원한다. 값이 깨졌거나 없으면 `navOpen=true`, `detailOpen=(로드 시 URL에 selected·cluster·node 중 하나라도 있음)`으로 복구한다. v1 키는 읽지 않는다.
+- [x] 좁은 창(≤959px)에서 좌측은 Sidebar 내장 Sheet로 열리고 항목을 고르면 닫힌다. 우측은 `Sheet side="right"`로 열리고 `SheetTitle`을 가진다. 가로 넘침이 없다.
+- [x] `ResizablePanelGroup`, `react-resizable-panels` 의존, `components/ui/resizable.tsx`, `AppShell`의 `mobile ? … : …` 토글 분기와 `matchMedia` 상태, `index.css`의 `.app-sidebar*`·`.inspector-*`·`.corpus-links`·`.sidebar-note`·`.cluster-count`·`.topic-dot`·`[data-slot=resizable-handle]` 셀렉터를 제거한다. `.detail`·`.close`·`.tag`·`.meta-row`·`.cl-*`·`.topic*`·`.spark*`·`.eyebrow`는 `FlowView`의 갈래 상세와 다른 화면이 아직 쓰므로 남긴다. `FlowView` 상세의 shadcn 정리는 후속 변경이다.
+- [x] 폭·높이는 design-ops `patterns/navigation.md` Implementation defaults를 따른다: 좌측 펼침 16rem, 접힘 3rem, 모바일 18rem, 항목 높이 32px(shadcn 기본). 우측 20rem은 코퍼스에 인스펙터 표본이 없어 현재 값 320px를 유지한 제품 결정이다(unverified). 헤더 높이 62px는 `--header-height`로 노출한다.
+- [x] 지도·목록 오버레이·URL 복원·다섯 화면 전환·모델 전환은 변경 전과 같이 동작한다.
 
 ## 설계
 
@@ -58,3 +58,5 @@ npm run test:e2e             # 9개 통과 (실데이터)
 ```
 
 브라우저(실데이터, 1440×950과 390×844): `⌘B`로 좌측 접힘·펼침, 레일 아이콘 툴팁, 주제 필터, 논문 선택 시 우측 열림·✕로 닫힘, 새로고침 뒤 두 패널 상태 유지, 모바일 두 Sheet. 콘솔 오류 0.
+
+구현·검증 완료: 2026-09-17. Vitest 11, build, lint(경고 7), Playwright 9/9 통과. 브라우저(1021×1127, 375×812)에서 접기·레일 툴팁·주제 필터·인스펙터 열림/닫힘·새로고침 복원·모바일 Sheet를 확인했다.
