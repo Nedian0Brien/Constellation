@@ -35,6 +35,8 @@ const PORT = Number(process.env.PORT ?? 8787);
  * 세션 파일은 `~/.claude/projects/<cwd 해시>/` 아래에 놓인다. 서버를 어느
  * 폴더에서 띄우든 같은 세션을 다시 찾으려면 cwd 가 고정돼야 한다.
  */
+/** 코퍼스 밖을 볼 때 쓰는 Agent SDK 내장 도구. `claude` 프로세스 안에서 돈다. */
+const WEB_TOOLS = ["WebSearch", "WebFetch"];
 const CWD = path.resolve(import.meta.dirname, "..");
 
 const DEFAULT_SYSTEM =
@@ -93,10 +95,12 @@ app.post("/api/agent", async (c) => {
         thinking: { type: "adaptive", display: "summarized" },
         ...(existing ? { resume: sessionId } : { sessionId }),
         systemPrompt: body.system?.trim() || DEFAULT_SYSTEM,
-        // 내장 도구는 전부 끈다. 이 에이전트의 도구는 웹뷰가 준 것뿐이다.
-        tools: [],
+        // 내장 도구는 웹 둘만 연다. 파일·셸 도구는 없고, 나머지 도구는 웹뷰가
+        // 준 것뿐이다. permissionMode 가 default 라 allowedTools 에 없으면
+        // 승인을 기다리다 멈추므로 두 이름을 같이 넣는다.
+        tools: WEB_TOOLS,
         mcpServers: { ui: mcp.server },
-        allowedTools: mcp.allowedTools,
+        allowedTools: [...mcp.allowedTools, ...WEB_TOOLS],
         permissionMode: "default",
         ...(process.env.CONSTELLATION_AGENT_MODEL
           ? { model: process.env.CONSTELLATION_AGENT_MODEL }
