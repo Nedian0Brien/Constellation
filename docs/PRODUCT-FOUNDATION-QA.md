@@ -96,8 +96,9 @@ curl 로 확인한 서버 동작: 첫 턴 `sessionId` → 둘째 턴 `resume`(�
 | Vitest | 23개 통과(인용 도구 3개 추가: 라벨 결합·W 표기 정규화, 씨앗 기준 방향, 비교표·missing) |
 | TypeScript + Vite build, Oxlint | 성공, 경고 36개(변화 없음) |
 | Playwright | 10개 통과 |
+| `src-tauri` cargo test | `citations` 명령의 인자 모양(`{run, id, direction, limit}`, 생략, 잘못된 방향 422) 통과 |
 
-curl: `GET /api/citations`(ResNet: 참고문헌 17·피인용 204, 주제 id 포함), 없는 id 404, 잘못된 방향 422. `/api/agent`에 `tools:{}`로 WebFetch(OpenAlex JSON → cited_by_count 228,919)·WebSearch 한 턴씩 — 결과가 `a:` 라인으로 돌아오고 답에 반영된다.
+curl: `GET /api/citations`(ResNet: 참고문헌 17·피인용 204, 주제 id 포함), 없는 id 404, 잘못된 방향 422. `/api/agent`에 `tools:{}`로 WebFetch(OpenAlex JSON → cited_by_count 228,919)·WebSearch 한 턴씩 — 결과가 `a:` 라인으로 돌아오고 답에 반영된다. DOI(`https://doi.org/10.1109/iccv.2017.322`)는 `WebFetch`가 "REDIRECT DETECTED"와 목적지 URL 을 돌려주고, 모델이 그 URL 을 다시 열었다(IEEE 페이지는 본문이 비어 `WebSearch`로 제목을 찾았다). 프롬프트의 리다이렉트 안내가 맞다.
 
 브라우저(Chromium 1440×950, 에이전트 서버 + Claude 로그인, SciNCL 실데이터):
 
