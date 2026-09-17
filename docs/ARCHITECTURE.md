@@ -195,3 +195,25 @@ scripts/compare-api.py             # Python 서버와 Rust 서버 응답 대조 
 - 앱의 DB 경로: `<app_config_dir>/settings.json`의 `db_path` → 없으면 `<app_data_dir>/constellation.duckdb`. `choose_database` 명령이 네이티브 대화상자로 파일을 고르고 저장한다.
 - Tauri 명령은 AbortSignal이 없다. React Query 키가 run·조건을 포함하므로 늦은 응답이 화면을 덮지 않는다.
 - Playwright E2E는 `constellation-serve` 위에서 돈다(WebDriver가 macOS Tauri를 지원하지 않는다). 명령 인자 모양은 `src-tauri/tests/commands.rs`가 MockRuntime으로 검사한다.
+
+## 에이전트 채팅 업데이트 — 2026-09-18
+
+우측 사이드바가 에이전트 채팅이 되고 논문·주제 상세는 선택 시 열리는 `Dialog`(`InspectorDialog`)로 옮겼다. 패널 열림은 `constellation.layout.v3` `{navOpen, chatOpen}`이다.
+
+```
+agent/                             # Node 서버 (Hono). agent-chat-framework 의 route.ts·bridge.ts 를 옮긴 것
+  src/server.ts                    #   POST /api/agent (assistant-ui 데이터 스트림), POST /api/agent/tool-result
+  src/bridge.ts                    #   Agent SDK query() → assistant-stream. 중계 도구는 접두사를 떼고 결과를 서버가 보내지 않는다
+  src/relay.ts                     #   요청의 도구 JSON 스키마 → zod → SDK MCP 서버 "ui". tool_use.id 를 이름+인자로 짝짓고 결과를 기다린다
+frontend/src/agent/                # 클라이언트
+  AgentProvider.tsx                #   useDataStreamRuntime(/api/agent) + 도구 등록(useAssistantTool) + 시스템 프롬프트(useAssistantInstructions)
+  tools.ts                         #   도구 12개의 정의(JSON 스키마)와 실행기. 데이터는 api.ts, 지도는 store 의 cameraRequest·annotations
+  context.ts                       #   매 턴 시스템 프롬프트: run·화면·선택·필터·확대 단계
+  history.ts                       #   run 별 localStorage 대화 저장 (sessionId + 메시지). 서버는 같은 id 로 SDK 세션을 resume
+frontend/src/components/assistant-ui/  # @acf 레지스트리 설치본 (NOTE(constellation) 주석이 있는 파일만 손댔다)
+```
+
+- 도구는 전부 웹뷰에서 돈다. 서버는 이름·스키마만 알고 MCP 핸들러가 웹뷰의 `tool-result`를 기다린다. 그래서 서버는 지도·DB를 모르고, 데스크톱에서도 `invoke` 경로가 그대로 쓰인다. 서버를 다른 런타임으로 바꿔도 프론트는 바뀌지 않는다.
+- SDK 세션 파일은 cwd 해시 아래에 놓이므로 서버 cwd 를 `agent/`로 고정했다. 첫 턴 판별은 `getSessionInfo` 로 한다.
+- `MapView`는 `cameraRequest`(run·nonce)를 한 번만 소비하고, 주석은 SVG 오버레이로 점→라벨 지시선을 그린다. 주석은 세션 안에서만 산다.
+- 에이전트 실응답은 Claude 로그인이 필요해 E2E에서는 `/api/agent`를 데이터 스트림으로 흉내 내어 프론트 도구 파이프라인(zoom → tool-result → 카메라 변화 → 복원)만 검사한다.

@@ -64,3 +64,25 @@ npm --prefix frontend run test:e2e
 ```
 
 제품에 적용한 기준은 `docs/design-system/index.html`과 토큰 CSS다. 탐색 명령은 기능 이름을 사용하고 우주 은유는 지도·브랜드 표현에 적용했다.
+
+## 에이전트 채팅 검증 — 2026-09-18
+
+| 검사 | 결과 |
+|---|---|
+| `agent/` node:test | 6개 통과: 스키마 변환·인자 정규화·중계 짝짓기(순서·인자·중단) |
+| Vitest | 20개 통과(기존 12 + 에이전트 8: 시스템 프롬프트·좌표 해석·도구 실행기·히스토리) |
+| TypeScript + Vite build | 성공 |
+| Oxlint | 종료 코드 0, 경고 36개(설치본의 Fast Refresh·ref 경고가 대부분) |
+| Playwright 실데이터 E2E | 10개 통과(기존 9개를 Dialog·채팅 패널 선택자로 갱신 + 흉내 낸 데이터 스트림으로 도구 왕복 1개) |
+
+브라우저(Chromium 1440×950, 에이전트 서버 + Claude 로그인, SciNCL 실데이터):
+
+1. "2023년 이후 RAG 평가 논문을 찾아서 가장 인용이 많은 논문 세 편을 지도에 표시해 줘" → 사고 과정 → `search_papers` 2회 → `annotate`·`fly_to` → 지도가 RAG 영역으로 이동하고 라벨·지시선 3개. 한 턴에 `/api/agent` POST 1회, `tool-result` 6회. 콘솔 오류 0.
+2. 새로고침 → 대화 복원. "방금 찾은 첫 번째 논문을 열어 줘" → 이전 턴을 기억하고 `select` → 상세 Dialog(h2 하나). Escape → 닫히고 `selected` 제거.
+3. "2024년 이후 논문만 보이게 필터를 걸고, 가장 큰 주제 두 개에 라벨을 붙여 줘" → `set_filter`·`list_topics` 동시 호출 → URL `from=2024`, 주석 2개. 진행 문장도 한국어.
+4. "새 대화" → 새 UUID, 빈 스레드. 375px 폭 → 채팅이 Sheet 로 열리고 가로 넘침 없음.
+5. 계층 트리에서 노드 클릭 → Dialog 가 트리를 덮는다. 사용자가 고른 모달 방식의 결과이며 그대로 둔다.
+
+curl 로 확인한 서버 동작: 첫 턴 `sessionId` → 둘째 턴 `resume`(서버 재시작 뒤에도), 지원하지 않는 스키마 400, 진행 중 턴 없는 `tool-result` 404, 클라이언트 연결 종료 시 `claude` 자식 프로세스 종료.
+
+`tauri dev`(`--config '{"build":{"devUrl":"http://localhost:5174","beforeDevCommand":""}}'`)는 빌드·실행되어 DB 를 열었다. 창 안의 채팅 조작은 이 세션에서 앱 제어 권한을 받지 못해 보지 않았다. Vite devUrl 을 그대로 쓰므로 프록시 경로는 브라우저와 같다. `.app` 사이드카 번들은 하지 않았다.
