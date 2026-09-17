@@ -1,6 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
-import { DataState } from "../components/DataState";
 import { useMemo, useState } from "react";
+import { X } from "lucide-react";
+import { DataState } from "../components/DataState";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Separator } from "../components/ui/separator";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardAction,
+  CardContent,
+} from "../components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
+  EmptyDescription,
+} from "../components/ui/empty";
+import { WorkList } from "../panels/WorkList";
 import { fetchFlow, fetchFlowPapers } from "../api";
 import { useWorkspace } from "../hooks/use-workspace";
 
@@ -224,17 +243,24 @@ export default function FlowView() {
           창 {data.windows.length}개 · 클러스터 {data.clusters.length}개 · 흐름{" "}
           {ribbons.length}개
         </span>
-        <div className="seg flow-seg">
+        <ToggleGroup
+          variant="outline"
+          size="sm"
+          spacing={0}
+          aria-label="흐름 신호"
+          value={[signal]}
+          onValueChange={(value) => {
+            // 같은 항목을 다시 누르면 빈 배열이 온다. 신호는 항상 하나여야 한다.
+            const next = value[0] as Signal | undefined;
+            if (next) setSignal(next);
+          }}
+        >
           {SIGNALS.map((s) => (
-            <button
-              key={s.key}
-              className={signal === s.key ? "on" : ""}
-              onClick={() => setSignal(s.key)}
-            >
+            <ToggleGroupItem key={s.key} value={s.key}>
               {s.label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <span className="dim">
           리본 굵기 = 뒤 클러스터로 들어온 몫. 노드를 누르면 그 갈래만 남는다.
         </span>
@@ -352,51 +378,63 @@ export default function FlowView() {
         })()}
 
       {sel && (
-        <aside className="detail flow-detail">
-          <button className="close" onClick={() => setSel(null)}>
-            ✕
-          </button>
-          <div className="cl-eyebrow">
-            {data.windows[sel.w].year_from}–{data.windows[sel.w].year_to}
-          </div>
-          <h2>{node.get(`${sel.w}:${sel.c}`)?.label}</h2>
-          <div className="meta-row">
-            <span className="tag">
-              {node.get(`${sel.w}:${sel.c}`)?.size.toLocaleString()}편
+        <Card
+          role="region"
+          aria-label="갈래 상세"
+          className="absolute top-3 right-3 z-10 max-h-[calc(100%-24px)] w-80 gap-3"
+        >
+          <CardHeader>
+            <span className="eyebrow">
+              {data.windows[sel.w].year_from}–{data.windows[sel.w].year_to}
             </span>
-          </div>
-          <div className="topics">
-            {(node.get(`${sel.w}:${sel.c}`)?.keywords ?? []).map(
-              (x: string) => (
-                <span key={x} className="topic topic--facet">
-                  {x}
-                </span>
-              ),
-            )}
-          </div>
-          <div className="cl-sec">피인용 상위</div>
-          <ol className="cl-works">
-            {paperResult.isError && (
+            <CardTitle>{node.get(`${sel.w}:${sel.c}`)?.label}</CardTitle>
+            <CardAction>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="갈래 선택 해제"
+                onClick={() => setSel(null)}
+              >
+                <X />
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="flex min-h-0 flex-col gap-3 overflow-auto">
+            <div className="flex flex-wrap gap-1.5">
+              <Badge variant="secondary">
+                {node.get(`${sel.w}:${sel.c}`)?.size.toLocaleString()}편
+              </Badge>
+              {(node.get(`${sel.w}:${sel.c}`)?.keywords ?? []).map(
+                (x: string) => (
+                  <Badge key={x} variant="outline">
+                    {x}
+                  </Badge>
+                ),
+              )}
+            </div>
+            <Separator />
+            <span className="eyebrow">피인용 상위</span>
+            {paperResult.isError ? (
               <DataState
                 error={paperResult.error}
                 retry={() => paperResult.refetch()}
               />
+            ) : paperResult.isPending ? (
+              <DataState loading />
+            ) : papers && papers.length > 0 ? (
+              <WorkList works={papers} onSelect={workspace.select} />
+            ) : (
+              <Empty className="py-4">
+                <EmptyHeader>
+                  <EmptyTitle>논문 없음</EmptyTitle>
+                  <EmptyDescription>
+                    이 갈래에 연결된 논문을 찾지 못했습니다.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             )}
-            {(papers ?? []).map((p) => (
-              <li key={p.id}>
-                <button onClick={() => workspace.select(p.id)}>
-                  <span className="ht">{p.title}</span>
-                  <span className="hm">
-                    {p.year ?? "—"} · {p.cited.toLocaleString()}
-                  </span>
-                </button>
-              </li>
-            ))}
-            {papers && !papers.length && (
-              <li className="dim">불러오지 못했다.</li>
-            )}
-          </ol>
-        </aside>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
