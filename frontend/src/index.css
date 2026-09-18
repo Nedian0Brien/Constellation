@@ -1145,28 +1145,15 @@ input:focus-visible,
   opacity: 0;
   pointer-events: none;
   transition: opacity 240ms var(--ease);
+  /* 처음 켜질 때도 짧게 페이드한다. 처음 그려지는 요소에는 transition이 안 붙는다. */
+  animation: region-name-in 240ms var(--ease);
+}
+@keyframes region-name-in {
+  from {
+    opacity: 0;
+  }
 }
 .region-name[data-active="true"] {
-  opacity: 1;
-  pointer-events: auto;
-}
-.paper-name {
-  position: absolute;
-  transform: translateY(-50%);
-  max-width: 260px;
-  text-align: left;
-  font-size: 11px;
-  line-height: 1.4;
-  border: 0;
-  background: #101113d9;
-  color: var(--foreground);
-  padding: 3px 6px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 240ms var(--ease);
-}
-.paper-name[data-active="true"] {
-  opacity: 1;
   pointer-events: auto;
 }
 /* 에이전트가 얹는 주석. 라벨 색·그림자는 .paper-name 과 같은 계열이다. */

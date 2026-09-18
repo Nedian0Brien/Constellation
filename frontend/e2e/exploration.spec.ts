@@ -11,13 +11,17 @@ test("real corpus: map, list, selection, history, reload and panels", async ({
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
-  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "논문 목록", exact: false }),
+  ).toBeVisible();
   await expect(map).toBeVisible();
   await expect(map).toHaveAttribute("data-camera", before!);
   const title = page.getByTestId("paper-title").first();
   const text = await title.textContent();
   await title.click();
-  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toBeHidden();
+  await expect(
+    page.getByRole("region", { name: "논문 목록", exact: false }),
+  ).toBeHidden();
   // 상세는 Dialog다. 딥링크로 새로고침해도 열린 채이고, Escape는 선택을 지운다.
   await expect(page.getByTestId("inspector").locator("h2")).toHaveText(text!);
   expect(new URL(page.url()).searchParams.has("selected")).toBe(true);
@@ -73,9 +77,9 @@ test("query filters, empty results, sort, paging and scoped IDs", async ({
   const data = await (
     await request.get("/api/matches", { params: { run, q: "retrieval" } })
   ).json();
-  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toContainText(
-    data.total.toLocaleString(),
-  );
+  await expect(
+    page.getByRole("region", { name: "논문 목록", exact: false }),
+  ).toContainText(data.total.toLocaleString());
   await page.getByRole("button", { name: "다음 페이지", exact: true }).click();
   await expect(page).toHaveURL(/page=2/);
   await page.getByRole("button", { name: "논문 제목", exact: true }).click();
@@ -84,11 +88,13 @@ test("query filters, empty results, sort, paging and scoped IDs", async ({
   await page
     .getByRole("textbox", { name: "논문 검색", exact: true })
     .fill("zzzz-no-paper-zzzz");
-  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toContainText(
-    "검색 결과가 없습니다",
-  );
+  await expect(
+    page.getByRole("region", { name: "논문 목록", exact: false }),
+  ).toContainText("검색 결과가 없습니다");
   await page.getByRole("textbox", { name: "논문 검색", exact: true }).fill("x");
-  await expect(page.getByRole("region", { name: "논문 목록", exact: false })).toContainText("두 글자 이상");
+  await expect(
+    page.getByRole("region", { name: "논문 목록", exact: false }),
+  ).toContainText("두 글자 이상");
 });
 test("analysis views and missing artifacts in a different model", async ({
   page,
@@ -112,6 +118,15 @@ test("analysis views and missing artifacts in a different model", async ({
     "결과가 없습니다",
   );
 });
+// 논문 제목은 deck TextLayer가 그리므로 DOM에 없다. 지도 컨테이너가 E2E용으로 걸어 둔
+// `__map`으로 켜진 제목(지도 좌표)과 deck의 투영·픽킹을 읽는다(MapView의 MapBridge).
+// evaluate 안의 함수는 브라우저에서 돌므로 바깥 함수를 부르지 못한다.
+interface Bridge {
+  titles(): { id: string; x: number; y: number; dy: number; opacity: number }[];
+  project(x: number, y: number): [number, number] | null;
+  pick(x: number, y: number): string | null;
+}
+type Bridged = HTMLElement & { __map?: Bridge };
 test("semantic zoom, reversibility, and list does not replace the map", async ({
   page,
 }) => {
@@ -119,11 +134,84 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
   const map = page.getByTestId("research-map");
   await expect(map).toHaveAttribute("data-label-level", "field");
   await map.focus();
-  for (let i = 0; i < 7; i++) await map.press("+");
+  const titles = () => map.evaluate((el) => (el as Bridged).__map!.titles());
+  const project = (x: number, y: number) =>
+    map.evaluate(
+      (el, at) => (el as Bridged).__map!.project(at[0], at[1]),
+      [x, y],
+    );
+  const pick = (x: number, y: number) =>
+    map.evaluate((el, at) => (el as Bridged).__map!.pick(at[0], at[1]), [x, y]);
+  // 하위 분야 단계: 화면에 영역 이름이 있으면 그것만, 없으면 논문 제목이 보인다.
+  // 둘 중 하나는 반드시 켜져 있다(둘 사이는 240ms 교차 페이드). + 한 번에 0.5씩.
+  for (let i = 0; i < 9; i++) await map.press("+");
+  await expect(map).toHaveAttribute("data-label-level", "topic");
+  await expect
+    .poll(async () => {
+      const regions = await page
+        .locator(".region-name[data-active=true]")
+        .count();
+      const papers = (await titles()).length;
+      return regions > 0 !== papers > 0 && regions + papers > 0;
+    })
+    .toBe(true);
+  // 기준 배율의 2^5 이상에서는 영역 이름과 무관하게 논문 제목이 켜진다. 켜진 제목끼리
+  // 겹치지 않는 것은 단위 테스트(revealZooms)가 보장한다.
+  for (let i = 0; i < 2; i++) await map.press("+");
   await expect(map).toHaveAttribute("data-label-level", "paper");
-  await expect(
-    page.locator(".paper-name[data-active=true]").first(),
-  ).toBeVisible();
+  await expect.poll(async () => (await titles()).length).toBeGreaterThan(0);
+  // 이동해도 같은 제목이 켜져 있다. 이동 전에 켜진 제목 가운데 이동 뒤에도 화면 안에
+  // 있는 것은 전부 그대로 켜져 있다 — 화면 밖으로 나간 것만 빠진다.
+  const before = await titles();
+  await map.press("ArrowRight");
+  const box = (await map.boundingBox())!;
+  const after = new Set((await titles()).map((t) => t.id));
+  for (const t of before) {
+    const [x, y] = (await project(t.x, t.y))!;
+    if (x > 0 && x < box.width && y > 0 && y < box.height)
+      expect(after.has(t.id), t.id).toBe(true);
+  }
+  // 제목을 클릭하면 그 논문이 선택된다. 화면 중앙 근처의 제목 하나를 고른다.
+  const pin = await map.evaluate(
+    (el, size) => {
+      const b = (el as Bridged).__map!;
+      for (const t of b.titles()) {
+        const [x, y] = b.project(t.x, t.y)!;
+        const dx = Math.abs(x - size[0] / 2),
+          dy = Math.abs(y - size[1] / 2);
+        if (dx > 40 && dx < size[0] / 4 && dy < size[1] / 4)
+          return { ...t, px: x, py: y };
+      }
+      return null;
+    },
+    [box.width, box.height],
+  );
+  expect(pin).not.toBeNull();
+  await page.mouse.click(box.x + pin!.px, box.y + pin!.py + pin!.dy + 5);
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("selected"))
+    .toBe(pin!.id);
+  // 선택은 상세 Dialog(모달)를 연다. 지도를 다시 조작하려면 닫는다 — 선택도 지워진다.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("inspector")).toBeHidden();
+  // 휠로 확대한 뒤 키로 확대해도 지도가 따라온다. deck이 주는 viewState의 내부 값
+  // (zoomX·zoomY)을 그대로 저장하면 뒤의 키 확대가 배율 표시와 라벨만 바꾸고 지도는
+  // 그대로라 라벨이 제자리에 못 박힌다. JS 투영이 가리키는 자리에 실제로 그 점이
+  // 그려져 있어야 한다.
+  const zoomOf = async () =>
+    Number((await map.getAttribute("data-camera"))!.split(":")[0]);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const beforeWheel = await zoomOf();
+  await page.mouse.wheel(0, 120);
+  await expect.poll(zoomOf).not.toBe(beforeWheel);
+  const [wheeled] = (await project(pin!.x, pin!.y))!;
+  await map.press("+");
+  await expect
+    .poll(async () => {
+      const [x, y] = (await project(pin!.x, pin!.y))!;
+      return [Math.round(x) !== Math.round(wheeled), await pick(x, y)];
+    })
+    .toEqual([true, pin!.id]);
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
@@ -246,7 +334,9 @@ test("explicit region selection replaces paper detail with the real cluster", as
   await page
     .getByRole("button", { name: clusters[0].label, exact: true })
     .click();
-  await expect(page.getByTestId("inspector").locator("h2")).toHaveText(clusters[0].label);
+  await expect(page.getByTestId("inspector").locator("h2")).toHaveText(
+    clusters[0].label,
+  );
   expect(new URL(page.url()).searchParams.has("selected")).toBe(false);
   expect(new URL(page.url()).searchParams.has("cluster")).toBe(true);
 });
