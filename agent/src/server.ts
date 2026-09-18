@@ -1,5 +1,7 @@
 import path from "node:path";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { logger } from "hono/logger";
 import { serve } from "@hono/node-server";
 import { getSessionInfo, query } from "@anthropic-ai/claude-agent-sdk";
 import { createAssistantStreamResponse } from "assistant-stream";
@@ -31,13 +33,20 @@ import {
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 8787);
+/** 코퍼스 밖을 볼 때 쓰는 Agent SDK 내장 도구. `claude` 프로세스 안에서 돈다. */
+const WEB_TOOLS = ["WebSearch", "WebFetch"];
 /**
  * 세션 파일은 `~/.claude/projects/<cwd 해시>/` 아래에 놓인다. 서버를 어느
  * 폴더에서 띄우든 같은 세션을 다시 찾으려면 cwd 가 고정돼야 한다.
  */
-/** 코퍼스 밖을 볼 때 쓰는 Agent SDK 내장 도구. `claude` 프로세스 안에서 돈다. */
-const WEB_TOOLS = ["WebSearch", "WebFetch"];
 const CWD = path.resolve(import.meta.dirname, "..");
+/**
+ * 브라우저는 Vite 프록시를 거쳐 같은 출처로 오지만, 데스크톱 앱의 웹뷰는
+ * `tauri://localhost`(macOS·Linux)·`http://tauri.localhost`(Windows)에서
+ * 이 서버를 직접 부른다. `tauri dev` 는 Vite 출처(`http://localhost:5173`)다.
+ * 출처: Tauri 2 문서 security/http-headers, migrate/from-tauri-1.
+ */
+const ALLOWED_ORIGINS = /^(tauri:\/\/localhost|https?:\/\/tauri\.localhost|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
 
 const DEFAULT_SYSTEM =
   "당신은 Constellation 연구 지도 앱의 에이전트다. 한국어로 간결하게 답한다.";
@@ -46,6 +55,15 @@ const DEFAULT_SYSTEM =
 const relays = new Map<string, Relay>();
 
 const app = new Hono();
+app.use(logger());
+app.use(
+  "/api/agent/*",
+  cors({ origin: (origin) => (ALLOWED_ORIGINS.test(origin) ? origin : null) }),
+);
+app.use(
+  "/api/agent",
+  cors({ origin: (origin) => (ALLOWED_ORIGINS.test(origin) ? origin : null) }),
+);
 
 app.get("/api/agent/health", (c) => c.json({ ok: true, cwd: CWD }));
 
