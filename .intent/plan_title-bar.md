@@ -14,7 +14,7 @@ date: 2026-09-18
 
 | 파일 | 무엇을 |
 |---|---|
-| `src-tauri/tauri.conf.json` | 메인 창에 `titleBarStyle: Overlay`, `hiddenTitle: true`, `trafficLightPosition: {x: 20, y: 23}` |
+| `src-tauri/tauri.conf.json` | 메인 창에 `titleBarStyle: Overlay`, `hiddenTitle: true`, `trafficLightPosition: {x: 20, y: 33}` (23으로 시작해 측정 후 조정) |
 | `src-tauri/capabilities/default.json` | `core:window:allow-start-dragging` 권한 추가 |
 | `frontend/src/components/AppShell.tsx` | `SidebarProvider`에 `data-desktop` 속성, `<header>`에 `data-tauri-drag-region="deep"` |
 | `frontend/src/index.css` | `.product-header`에 `user-select: none`, `.product-shell[data-desktop] .product-header`의 좌측 padding과 `--traffic-lights-end` 근거 주석 |
@@ -26,7 +26,7 @@ date: 2026-09-18
 1. `tauri.conf.json`·`capabilities/default.json` 수정 — `cargo test --workspace`가 통과하면 설정 키가 스키마에 맞는 것이다(`tauri-build`가 설정을 컴파일 시점에 파싱한다).
 2. `AppShell.tsx`·`index.css` 수정 — `npm --prefix frontend run build && npm --prefix frontend run lint` 통과.
 3. `npx --prefix frontend tauri dev`로 앱을 띄우고 스크린샷 — 신호등이 헤더 안 가운데에 있는지 확인. 어긋나면 `trafficLightPosition.y`와 `--traffic-lights-end`를 측정값으로 고치고 plan·spec의 숫자를 함께 고친다.
-4. 같은 창에서 헤더 끌기·두 번 클릭·헤더 버튼 클릭 동작 확인.
+4. 같은 창에서 헤더 끌기·두 번 클릭·헤더 버튼 클릭 동작 확인. — 세션이 앱 제어 권한을 받지 못해 자동으로 확인하지 못했다. 컴파일된 ACL(`target/debug/build/constellation-app-*/out/capabilities.json`)에 `allow-start-dragging`이 들어간 것과 마크업의 `data-tauri-drag-region="deep"`을 확인했고, 실제 조작은 사용자가 확인한다.
 5. 브라우저 `localhost:5173`에서 헤더 좌측 padding이 20px인지 확인.
 6. `feat:` 커밋, 푸시, PR.
 

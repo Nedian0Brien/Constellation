@@ -950,6 +950,16 @@ input:focus-visible,
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
 }
+.product-shell[data-desktop] .product-header {
+  /* 창 끌기 영역이라 텍스트 선택 커서를 내지 않는다. */
+  user-select: none;
+  /* macOS 신호등이 헤더 위에 겹친다(tauri.conf.json titleBarStyle: Overlay).
+     신호등 끝 = 닫기 버튼 x 20 + 버튼 중심 간격 23×2 + 버튼 지름 13 ≈ 80px.
+     디자인 토큰이 아니라 macOS 27 창 버튼 기하를 실행 중인 앱 스크린샷에서
+     측정한 값이다(2026-09-18). */
+  --traffic-lights-end: 80px;
+  padding-left: calc(var(--traffic-lights-end) + 18px);
+}
 .product-brand {
   display: flex;
   align-items: center;

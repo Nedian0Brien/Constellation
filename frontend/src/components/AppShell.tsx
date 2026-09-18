@@ -184,10 +184,13 @@ export function AppShell() {
     <TooltipProvider>
       <SidebarProvider
         className="product-shell"
+        data-desktop={desktop || undefined}
         open={prefs.navOpen}
         onOpenChange={(navOpen) => save({ navOpen })}
       >
-          <header className="product-header">
+          {/* 데스크톱 앱에서 헤더가 타이틀 바를 대신한다. deep: 하위 어디를 눌러도
+              끌리되 버튼·Select 같은 클릭 가능 요소는 drag.js가 제외한다. */}
+          <header className="product-header" data-tauri-drag-region="deep">
             <div className="product-brand">
               <svg viewBox="0 0 32 32" aria-hidden="true">
                 <path
