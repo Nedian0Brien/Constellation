@@ -238,8 +238,8 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
       return [Math.round(x) !== Math.round(wheeled), await pick(x, y)];
     })
     .toEqual([true, pin!.id]);
-  // 점에 1초 머물면 run 안의 인용 관계가 선으로 나타나고 활성 라벨이 켜지며, 떼면
-  // 사라진다. 300ms 안에는 켜지지 않는다(지나가는 점에 반응하지 않도록). 이웃이
+  // 점에 0.5초 머물면 run 안의 인용 관계가 선으로 나타나고 활성 라벨이 켜지며, 떼면
+  // 사라진다. 200ms 안에는 켜지지 않는다(지나가는 점에 반응하지 않도록). 이웃이
   // 있는 제목 하나를 골라 그 점 위에 마우스를 둔다(인용 자료는 지도 뒤에 따로 온다).
   const linkedPin = () =>
     map.evaluate(
@@ -264,7 +264,7 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
   await expect.poll(linkedPin).not.toBeNull();
   const linked = (await linkedPin())!;
   await page.mouse.move(box.x + linked.x, box.y + linked.y);
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(200);
   expect(await map.getAttribute("data-hover-id")).toBeNull();
   await expect(map).toHaveAttribute("data-hover-id", linked.id);
   await expect(map).toHaveAttribute("data-hover-links", String(linked.degree));

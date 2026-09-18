@@ -81,8 +81,8 @@ const LINK_OUT: [number, number, number] = [57, 135, 229],
 // 로컬 그래프에서 선택 노드에 닿지 않는 선(이웃끼리의 인용). `--ink-soft` #93a3b4, 1px, 옅게.
 const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
   LINK_FAR_WIDTH = 1;
-// 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값("한 1초").
-const HOVER_DELAY_MS = 1000;
+// 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값(1초 → 0.5초).
+const HOVER_DELAY_MS = 500;
 // 선택 모드의 버튼 셋: 노드에서 36px 떨어진 원의 위쪽 호에 60° 간격. 아래쪽은 노드의
 // 제목이 차지한다(점 아래 9px). 버튼은 32px(desktop dense, `design-ops`
 // patterns/button.md 높이 분포).
@@ -315,8 +315,8 @@ export default function MapView() {
       );
     return built;
   }, [edges.data, map.n]);
-  // 호버는 같은 점 위에 1초 머문 뒤에야 켜진다. 다른 점으로 옮기거나 떠나면 바로
-  // 꺼지고(렌더 중 state 조정) 새 점은 다시 1초를 기다린다.
+  // 호버는 같은 점 위에 0.5초 머문 뒤에야 켜진다. 다른 점으로 옮기거나 떠나면 바로
+  // 꺼지고(렌더 중 state 조정) 새 점은 다시 0.5초를 기다린다.
   const pointerIndex = hover?.object?.i ?? -1;
   const [active, setActive] = useState(-1);
   if (active >= 0 && active !== pointerIndex) setActive(-1);
