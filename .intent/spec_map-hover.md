@@ -66,3 +66,47 @@ CONSTELLATION_API=http://127.0.0.1:8010 npm run test:e2e   # 10/10
 ```
 
 브라우저: 100%에서 점 크기 그대로, 3200% 이상에서 지름 9px. 점에 올리면 파란(참조)·붉은(피인용) 선이 240ms에 걸쳐 나타나고 나머지 점이 절반으로 옅어진다. 떼면 되돌아온다.
+
+## 두 번째 지시 — 2026-09-18: 호버 지연·활성 라벨·선택 모드
+
+### 요구사항
+
+- [ ] 호버 강조는 같은 점(또는 제목) 위에 1000ms 머문 뒤 켜진다(`HOVER_DELAY_MS`, 사용자 지정값). 그 전에 떠나거나 다른 점으로 옮기면 켜지지 않는다. 켜진 뒤 다른 점으로 옮기면 즉시 꺼지고(240ms 페이드) 새 점은 다시 1000ms 뒤에 켜진다.
+- [ ] 점 위 툴팁이 없다. 강조가 켜지면 활성 노드(강조 노드 + 인용 이웃, 로컬 그래프면 2홉까지)의 제목이 `TextLayer`(같은 글꼴·크기·점 아래 9px)로 나타난다. 강조 노드의 제목은 항상, 나머지는 피인용수 내림차순으로 화면 상자(폭 `widths[i]`, 높이 24px)가 이미 놓인 상자 — 앞서 놓인 활성 라벨과 현재 켜진 지도 제목(활성 노드 것 제외) — 와 겹치지 않을 때만 놓는다. 카메라 칸(240px·반 단계)이 바뀌면 다시 놓는다. 활성 노드의 지도 제목은 알파 0으로 감춰 이중으로 그리지 않는다.
+- [ ] 점·제목 클릭은 `update({selected: id, local: undefined})`만 한다 — 상세 Dialog가 열리지 않는다. 선택된 노드는 마우스와 무관하게 강조(연결선·이웃·활성 라벨)를 유지한다. 호버가 켜지면 그 노드의 강조로 바뀌고, 꺼지면 선택 노드로 돌아온다.
+- [ ] 선택 인디케이터: 기존 `selected-halo`(점 반지름 + 5px, 1px 선). 버튼 셋: 노드 중심에서 36px 떨어진 원 위 −90°·30°·150°에 지름 32px 원형 아이콘 버튼(shadcn `Button size="icon"` = 32px, `variant="secondary"`, `rounded-full`). 접근성 이름 "노드 상세정보"·"AI에게 질문하기"·"로컬 그래프 보기", 같은 글의 shadcn Tooltip. 아이콘 lucide `Info`·`MessageSquareText`·`Waypoints`. 노드가 화면 밖이면 버튼도 없다.
+- [ ] 선택 해제: 컨테이너에서 Escape, deck `onClick`에 객체가 없을 때(빈 곳 클릭), 다른 점 클릭(교체). 해제하면 `local`도 지운다.
+- [ ] 선택 시 노드가 지도 가장자리 90px 안쪽이면 중앙으로 옮긴다(기존 70px → 90px).
+- [ ] 논문 목록·에이전트 `select`·3D 별자리에서 논문을 고르면 `view: "map"`으로 함께 바꾼다. 인용 계보 화면의 노드 클릭은 그대로(씨앗 교체)이고 Dialog는 열리지 않는다.
+- [ ] 상세 Dialog는 `useStore.detailOpen`(세션, 기본 false)이 true이고 `selected`가 지도에 있을 때 연다. "노드 상세정보"가 true로, 닫기(✕·Escape·바깥)는 false로만 바꾸고 `selected`는 그대로다. 주제·분야 Dialog는 지금 그대로.
+- [ ] 지도에 없는 `selected`(딥링크 `selected=missing`)는 Dialog 대신 `.invalid-region` 안내("선택한 논문을 찾을 수 없습니다" + 선택 해제)를 보인다.
+- [ ] "AI에게 질문하기": `useStore.requestChat()`(카운터). AppShell이 이를 보고 `save({chatOpen: true})`, AgentSidebar가 입력창(`textarea`)에 포커스를 둔다.
+- [ ] "로컬 그래프 보기"(`aria-pressed`): URL `local=1` 토글. 켜지면 활성 집합 = 선택 노드 + 1홉 + 2홉, 선 = 선택 노드에 닿는 선(지금 색) + 활성 집합 안의 나머지 run 안 인용선(`--ink-soft` #93a3b4, 1px, 알파 110/255). 카메라는 활성 집합의 좌표 범위가 80px 여백을 두고 들어오도록 옮긴다(`fitCamera`, `home.zoom − 2 ~ home.zoom + ZOOM_RANGE`). `selected`가 바뀌면 `local`을 지운다.
+- [ ] 에이전트 `select` 도구 설명과 시스템 프롬프트의 select 규칙이 "지도에서 선택 모드"로 바뀐다.
+- [ ] 컨테이너 속성 `data-hover-id`(강조 노드 = 켜진 호버 또는 선택), `data-hover-links`, `data-active-labels`(놓인 활성 라벨 수), `data-local`. E2E: 점에 마우스를 올리고 300ms 안에는 `data-hover-id`가 없고 1초 뒤엔 있다; 클릭하면 Dialog가 없고 버튼 셋이 보인다; "노드 상세정보"로 Dialog가 열리고 닫으면 `selected`가 남는다; "로컬 그래프 보기"로 `local=1`과 `data-hover-links` 증가; 목록에서 고르면 지도 선택 모드; `selected=missing`은 `.invalid-region`.
+- [ ] Vitest: `localGraph(index, i)`(2홉 집합·선 분류), `placeLabels`(항상 첫 라벨, 겹침 배제, 순서), `fitCamera`.
+
+### 설계
+
+- `map/edges.ts`: `localGraph(index, i): { nodes: number[]; links: {a, b, seed: boolean, incoming}[] }` — BFS 2단계, 선은 활성 집합 안에서 한 번씩(a→b 인용 방향), `seed`는 i에 닿는 선.
+- `map/active-labels.ts`(새): `placeLabels(candidates: {i, x, y, w, h, rank}[], first: number, obstacles: box[]): number[]` — 균일 격자(셀 64px)로 겹침 검사.
+- `map/labels.ts`: `fitCamera(xs, ys, width, height, padding, zoomMin, zoomMax)`.
+- `MapView.tsx`: `pointer`(deck 호버, 즉시) → `useEffect` 타이머 1000ms → `active`. `focus = active ?? selected`. `hoverT = useTween(focus >= 0 ? 1 : 0)`. `graph = local ? localGraph : 1홉`. 레이어: papers(불투명도) → hover-links(1홉 색·2홉 옅은 색) → hover-nodes → selected-halo → paper-titles(활성 노드 알파 0) → active-titles. DOM: `.node-menu`(map-labels 안, pointer-events auto) 버튼 셋. deck `onClick` 빈 곳 → 해제. 키 Escape → 해제.
+- `store.ts`: `detailOpen` 기본 false, `chatRequest`·`requestChat`.
+- `navigation.ts`: `local: boolean`(`local=1`).
+- `InspectorDialog.tsx`·`AppShell.tsx`·`AgentSidebar.tsx`·`PaperListOverlay.tsx`·`SkyView.tsx`·`agent/tools.ts`·`agent/context.ts`.
+
+### 버린 대안
+
+- 켜진 상태에서 다른 점으로 옮기면 즉시 바꾸기: 지나가는 점마다 선이 번쩍인다. 사용자가 "너무 민감"을 지적했다.
+- 활성 라벨을 DOM으로: 이미 제목을 GPU로 옮긴 이유와 같다. 같은 `TextLayer` 설정(아틀라스·글꼴 렌더러)을 재사용한다.
+- 로컬 그래프를 인용 계보 화면으로: 사용자가 지도 위 오버레이를 골랐다.
+- Dialog 열림을 URL에: 새로고침 시 Dialog가 다시 덮인다. 사용자 지시는 "선택 모드"가 기본이므로 세션 상태로 둔다.
+
+### 함정
+
+- `titles` 배열(지도 제목)은 카메라 칸마다 다시 만들지만 활성 노드를 감추는 것은 `getColor`의 updateTrigger로만 한다 — 배열을 다시 만들면 글자 전체를 다시 놓는다.
+- 활성 라벨은 카메라 칸이 바뀔 때마다 다시 놓는다. 2홉 집합이 수천이면 격자 없이 O(k²)는 느리다.
+- deck `onClick`은 드래그 뒤에는 오지 않는다(mjolnir가 구분). 빈 곳 클릭 해제는 그 위에서만 동작한다.
+- `usePersistentLayout`은 AppShell의 지역 상태라 MapView가 직접 채팅을 열 수 없다 — 스토어 카운터로 부탁한다.
+- 상세 Dialog 안의 Escape는 Dialog가 먼저 받는다(선택은 남는다). 지도의 Escape는 컨테이너에 포커스가 있을 때만.

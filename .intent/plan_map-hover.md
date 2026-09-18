@@ -53,3 +53,25 @@ CONSTELLATION_API=http://127.0.0.1:8010 npm run test:e2e
 - `__map.degree(id)`는 자료가 아직 없으면 −1, 모르는 id면 0.
 - E2E는 4번 시나리오 끝에 붙였다. `degree > 0`인 제목이 나올 때까지 `expect.poll`로 기다린다(인용 자료가 지도 뒤에 따로 온다).
 - 공용 8000 서버가 죽어 있어(spec 함정) 다시 띄웠다. E2E는 `E2E_PORT=5176`, `CONSTELLATION_API=http://127.0.0.1:8010`으로 돌렸다.
+
+## 두 번째 지시 — 2026-09-18: 바뀌는 파일과 순서
+
+| 파일 | 무엇을 |
+|---|---|
+| `frontend/src/views/map/edges.ts`·`edges.test.ts` | `localGraph` |
+| `frontend/src/views/map/active-labels.ts`·`.test.ts` (새) | `placeLabels` |
+| `frontend/src/views/map/labels.ts`·`labels.test.ts` | `fitCamera` |
+| `frontend/src/store.ts` | `detailOpen` 기본 false, `chatRequest`·`requestChat` |
+| `frontend/src/app/navigation.ts` | `local` |
+| `frontend/src/views/MapView.tsx` | 호버 지연, 툴팁 삭제, 활성 라벨, 선택 모드·버튼 셋·해제, 로컬 그래프, 카메라 맞춤 |
+| `frontend/src/index.css` | `.node-menu` |
+| `frontend/src/components/InspectorDialog.tsx`, `AppShell.tsx`, `AgentSidebar.tsx`, `PaperListOverlay.tsx`, `frontend/src/views/SkyView.tsx` | Dialog 열림 조건, 없는 논문 안내, 채팅 열기·포커스, 고르면 지도로 |
+| `frontend/src/agent/tools.ts`·`context.ts` | select 설명 |
+| `frontend/e2e/exploration.spec.ts` | 1·4·7·8·9번 시나리오 |
+
+1. 순수 함수(`localGraph`·`placeLabels`·`fitCamera`) + Vitest.
+2. 상태(store·navigation) + InspectorDialog·AppShell·AgentSidebar·목록·Sky·에이전트 설명 → 빌드.
+3. MapView: 호버 지연 → 툴팁 삭제·활성 라벨 → 선택 모드·버튼 → 로컬 그래프 → 패널에서 확인.
+4. E2E 갱신 → `CONSTELLATION_API=http://127.0.0.1:8010 E2E_PORT=5176 npm run test:e2e`.
+
+가장 위험한 단계: 3의 활성 라벨 — 지도 제목 배열을 건드리면 호버마다 글자를 전부 다시 놓아 느려진다. 활성 노드는 색 알파로만 감추고, 활성 라벨은 별도 레이어에 둔다. 프로덕션 트레이스로 호버 켜짐 비용을 잰다.
