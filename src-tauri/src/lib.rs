@@ -57,6 +57,7 @@ pub fn configure<R: tauri::Runtime>(
             commands::works,
             commands::matches,
             commands::work,
+            commands::citations,
             commands::db_status,
             commands::choose_database,
         ])

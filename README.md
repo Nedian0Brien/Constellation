@@ -9,6 +9,7 @@ Tauri 2(Rust) 데스크톱 앱이 DuckDB 파일을 프로세스 안에서 직접
 - **연구 지도**: 논문을 별로 배치하고 확대 수준에 따라 상위 분야·하위 분야·논문 제목을 표시한다. 영역 범위는 은은한 색 면, 분야 라벨은 중심의 흰색 글자다.
 - **논문 목록**: 지도를 유지한 채 오버레이로 열고 검색·연도 필터·정렬·페이지 이동·논문 선택을 제공한다.
 - **계층 트리 / 갈래 흐름 / 인용 계보 / 3D**: 기존 분석 산출물에 연결된다. 모델마다 없는 산출물은 안내한다.
+- **에이전트 채팅**: 우측 패널에서 자연어로 코퍼스를 묻고 지도를 움직인다. 논문·주제 검색과 상세, 필터, 카메라 이동·확대, 라벨·지시선, 상세 창 열기까지 도구로 실행하며 대화는 run별로 저장돼 새로고침 뒤에도 이어진다.
 - **탐색 복원**: 검색·연도·선택·화면·목록 상태는 URL, 좌우 패널의 열림 상태는 로컬 저장소에 보관한다. 지도 위치는 현재 세션에서 run별로 유지한다.
 
 ## 데스크톱 앱
@@ -34,6 +35,27 @@ cargo run -p constellation-serve -- --db data/constellation.duckdb   # 127.0.0.1
 npm --prefix frontend run dev                                        # http://localhost:5173, /api를 8000으로 프록시
 ```
 
+## 에이전트 채팅
+
+우측 패널의 채팅은 [agent-chat-framework](../framework/agent-chat-framework) 위에 있다. 화면은 그 레지스트리(`@acf/thread-aui` 계열)로 그리고, 백엔드는 `agent/`의 Node 서버가 Claude Agent SDK로 `claude` CLI를 띄운다. 기계에 Claude 로그인(`claude login`) 또는 `ANTHROPIC_API_KEY`가 있어야 한다.
+
+```sh
+npm --prefix agent ci
+npm --prefix agent start        # 127.0.0.1:8787. Vite가 /api/agent 를 여기로 프록시한다
+```
+
+`frontend/components.json`의 `@acf` 레지스트리는 `http://127.0.0.1:3100`을 가리킨다. 설치본을 갱신하려면 프레임워크의 `public/`을 그 포트로 띄우고(`python3 -m http.server 3100`) `npx shadcn@latest add @acf/thread-aui`를 돌린다. 평소 실행에는 필요 없다.
+
+에이전트의 도구는 전부 웹뷰 안에서 실행된다. 서버는 도구 이름과 스키마만 알고 호출을 웹뷰에 중계한 뒤 결과를 모델에 돌려준다. 그래서 브라우저(`/api`)와 데스크톱(`invoke`) 어느 쪽에서도 같은 코드가 돈다. 브라우저는 Vite 프록시로, 데스크톱 앱(설치본과 `tauri dev`)은 웹뷰가 `http://127.0.0.1:8787`을 직접 불러 서버에 닿는다. 어느 쪽이든 서버를 띄워 두면 된다. `.app`에 서버를 사이드카로 묶는 일은 아직 하지 않았다.
+
+에이전트가 할 수 있는 일:
+
+- 코퍼스 읽기 — 주제 목록·상세, 논문 검색·상세, 한 논문의 참고문헌·피인용(`get_citations`), 분석의 메인패스와 씨앗 논문 주변 계보(`get_lineage`), 논문 2–6편 비교표(`compare_papers`: 상호 인용·같은 주제·지도 거리).
+- 지도 조작 — 필터, 카메라 이동·확대, 라벨·지시선, 논문·주제 상세 열기, 화면·색 기준 전환.
+- 웹 — Agent SDK 내장 `WebSearch`·`WebFetch`. 코퍼스 밖 후속 연구·저자·최신 피인용을 찾을 때 쓰고, 답에 출처 URL을 적는다. 파일·셸 도구는 열지 않는다.
+
+여러 워크트리가 각자 Rust 서버를 띄울 때는 `CONSTELLATION_API=http://127.0.0.1:8002 npm --prefix frontend run dev` 처럼 Vite 프록시 대상을 바꾼다.
+
 ## 파이프라인 (Python)
 
 수집·임베딩·클러스터링은 Python CLI다. 기존 `data/constellation.duckdb`가 있으면 다시 돌릴 필요가 없다.
@@ -54,7 +76,9 @@ Windows에서는 Python 경로를 `.venv/Scripts/python.exe`, CLI 경로를 `.ve
 - 휠·트랙패드 또는 +/−: 확대·축소. 드래그: 이동.
 - 지도에 키보드 초점을 두면 방향키로 이동하고 +/−로 확대·축소한다.
 - 분야 이름 클릭: 해당 분야 선택과 확대. ‘필터 초기화’ 또는 ‘지도 전체 보기’로 해제한다.
-- 탐색 패널: 상단 버튼, 패널 가장자리 레일, `⌘B`(Windows `Ctrl+B`)로 접고 편다. 접으면 아이콘 레일이 남는다. 상세 패널은 논문·주제를 고르면 열리고 ✕로 선택을 지우면 닫힌다.
+- 탐색 패널: 상단 버튼, 패널 가장자리 레일, `⌘B`(Windows `Ctrl+B`)로 접고 편다. 접으면 아이콘 레일이 남는다.
+- 논문·주제 상세: 지도 점·목록 행·분야 이름·트리 노드를 고르면 창이 열린다. ✕·Escape·바깥 클릭으로 닫으면 선택이 지워진다.
+- 에이전트 패널: 헤더의 로봇 아이콘으로 여닫는다. "새 대화"는 현재 run의 대화를 비운다.
 - 목록에서 Escape: 지도 상태를 유지하며 목록을 닫는다.
 
 검색은 제목과 초록의 부분 문자열을 대상으로 한다. 두 글자 이상 입력하며 연도 미상 논문은 연도 필터에 포함한다. 지도와 목록은 같은 검색 조건을 사용한다. 클러스터·트리 선택은 지도 강조에 사용한다.
@@ -82,6 +106,7 @@ API 조회에는 GPU가 필요 없다. 재수집·임베딩·분석은 명시적
 ## 검증
 
 ```sh
+npm --prefix agent test
 .venv/bin/python -m unittest discover -s backend/tests -v
 npm --prefix frontend run test -- --run
 npm --prefix frontend run build

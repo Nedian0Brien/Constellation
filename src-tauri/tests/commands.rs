@@ -46,7 +46,8 @@ fn commands_accept_frontend_argument_shapes() {
          INSERT INTO clusters(run_id,work_id,cluster_id) VALUES ('a','1',0);\
          INSERT INTO cluster_meta(run_id,cluster_id,label,size) VALUES ('a',0,'retrieval',1);\
          INSERT INTO flow_windows VALUES ('a',0,2019,2020,2,1);\
-         INSERT INTO flow_members VALUES ('a',0,0,'1');",
+         INSERT INTO flow_members VALUES ('a',0,0,'1');\
+         INSERT INTO citations(citing_id,cited_id) VALUES ('2','1');",
     )
     .unwrap();
     drop(conn);
@@ -95,6 +96,25 @@ fn commands_accept_frontend_argument_shapes() {
 
     let work = invoke(&webview, "work", json!({ "id": "2", "run": "a" })).unwrap();
     assert_eq!(work["year"], Value::Null);
+
+    // api.ts 의 fetchCitations 가 보내는 모양 그대로. direction·limit 은 생략할 수 있다.
+    let cites = invoke(
+        &webview,
+        "citations",
+        json!({ "run": "a", "id": "1", "direction": "both", "limit": 20 }),
+    )
+    .unwrap();
+    assert_eq!(cites["cited_by"][0]["id"], "2");
+    assert_eq!(cites["cited_by_total"], 1);
+    let cites = invoke(&webview, "citations", json!({ "run": "a", "id": "2" })).unwrap();
+    assert_eq!(cites["references"][0]["cluster"], 0);
+    let err = invoke(
+        &webview,
+        "citations",
+        json!({ "run": "a", "id": "1", "direction": "up" }),
+    )
+    .unwrap_err();
+    assert_eq!(err["status"], 422);
 
     // 오류는 {status, message}로 온다. 프론트의 ApiError가 이 모양을 읽는다.
     let err = invoke(
