@@ -21,5 +21,7 @@
   },
   "menuColor": "default",
   "menuAccent": "subtle",
-  "registries": {}
+  "registries": {
+    "@acf": "http://127.0.0.1:3100/r/{name}.json"
+  }
 }

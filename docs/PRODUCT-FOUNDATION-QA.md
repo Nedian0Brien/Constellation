@@ -64,3 +64,45 @@ npm --prefix frontend run test:e2e
 ```
 
 제품에 적용한 기준은 `docs/design-system/index.html`과 토큰 CSS다. 탐색 명령은 기능 이름을 사용하고 우주 은유는 지도·브랜드 표현에 적용했다.
+
+## 에이전트 채팅 검증 — 2026-09-18
+
+| 검사 | 결과 |
+|---|---|
+| `agent/` node:test | 6개 통과: 스키마 변환·인자 정규화·중계 짝짓기(순서·인자·중단) |
+| Vitest | 20개 통과(기존 12 + 에이전트 8: 시스템 프롬프트·좌표 해석·도구 실행기·히스토리) |
+| TypeScript + Vite build | 성공 |
+| Oxlint | 종료 코드 0, 경고 36개(설치본의 Fast Refresh·ref 경고가 대부분) |
+| Playwright 실데이터 E2E | 10개 통과(기존 9개를 Dialog·채팅 패널 선택자로 갱신 + 흉내 낸 데이터 스트림으로 도구 왕복 1개) |
+
+브라우저(Chromium 1440×950, 에이전트 서버 + Claude 로그인, SciNCL 실데이터):
+
+1. "2023년 이후 RAG 평가 논문을 찾아서 가장 인용이 많은 논문 세 편을 지도에 표시해 줘" → 사고 과정 → `search_papers` 2회 → `annotate`·`fly_to` → 지도가 RAG 영역으로 이동하고 라벨·지시선 3개. 한 턴에 `/api/agent` POST 1회, `tool-result` 6회. 콘솔 오류 0.
+2. 새로고침 → 대화 복원. "방금 찾은 첫 번째 논문을 열어 줘" → 이전 턴을 기억하고 `select` → 상세 Dialog(h2 하나). Escape → 닫히고 `selected` 제거.
+3. "2024년 이후 논문만 보이게 필터를 걸고, 가장 큰 주제 두 개에 라벨을 붙여 줘" → `set_filter`·`list_topics` 동시 호출 → URL `from=2024`, 주석 2개. 진행 문장도 한국어.
+4. "새 대화" → 새 UUID, 빈 스레드. 375px 폭 → 채팅이 Sheet 로 열리고 가로 넘침 없음.
+5. 계층 트리에서 노드 클릭 → Dialog 가 트리를 덮는다. 사용자가 고른 모달 방식의 결과이며 그대로 둔다.
+
+curl 로 확인한 서버 동작: 첫 턴 `sessionId` → 둘째 턴 `resume`(서버 재시작 뒤에도), 지원하지 않는 스키마 400, 진행 중 턴 없는 `tool-result` 404, 클라이언트 연결 종료 시 `claude` 자식 프로세스 종료.
+
+`tauri dev`(`--config '{"build":{"devUrl":"http://localhost:5174","beforeDevCommand":""}}'`)는 빌드·실행되어 DB 를 열었다. 창 안의 채팅 조작은 이 세션에서 앱 제어 권한을 받지 못해 보지 않았다. Vite devUrl 을 그대로 쓰므로 프록시 경로는 브라우저와 같다. `.app` 사이드카 번들은 하지 않았다.
+
+## 인용 추적·논문 비교·웹 접근 검증 — 2026-09-18
+
+| 검사 | 결과 |
+|---|---|
+| `cargo test -p constellation-core` | 10개 통과(인용 목록 방향·총계·limit·run 밖 주제·404·422 1개 추가) |
+| `agent/` node:test | 6개 통과 |
+| Vitest | 23개 통과(인용 도구 3개 추가: 라벨 결합·W 표기 정규화, 씨앗 기준 방향, 비교표·missing) |
+| TypeScript + Vite build, Oxlint | 성공, 경고 36개(변화 없음) |
+| Playwright | 10개 통과 |
+| `src-tauri` cargo test | `citations` 명령의 인자 모양(`{run, id, direction, limit}`, 생략, 잘못된 방향 422) 통과 |
+
+curl: `GET /api/citations`(ResNet: 참고문헌 17·피인용 204, 주제 id 포함), 없는 id 404, 잘못된 방향 422. `/api/agent`에 `tools:{}`로 WebFetch(OpenAlex JSON → cited_by_count 228,919)·WebSearch 한 턴씩 — 결과가 `a:` 라인으로 돌아오고 답에 반영된다. DOI(`https://doi.org/10.1109/iccv.2017.322`)는 `WebFetch`가 "REDIRECT DETECTED"와 목적지 URL 을 돌려주고, 모델이 그 URL 을 다시 열었다(IEEE 페이지는 본문이 비어 `WebSearch`로 제목을 찾았다). 프롬프트의 리다이렉트 안내가 맞다.
+
+브라우저(Chromium 1440×950, 에이전트 서버 + Claude 로그인, SciNCL 실데이터):
+
+1. "Deep Residual Learning for Image Recognition 논문을 인용한 논문 중 가장 많이 인용된 세 편을 지도에 표시해 줘" → `search_papers` → `get_citations` → `annotate`·`fly_to`. 주석 4개(씨앗 포함), 피인용 204편 중 상위 3편(Faster R-CNN·DenseNet·Mask R-CNN)을 같은 주제로 설명.
+2. "Faster R-CNN, Mask R-CNN, DenseNet 세 논문을 비교해 줘" → `search_papers` 3회 → `compare_papers`·`annotate`·`fly_to`. 표(저자·학술지·피인용·코퍼스 안 참고/피인용)와 관계(Mask R-CNN → Faster R-CNN 직접 인용, 거리 0.01/21.07; DenseNet 은 인용 없음, 0.55)를 서술.
+3. 이어서 "Mask R-CNN 은 OpenAlex 기준 피인용이 몇이고 코퍼스 밖 2024년 이후 후속 연구 두 편" → `WebFetch`(OpenAlex 29,637, 코퍼스 값 29,463과 비교)·`WebSearch`·`WebFetch` 2회(arXiv 초록) → 출처 URL 과 "코퍼스 밖" 표시. 도구 카드 제목 "웹 검색"·"웹 페이지 읽기". 콘솔 오류 0.
+

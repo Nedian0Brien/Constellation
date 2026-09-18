@@ -1,8 +1,41 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "tw-shimmer";
 
 @custom-variant dark (&:is(.dark *));
+/* agent-chat-framework 설치본(components/assistant-ui)이 기대는 변형·애니메이션.
+   원본: agent-chat-framework src/app/globals.css. Base UI 의 패널 높이 변수를
+   쓰도록 tw-animate-css 의 collapsible 키프레임을 덮는다. */
+@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
+@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+@theme inline {
+  @keyframes collapsible-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--collapsible-panel-height, auto);
+    }
+  }
+  @keyframes collapsible-up {
+    from {
+      height: var(--collapsible-panel-height, auto);
+    }
+    to {
+      height: 0;
+    }
+  }
+  --animate-shimmer: shimmer-sweep var(--shimmer-duration, 1000ms) linear infinite both;
+  @keyframes shimmer-sweep {
+    from {
+      background-position: 150% 0;
+    }
+    to {
+      background-position: -100% 0;
+    }
+  }
+}
 :root {
   --ground: #0e1319;
   --bar: #151c25;
@@ -1043,6 +1076,20 @@ input:focus-visible,
 [data-slot="slider-range"] {
   background: var(--foreground);
 }
+/* 오류 안내와 데스크톱의 데이터베이스 열기 버튼을 세로로 모아 가운데 둔다. */
+.stage-notice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 28px;
+}
+.stage-notice > .data-state {
+  margin: 0;
+}
 .data-state {
   padding: 28px;
   max-width: 520px;
@@ -1108,6 +1155,33 @@ input:focus-visible,
 }
 .region-name[data-active="true"] {
   pointer-events: auto;
+}
+/* 에이전트가 얹는 주석. 라벨 색·그림자는 .paper-name 과 같은 계열이다. */
+.map-annotations {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+.map-annotation line {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.map-annotation circle {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.map-annotation text {
+  fill: var(--foreground);
+  font: 600 12px/1.4 var(--font-sans);
+  paint-order: stroke;
+  stroke: var(--background);
+  stroke-width: 4px;
+  stroke-linejoin: round;
 }
 .map-caption {
   position: absolute;

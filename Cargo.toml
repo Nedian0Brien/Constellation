@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/constellation-core", "crates/constellation-serve", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+# duckdb-rs 1.10505 = DuckDB 1.5.5. Python duckdb 1.5.5와 같은 저장 형식.
+# (2026-09-17 duckdb-rs README "Versioning" 절에서 확인)
+duckdb = { version = "~1.10505", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+

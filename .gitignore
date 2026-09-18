@@ -26,3 +26,6 @@ frontend/playwright-report/
 
 # git worktrees (one per session)
 .worktree/
+
+# rust
+target/

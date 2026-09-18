@@ -1,0 +1,15 @@
+[package]
+name = "constellation-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Constellation 질의 계층 — DuckDB 분석 산출물을 읽어 화면이 쓰는 JSON 구조로 바꾼다"
+
+[dependencies]
+duckdb.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+serde_json.workspace = true

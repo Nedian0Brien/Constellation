@@ -8,7 +8,7 @@
 
 | 라이브러리 | 용도 | 선택 이유 |
 |---|---|---|
-| **FastAPI** + uvicorn | API 서버 | 비동기 수집 작업과 API를 한 프로세스에서. pydantic 스키마 재사용 |
+| ~~FastAPI + uvicorn~~ | ~~API 서버~~ | 2026-09-17 Rust 질의 계층으로 대체. 아래 "데스크톱 앱 업데이트" |
 | **httpx** | HTTP 클라이언트 | 비동기 + 커넥션 풀. 소스별 rate limit을 세마포어로 제어 |
 | **pydantic v2** | 스키마 검증 | 소스마다 다른 응답을 통일 스키마로 강제하는 경계 |
 | **DuckDB** | 저장 + 쿼리 | 1만 편 규모에서 서버 불필요, parquet 직접 쿼리, 집계가 SQLite보다 빠름 |
@@ -59,7 +59,7 @@ Constellation/
 │     ├─ db/
 │     │   ├─ schema.sql
 │     │   └─ store.py       # DuckDB 접근 계층
-│     ├─ api/               # FastAPI 라우트
+│     └─ (api/ 는 2026-09-17 제거 — crates/constellation-core 로 이동)
 │     └─ cli.py             # typer 기반 CLI
 ├─ frontend/
 │  └─ src/
@@ -159,7 +159,7 @@ GET  /api/collect/{job_id}            진행 상황
 constellation collect --source openalex --query "topic:..." --limit 5000
 constellation build --model scincl --umap-neighbors 15 --min-cluster-size 25
 constellation build --refit          # UMAP 전체 재학습 (좌표가 바뀜)
-constellation serve --port 8000
+cargo run -p constellation-serve -- --db data/constellation.duckdb   # 개발용 HTTP 서버 (Rust)
 constellation stats                  # 초록 커버리지, 연도 분포, 중복률
 ```
 
@@ -176,3 +176,50 @@ constellation stats                  # 초록 커버리지, 연도 분포, 중�
 - `GET /api/works/{id}?run=...`: 선택 논문이 해당 run에 포함되는지 검증.
 
 두 목록 조회는 `db/queries.py`의 조건을 공유한다. 검색은 제목·초록의 부분 문자열이며, SQL 매개변수로 전달한다. 연도 미상은 기간 필터에 포함한다. 기본 데이터 경로는 저장소의 `data/`; `CONSTELLATION_DATA_DIR`로 재정의할 수 있다. API는 읽기 전용이고 테스트는 임시 DB를 사용한다.
+
+## 데스크톱 앱 업데이트 — 2026-09-17
+
+서빙 계층을 Python에서 Rust로 옮기고 Tauri 2 데스크톱 앱으로 묶었다.
+
+```
+Cargo.toml                         # 워크스페이스
+crates/constellation-core/         # 질의 계층 (lib). Database::open → queries::{runs, map, clusters, tree, flow, flow_papers, lineage, cluster_detail, works, matches, work, health}
+crates/constellation-serve/        # 개발용 HTTP 서버 (axum). /api/* 를 FastAPI와 같은 경로·인자로 노출
+src-tauri/                         # Tauri 앱. 명령(invoke)·설정(settings.json)·파일 대화상자
+frontend/src/api.ts                # 전송 계층: isTauri() 이면 invoke, 아니면 fetch("/api/…")
+scripts/compare-api.py             # Python 서버와 Rust 서버 응답 대조 (전환 검증용)
+```
+
+- `constellation-core`는 `duckdb-rs ~1.10505`(DuckDB 1.5.5 정적 링크)를 쓴다. Python `duckdb` 1.5.5와 같은 버전이라 저장 형식이 같다. 질의마다 읽기 전용 연결을 열고, 파이프라인이 쓰는 동안 잠기면 503으로 돌려 앱은 살려 둔다.
+- 반환 구조체·오류 상태·문구는 FastAPI 버전과 같다. 실데이터에서 11개 엔드포인트 × 32개 인자 조합을 대조해 확인했다(`scripts/compare-api.py`). `/api/search`는 프론트가 쓰지 않아 옮기지 않았다.
+- 앱의 DB 경로: `<app_config_dir>/settings.json`의 `db_path` → 없으면 `<app_data_dir>/constellation.duckdb`. `choose_database` 명령이 네이티브 대화상자로 파일을 고르고 저장한다.
+- Tauri 명령은 AbortSignal이 없다. React Query 키가 run·조건을 포함하므로 늦은 응답이 화면을 덮지 않는다.
+- Playwright E2E는 `constellation-serve` 위에서 돈다(WebDriver가 macOS Tauri를 지원하지 않는다). 명령 인자 모양은 `src-tauri/tests/commands.rs`가 MockRuntime으로 검사한다.
+
+## 에이전트 채팅 업데이트 — 2026-09-18
+
+우측 사이드바가 에이전트 채팅이 되고 논문·주제 상세는 선택 시 열리는 `Dialog`(`InspectorDialog`)로 옮겼다. 패널 열림은 `constellation.layout.v3` `{navOpen, chatOpen}`이다.
+
+```
+agent/                             # Node 서버 (Hono). agent-chat-framework 의 route.ts·bridge.ts 를 옮긴 것
+  src/server.ts                    #   POST /api/agent (assistant-ui 데이터 스트림), POST /api/agent/tool-result
+  src/bridge.ts                    #   Agent SDK query() → assistant-stream. 중계 도구는 접두사를 떼고 결과를 서버가 보내지 않는다
+  src/relay.ts                     #   요청의 도구 JSON 스키마 → zod → SDK MCP 서버 "ui". tool_use.id 를 이름+인자로 짝짓고 결과를 기다린다
+frontend/src/agent/                # 클라이언트
+  AgentProvider.tsx                #   useDataStreamRuntime(/api/agent) + 도구 등록(useAssistantTool) + 시스템 프롬프트(useAssistantInstructions)
+  tools.ts                         #   도구 12개의 정의(JSON 스키마)와 실행기. 데이터는 api.ts, 지도는 store 의 cameraRequest·annotations
+  context.ts                       #   매 턴 시스템 프롬프트: run·화면·선택·필터·확대 단계
+  history.ts                       #   run 별 localStorage 대화 저장 (sessionId + 메시지). 서버는 같은 id 로 SDK 세션을 resume
+frontend/src/components/assistant-ui/  # @acf 레지스트리 설치본 (NOTE(constellation) 주석이 있는 파일만 손댔다)
+```
+
+- 도구는 전부 웹뷰에서 돈다. 서버는 이름·스키마만 알고 MCP 핸들러가 웹뷰의 `tool-result`를 기다린다. 그래서 서버는 지도·DB를 모르고, 데스크톱에서도 `invoke` 경로가 그대로 쓰인다. 서버를 다른 런타임으로 바꿔도 프론트는 바뀌지 않는다.
+- SDK 세션 파일은 cwd 해시 아래에 놓이므로 서버 cwd 를 `agent/`로 고정했다. 첫 턴 판별은 `getSessionInfo` 로 한다.
+- `MapView`는 `cameraRequest`(run·nonce)를 한 번만 소비하고, 주석은 SVG 오버레이로 점→라벨 지시선을 그린다. 주석은 세션 안에서만 산다.
+- 에이전트 실응답은 Claude 로그인이 필요해 E2E에서는 `/api/agent`를 데이터 스트림으로 흉내 내어 프론트 도구 파이프라인(zoom → tool-result → 카메라 변화 → 복원)만 검사한다.
+
+### 인용 추적·논문 비교·웹 접근 — 2026-09-18
+
+- `GET /api/citations?run=&id=&direction=&limit=` / Tauri `citations` — `queries::citations`. `citations` 테이블에서 코퍼스 안 논문만 피인용 순으로 `limit`개(1–500, 기본 20). 총계는 limit·방향과 무관하다. 논문 id에 `/`가 올 수 있어 `/works/{*work_id}` 아래가 아니라 쿼리로 받는다.
+- 도구 `get_citations`(주제 라벨 결합), `get_lineage`(`/lineage`의 엣지 `from`=피인용·`to`=인용을 씨앗 기준 `cites`/`cited_by`로), `compare_papers`(논문마다 `fetchWork` + 참고문헌 500개를 받아 집합 안 인용 쌍을 만들고, 투영 좌표 유클리드 거리와 지도 대각선 `map_span`을 함께 준다). 모델이 `W123`으로 부르면 `openalex:W123`으로 맞춘다(`paperId`).
+- 서버는 내장 도구 중 `WebSearch`·`WebFetch`만 연다(`tools`·`allowedTools`). 둘은 `claude` 프로세스 안에서 돌고 결과는 브리지가 `setResponse`로 돌려준다(중계 도구와 달리 서버가 결과를 보낸다). 프롬프트가 OpenAlex API(`openalex:` 접두사 제거)와 DOI 리다이렉트 처리를 안내한다.

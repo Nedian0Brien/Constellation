@@ -13,6 +13,8 @@ import { Minus, Plus, RotateCcw } from "lucide-react";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { useStore, type Camera } from "../store";
+// 제목 타일의 zoomStep(아래)과 이름이 겹쳐 에이전트 쪽은 별칭으로 들여온다.
+import { levelOffset, zoomStep as agentZoomStep } from "../agent/resolve";
 import { Button } from "../components/ui/button";
 import {
   labelLevel,
@@ -270,6 +272,30 @@ export default function MapView() {
     () => new OrthographicViewport({ ...camera, ...size }),
     [camera, size],
   );
+  // 에이전트 도구가 내린 카메라 요청. 이 run 의 것만, nonce 마다 한 번만 움직인다.
+  const cameraRequest = useStore((s) => s.cameraRequest),
+    consumedRequest = useRef(0);
+  useEffect(() => {
+    if (
+      !cameraRequest ||
+      cameraRequest.run !== map.run_id ||
+      cameraRequest.nonce === consumedRequest.current
+    )
+      return;
+    consumedRequest.current = cameraRequest.nonce;
+    const current = useStore.getState().cameras[map.run_id] ?? home;
+    const zoom =
+      cameraRequest.level !== undefined
+        ? home.zoom + levelOffset[cameraRequest.level]
+        : cameraRequest.steps !== undefined
+          ? current.zoom + agentZoomStep * cameraRequest.steps
+          : current.zoom;
+    move({
+      target: cameraRequest.target ?? current.target,
+      zoom: Math.min(home.zoom + 8, Math.max(home.zoom - 2, zoom)),
+    });
+  }, [cameraRequest, map.run_id, home, move]);
+  const annotations = useStore((s) => s.annotations);
   const lastSelected = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!state.selected || lastSelected.current === state.selected) return;
@@ -360,6 +386,9 @@ export default function MapView() {
   );
   const relativeZoom = camera.zoom - home.zoom;
   const level = labelLevel(relativeZoom);
+  // 에이전트의 시스템 프롬프트가 읽는 확대 단계.
+  const setMapLevel = useStore((s) => s.setMapLevel);
+  useEffect(() => setMapLevel(level), [level, setMapLevel]);
   const top = useMemo(
     () => regionLabels(a.tree.data, a.clusters.data ?? [], 0),
     [a.tree.data, a.clusters.data],
@@ -790,6 +819,37 @@ export default function MapView() {
           "leaf",
         )}
       </div>
+      {annotations.length > 0 && (
+        <svg
+          className="map-annotations"
+          aria-label="에이전트 주석"
+          data-testid="map-annotations"
+          data-count={annotations.length}
+        >
+          {annotations.map((n) => {
+            const [px, py] = viewport.project([n.x, n.y, 0]);
+            // 라벨은 점의 오른쪽 위. 화면 밖으로 나가면 반대쪽으로 꺾는다.
+            const dx = px > size.width - 200 ? -36 : 36,
+              dy = py < 60 ? 36 : -36;
+            const lx = px + dx,
+              ly = py + dy;
+            return (
+              <g key={n.id} className="map-annotation" data-kind={n.kind}>
+                <line x1={px} y1={py} x2={lx} y2={ly} />
+                <circle cx={px} cy={py} r={n.kind === "cluster" ? 6 : 4} />
+                <text
+                  x={lx + (dx > 0 ? 4 : -4)}
+                  y={ly}
+                  textAnchor={dx > 0 ? "start" : "end"}
+                  dominantBaseline="middle"
+                >
+                  {n.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      )}
       <div className="map-caption">
         <span className="eyebrow">
           {level === "field"

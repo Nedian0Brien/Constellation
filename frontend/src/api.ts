@@ -1,3 +1,4 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
 const BASE = "/api";
 
 export interface MapData {
@@ -113,6 +114,25 @@ export interface LineageData {
   main_path: string[];
 }
 
+export interface CitedWork {
+  id: string;
+  title: string;
+  year: number | null;
+  cited: number;
+  /** 현재 run 의 주제. run 밖 논문이면 null */
+  cluster: number | null;
+}
+
+export interface Citations {
+  id: string;
+  references: CitedWork[];
+  cited_by: CitedWork[];
+  ref_total: number;
+  cited_by_total: number;
+}
+
+export type CitationDirection = "references" | "cited_by" | "both";
+
 export interface Work {
   id: string;
   doi: string | null;
@@ -170,31 +190,79 @@ export function params(values: Record<string, unknown>) {
       p.set(key, String(value));
   return p.toString();
 }
+// 전송 계층. 데스크톱 앱에서는 Rust 명령을 직접 부르고(invoke), 브라우저에서는
+// 같은 질의를 노출하는 개발 서버를 /api로 부른다. 명령 이름과 인자 이름은
+// src-tauri/src/commands.rs와 같아야 한다.
+export const desktop = isTauri();
+async function call<T>(
+  command: string,
+  path: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!desktop) return get<T>(path, signal);
+  try {
+    return await invoke<T>(command, args);
+  } catch (e) {
+    const err = e as { status?: number; message?: string };
+    throw new ApiError(
+      typeof err?.status === "number" ? err.status : 500,
+      typeof err?.message === "string" ? err.message : "요청 실패",
+    );
+  }
+}
 export const fetchRuns = (signal?: AbortSignal) =>
-  get<RunInfo[]>("/runs", signal);
+  call<RunInfo[]>("runs", "/runs", {}, signal);
 export const fetchMap = (run?: string, signal?: AbortSignal) =>
-  get<MapData>("/map?" + params({ run }), signal);
+  call<MapData>("map", "/map?" + params({ run }), { run }, signal);
 export const fetchWork = (id: string, run?: string, signal?: AbortSignal) =>
-  get<Work>("/works/" + encodeURIComponent(id) + "?" + params({ run }), signal);
+  call<Work>(
+    "work",
+    "/works/" + encodeURIComponent(id) + "?" + params({ run }),
+    { id, run },
+    signal,
+  );
 export const fetchClusters = (run: string, signal?: AbortSignal) =>
-  get<ClusterInfo[]>("/clusters?" + params({ run }), signal);
+  call<ClusterInfo[]>("clusters", "/clusters?" + params({ run }), { run }, signal);
 export const fetchClusterDetail = (
   run: string,
   id: number,
   signal?: AbortSignal,
-) => get<ClusterDetail>(`/clusters/${id}?` + params({ run }), signal);
+) =>
+  call<ClusterDetail>(
+    "cluster_detail",
+    `/clusters/${id}?` + params({ run }),
+    { run, clusterId: id },
+    signal,
+  );
 export const fetchTree = (run: string, signal?: AbortSignal) =>
-  get<TreeData>("/tree?" + params({ run }), signal);
+  call<TreeData>("tree", "/tree?" + params({ run }), { run }, signal);
 export const fetchFlow = (run: string, signal?: AbortSignal) =>
-  get<FlowData>("/flow?" + params({ run }), signal);
+  call<FlowData>("flow", "/flow?" + params({ run }), { run }, signal);
 export const fetchFlowPapers = (
   run: string,
   w: number,
   c: number,
   signal?: AbortSignal,
 ) =>
-  get<FlowPaper[]>(
+  call<FlowPaper[]>(
+    "flow_papers",
     "/flow/papers?" + params({ run, window: w, cluster: c }),
+    { run, window: w, cluster: c },
+    signal,
+  );
+// 논문 id 에 `/` 가 올 수 있어 `/works/{id}/…` 대신 쿼리로 보낸다.
+export const fetchCitations = (
+  run: string,
+  id: string,
+  direction: CitationDirection = "both",
+  limit = 20,
+  signal?: AbortSignal,
+) =>
+  call<Citations>(
+    "citations",
+    "/citations?" + params({ run, id, direction, limit }),
+    { run, id, direction, limit },
     signal,
   );
 export const fetchLineage = (
@@ -202,7 +270,13 @@ export const fetchLineage = (
   seed?: string,
   depth = 2,
   signal?: AbortSignal,
-) => get<LineageData>("/lineage?" + params({ run, seed, depth }), signal);
+) =>
+  call<LineageData>(
+    "lineage",
+    "/lineage?" + params({ run, seed, depth }),
+    { run, seed, depth },
+    signal,
+  );
 export interface PaperRow {
   id: string;
   title: string;
@@ -227,7 +301,12 @@ export interface Filters {
   year_to?: number;
 }
 export const fetchMatches = (filters: Filters, signal?: AbortSignal) =>
-  get<Matches>("/matches?" + params({ ...filters }), signal);
+  call<Matches>(
+    "matches",
+    "/matches?" + params({ ...filters }),
+    { filter: filters },
+    signal,
+  );
 export const fetchPapers = (
   filters: Filters,
   sort: string,
@@ -235,7 +314,16 @@ export const fetchPapers = (
   page: number,
   signal?: AbortSignal,
 ) =>
-  get<PaperPage>(
+  call<PaperPage>(
+    "works",
     "/works?" + params({ ...filters, sort, order, page, page_size: 25 }),
+    { filter: filters, sort, order, page, pageSize: 25 },
     signal,
   );
+// 데스크톱 앱 전용. 브라우저에서는 부르지 않는다.
+export interface DbStatus {
+  path: string;
+  exists: boolean;
+}
+export const fetchDbStatus = () => invoke<DbStatus>("db_status");
+export const chooseDatabase = () => invoke<DbStatus>("choose_database");

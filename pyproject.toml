@@ -19,7 +19,6 @@ embed = [
     "hdbscan>=0.8.38",
     "scikit-learn>=1.5",
 ]
-api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 
 [project.scripts]
 constellation = "constellation.cli:main"

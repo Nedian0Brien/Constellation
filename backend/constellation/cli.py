@@ -251,17 +251,6 @@ def lineage(
 
 
 @app.command()
-def serve(
-    host: str = typer.Option("127.0.0.1", "--host"),
-    port: int = typer.Option(8000, "--port"),
-) -> None:
-    """API 서버를 띄운다."""
-    import uvicorn
-    console.print("http://%s:%d/api/health 로 상태 확인" % (host, port))
-    uvicorn.run("constellation.api.app:app", host=host, port=port, reload=False)
-
-
-@app.command()
 def stats() -> None:
     """M0의 관문 — 초록 커버리지와 내부 인용 밀도를 잰다."""
     if not DB_PATH.exists():
