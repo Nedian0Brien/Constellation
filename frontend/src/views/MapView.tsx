@@ -78,7 +78,7 @@ const LINK_OUT: [number, number, number] = [57, 135, 229],
   LINK_IN: [number, number, number] = [230, 103, 103],
   LINK_WIDTH = 2,
   HOVER_DIM = 0.5;
-// 로컬 그래프(2홉)에서 선택 노드에 닿지 않는 선. `--ink-soft` #93a3b4, 1px, 옅게.
+// 로컬 그래프에서 선택 노드에 닿지 않는 선(이웃끼리의 인용). `--ink-soft` #93a3b4, 1px, 옅게.
 const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
   LINK_FAR_WIDTH = 1;
 // 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값("한 1초").
@@ -92,6 +92,8 @@ const MENU_RADIUS = 36,
 const SELECT_MARGIN = 90;
 // 로컬 그래프를 화면에 맞출 때의 여백.
 const FIT_PADDING = 80;
+// 로컬 그래프의 홉 수. 2홉은 선이 너무 많았다(사용자 지시로 1홉).
+const LOCAL_HOPS = 1;
 // 논문 제목 상자. 본문 글꼴 11px, 220px 최대 폭(안쪽 여백 2px 4px를 뺀 212px에
 // 글자), 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의 줄
 // 간격이기도 하다. 글자는 점 아래 9px(위 여백 7 + 안쪽 2)에서 시작한다.
@@ -509,11 +511,11 @@ export default function MapView() {
       ? Math.max(HALO_MIN, radiusPx(points[selectedIndex]) + HALO_GAP)
       : HALO_MIN;
   // 강조 노드의 인용 그래프. 보통은 그 노드에 닿는 선(1홉)만, 선택 노드의 로컬
-  // 그래프가 켜져 있으면 2홉 이웃과 그 사이 선까지. 이웃이 없으면 노드 하나.
+  // 그래프가 켜져 있으면 이웃끼리의 인용선까지(1홉 유도 부분 그래프). 이웃이 없으면 노드 하나.
   const showLocal = state.local && heldIndex === selectedIndex;
   const graph = useMemo<LocalGraph>(() => {
     if (!index || heldIndex < 0) return EMPTY_GRAPH;
-    if (showLocal) return localGraph(index, heldIndex);
+    if (showLocal) return localGraph(index, heldIndex, LOCAL_HOPS);
     const links: GraphLink[] = linksOf(index, heldIndex).map((l) =>
       l.incoming
         ? { a: l.j, b: heldIndex, seed: true }
@@ -868,7 +870,7 @@ export default function MapView() {
       onClick: () => update({ local: !state.local }),
     },
   ];
-  // 로컬 그래프를 켜면 2홉 이웃이 여백을 두고 화면에 들어오도록 카메라를 옮기고, 끄면
+  // 로컬 그래프를 켜면 이웃이 여백을 두고 화면에 들어오도록 카메라를 옮기고, 끄면
   // 켜기 전 카메라로 돌아간다(선택이 바뀌어 꺼진 경우는 그대로).
   const fitted = useRef<{ key: string; before: Camera } | null>(null);
   useEffect(() => {
@@ -885,7 +887,7 @@ export default function MapView() {
       key,
       before: useStore.getState().cameras[map.run_id] ?? home,
     };
-    const g = localGraph(index, selectedIndex);
+    const g = localGraph(index, selectedIndex, LOCAL_HOPS);
     move(
       fitCamera(
         g.nodes.map((i) => map.x[i]).filter(Number.isFinite),

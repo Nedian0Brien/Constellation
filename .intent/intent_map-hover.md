@@ -41,6 +41,10 @@ date: 2026-09-18
 - 에이전트의 `select` 도구 설명("상세 창을 연다")을 선택 모드에 맞게 고친다.
 - 양보한 것: 툴팁이 주던 연도·피인용은 호버에서 사라진다. 모바일(터치)은 호버가 없어 탭 = 선택이다.
 
+## 사용자 지시로 바꾼 것 — 2026-09-18 (세 번째: 로컬 그래프는 1홉)
+
+사용자: "로컬 그래프 보기는 2hop이 아니라 1hop으로 작동해야겠다. 너무 선이 많이 보인다." 로컬 그래프는 선택 노드의 이웃(1홉)과 그들 사이의 인용선이다. 선택 모드 기본(선택 노드에 닿는 선만)에 이웃끼리의 인용선이 더해지고 카메라가 이웃 범위에 맞는다. 허브(이웃 408)에서 26,575선이 2,000선 안팎으로 준다.
+
 ## 영향 범위
 
 `frontend/src/views/MapView.tsx`(점 크기, 호버 강조·연결선 레이어, 선택 모드·버튼), `frontend/src/api.ts`(run 안 인용 관계를 한 번에 받는 요청), `crates/constellation-core/src/queries`·`crates/constellation-serve`·`src-tauri/src/commands.rs`(새 질의 `edges`와 그 경로·명령), `frontend/src/components/InspectorDialog.tsx`(논문 Dialog는 버튼으로만), `frontend/src/app/navigation.ts`(`local`), `frontend/src/agent/tools.ts`·`context.ts`(select 설명), `frontend/src/components/PaperListOverlay.tsx`·`panels/DetailPanel.tsx`(고르면 지도로), `frontend/e2e/exploration.spec.ts`. 사용자는 지도를 보는 연구자 본인.

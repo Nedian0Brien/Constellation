@@ -60,7 +60,7 @@ export function dotScale(relativeZoom: number): number {
   const t = Math.min(1, Math.max(0, relativeZoom / DOT_SCALE_ZOOM));
   return 1 + (DOT_SCALE_MAX - 1) * t;
 }
-// 선택 노드의 로컬 그래프: 2홉 이웃까지의 노드와 그 안의 인용선. `seed`가 참인 선은
+// 선택 노드의 로컬 그래프: `hops`홉 이웃까지의 노드와 그 안의 인용선. `seed`가 참인 선은
 // 선택 노드에 닿는 것(방향 색), 나머지는 옅은 한 색으로 그린다. 선은 인용 방향
 // a → b(a가 b를 인용)로 한 번씩만 든다.
 export interface GraphLink {

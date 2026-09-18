@@ -11,7 +11,7 @@ export interface Exploration {
   cluster?: number;
   node?: number;
   list: boolean;
-  /** 선택 논문의 로컬 그래프(2홉 이웃)를 지도 위에 보인다. */
+  /** 선택 논문의 로컬 그래프(이웃과 이웃끼리의 인용)를 지도 위에 보인다. */
   local: boolean;
   sort: "title" | "year" | "cited";
   order: "asc" | "desc";
