@@ -66,6 +66,12 @@ fn commands_accept_frontend_argument_shapes() {
     let map = invoke(&webview, "map", json!({ "run": null })).unwrap();
     assert_eq!(map["n"], 2);
 
+    // api.ts 의 fetchEdges 가 보내는 모양. 인덱스는 map 순서(1 → 0, 2 → 1).
+    let edges = invoke(&webview, "edges", json!({ "run": "a" })).unwrap();
+    assert_eq!(edges["n"], 2);
+    assert_eq!(edges["citing"], json!([1]));
+    assert_eq!(edges["cited"], json!([0]));
+
     let page = invoke(
         &webview,
         "works",

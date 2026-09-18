@@ -2,6 +2,7 @@
 //! 반환 구조체의 필드 이름·형은 Python 버전의 JSON과 같다.
 
 mod clusters;
+mod edges;
 mod flow;
 mod lineage;
 mod map;
@@ -10,6 +11,7 @@ mod tree;
 mod works;
 
 pub use clusters::{cluster_detail, clusters, ClusterDetail, ClusterInfo, YearCount};
+pub use edges::{edges, EdgesData};
 pub use flow::{flow, flow_papers, FlowCluster, FlowData, FlowEdge, FlowWindow};
 pub use lineage::{lineage, LineageData, LineageEdge, LineageNode};
 pub use map::{map, MapData};

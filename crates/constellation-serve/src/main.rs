@@ -99,6 +99,10 @@ async fn clusters(
     ok(queries::clusters(&db, &required(&p, "run")?)?)
 }
 
+async fn edges(State(db): State<Database>, Query(p): Params) -> Reply<queries::EdgesData> {
+    ok(queries::edges(&db, &required(&p, "run")?)?)
+}
+
 async fn tree(State(db): State<Database>, Query(p): Params) -> Reply<queries::TreeData> {
     ok(queries::tree(&db, &required(&p, "run")?)?)
 }
@@ -222,6 +226,7 @@ async fn main() {
     let app = Router::new()
         .route("/api/runs", get(runs))
         .route("/api/map", get(map))
+        .route("/api/edges", get(edges))
         .route("/api/clusters", get(clusters))
         .route("/api/clusters/{cluster_id}", get(cluster_detail))
         .route("/api/tree", get(tree))
