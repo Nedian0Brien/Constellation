@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use clap::Parser;
-use constellation_core::queries::{self, Order, PaperFilter, Sort};
+use constellation_core::queries::{self, Direction, Order, PaperFilter, Sort};
 use constellation_core::{Database, Error};
 use serde::Serialize;
 use tower_http::cors::CorsLayer;
@@ -195,6 +195,15 @@ async fn work(
     )?)
 }
 
+/// 논문 id에 `/`가 올 수 있어 `/works/{*work_id}` 아래에 붙이지 않고 쿼리로 받는다.
+async fn citations(State(db): State<Database>, Query(p): Params) -> Reply<queries::Citations> {
+    let run = required(&p, "run")?;
+    let id = required(&p, "id")?;
+    let direction = Direction::parse(p.get("direction").map(String::as_str).unwrap_or("both"))?;
+    let limit = bounded(int(&p, "limit")?, 20, 500, "limit")?;
+    ok(queries::citations(&db, &run, &id, direction, limit)?)
+}
+
 async fn health(State(db): State<Database>) -> Reply<queries::Health> {
     ok(queries::health(&db)?)
 }
@@ -222,6 +231,7 @@ async fn main() {
         .route("/api/works", get(works))
         .route("/api/matches", get(matches))
         .route("/api/works/{*work_id}", get(work))
+        .route("/api/citations", get(citations))
         .route("/api/health", get(health))
         .layer(cors)
         .with_state(db);

@@ -217,3 +217,9 @@ frontend/src/components/assistant-ui/  # @acf 레지스트리 설치본 (NOTE(co
 - SDK 세션 파일은 cwd 해시 아래에 놓이므로 서버 cwd 를 `agent/`로 고정했다. 첫 턴 판별은 `getSessionInfo` 로 한다.
 - `MapView`는 `cameraRequest`(run·nonce)를 한 번만 소비하고, 주석은 SVG 오버레이로 점→라벨 지시선을 그린다. 주석은 세션 안에서만 산다.
 - 에이전트 실응답은 Claude 로그인이 필요해 E2E에서는 `/api/agent`를 데이터 스트림으로 흉내 내어 프론트 도구 파이프라인(zoom → tool-result → 카메라 변화 → 복원)만 검사한다.
+
+### 인용 추적·논문 비교·웹 접근 — 2026-09-18
+
+- `GET /api/citations?run=&id=&direction=&limit=` / Tauri `citations` — `queries::citations`. `citations` 테이블에서 코퍼스 안 논문만 피인용 순으로 `limit`개(1–500, 기본 20). 총계는 limit·방향과 무관하다. 논문 id에 `/`가 올 수 있어 `/works/{*work_id}` 아래가 아니라 쿼리로 받는다.
+- 도구 `get_citations`(주제 라벨 결합), `get_lineage`(`/lineage`의 엣지 `from`=피인용·`to`=인용을 씨앗 기준 `cites`/`cited_by`로), `compare_papers`(논문마다 `fetchWork` + 참고문헌 500개를 받아 집합 안 인용 쌍을 만들고, 투영 좌표 유클리드 거리와 지도 대각선 `map_span`을 함께 준다). 모델이 `W123`으로 부르면 `openalex:W123`으로 맞춘다(`paperId`).
+- 서버는 내장 도구 중 `WebSearch`·`WebFetch`만 연다(`tools`·`allowedTools`). 둘은 `claude` 프로세스 안에서 돌고 결과는 브리지가 `setResponse`로 돌려준다(중계 도구와 달리 서버가 결과를 보낸다). 프롬프트가 OpenAlex API(`openalex:` 접두사 제거)와 DOI 리다이렉트 처리를 안내한다.

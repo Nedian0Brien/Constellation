@@ -79,6 +79,44 @@ export const toolDefinitions = {
       required: ["id"],
     },
   },
+  get_citations: {
+    description:
+      "논문 하나가 코퍼스 안에서 인용한 논문(references)과 이 논문을 인용한 논문(cited_by)을 피인용 순으로 돌려준다. 총계는 limit 과 무관하다. 여러 홉을 따라가려면 결과의 id 로 다시 부른다.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: str("논문 id"),
+        direction: oneOf(
+          ["references", "cited_by", "both"],
+          "방향. 기본 both",
+        ),
+        limit: int("방향마다 최대 개수. 기본 20, 최대 500"),
+      },
+      required: ["id"],
+    },
+  },
+  get_lineage: {
+    description:
+      "현재 분석의 인용 계보. 메인패스(가장 굵은 인용 흐름을 연도순으로)와, paper_id 를 주면 그 논문과 직접 이어진 논문(cites=그 논문이 인용, cited_by=그 논문을 인용)을 돌려준다.",
+    parameters: {
+      type: "object",
+      properties: {
+        paper_id: str("씨앗 논문 id. 비우면 메인패스만"),
+        depth: int("씨앗 주변을 따라갈 홉 수 1–4. 기본 2"),
+      },
+    },
+  },
+  compare_papers: {
+    description:
+      "논문 2–6편을 한 표로 비교한다. 논문마다 메타데이터·주제·초록 앞부분·코퍼스 안 인용 수를, 쌍마다 서로 인용 여부·같은 주제 여부·지도 거리를 돌려준다.",
+    parameters: {
+      type: "object",
+      properties: {
+        ids: { type: "array", description: "논문 id 2–6개", items: str("논문 id") },
+      },
+      required: ["ids"],
+    },
+  },
   set_filter: {
     description:
       "지도와 논문 목록의 필터를 바꾼다. 준 값만 바뀌고, clear 를 주면 먼저 전부 지운다. 적용 뒤 일치하는 논문 수를 돌려준다.",
@@ -193,7 +231,12 @@ export interface ToolDeps {
   setAnnotations: (annotations: Annotation[]) => void;
   api: Pick<
     typeof api,
-    "fetchClusterDetail" | "fetchPapers" | "fetchWork" | "fetchMatches"
+    | "fetchClusterDetail"
+    | "fetchPapers"
+    | "fetchWork"
+    | "fetchMatches"
+    | "fetchCitations"
+    | "fetchLineage"
   >;
 }
 
@@ -205,6 +248,14 @@ const asInt = (v: unknown) =>
 const asNum = (v: unknown) =>
   typeof v === "number" && Number.isFinite(v) ? v : undefined;
 const asStr = (v: unknown) => (typeof v === "string" ? v : undefined);
+/** 모델이 OpenAlex 쪽 표기(`W123`)로 부르면 코퍼스 id(`openalex:W123`)로 맞춘다. */
+export const paperId = (v: unknown) => {
+  const s = asStr(v)?.trim();
+  if (!s) return undefined;
+  return /^W\d+$/.test(s) ? `openalex:${s}` : s;
+};
+const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+  Math.round(Math.hypot(a.x - b.x, a.y - b.y) * 100) / 100;
 
 export function createToolExecutors(
   deps: ToolDeps,
@@ -263,7 +314,7 @@ export function createToolExecutors(
       };
     },
     async get_paper(a) {
-      const id = asStr(a.id);
+      const id = paperId(a.id);
       if (!id) return { error: "id 가 필요합니다." };
       const w = await deps.api.fetchWork(id, run);
       return {
@@ -280,6 +331,139 @@ export function createToolExecutors(
         cited_by_in_corpus: w.cited_by_in_corpus,
         topics: w.topics.slice(0, 8).map((t) => t.name),
         abstract: w.abstract ? truncate(w.abstract, 1500) : null,
+      };
+    },
+    async get_citations(a) {
+      const id = paperId(a.id);
+      if (!id) return { error: "id 가 필요합니다." };
+      const direction = (asStr(a.direction) ?? "both") as api.CitationDirection;
+      const limit = Math.min(Math.max(asInt(a.limit) ?? 20, 1), 500);
+      const [c, clusters] = await Promise.all([
+        deps.api.fetchCitations(run, id, direction, limit),
+        deps.clusters(),
+      ]);
+      const label = (k: number | null) =>
+        k === null ? null : (clusters.find((x) => x.cluster_id === k)?.label ?? null);
+      const rows = (list: api.CitedWork[]) =>
+        list.map((w) => ({ ...w, cluster_label: label(w.cluster) }));
+      return {
+        id: c.id,
+        ref_total: c.ref_total,
+        cited_by_total: c.cited_by_total,
+        references: rows(c.references),
+        cited_by: rows(c.cited_by),
+      };
+    },
+    async get_lineage(a) {
+      const seed = paperId(a.paper_id);
+      const depth = Math.min(Math.max(asInt(a.depth) ?? 2, 1), 4);
+      if (seed && !paperPosition(await deps.map(), seed))
+        return { error: `논문 ${seed} 을 찾지 못했습니다.` };
+      const d = await deps.api.fetchLineage(run, seed, depth);
+      const nodes = new Map(d.nodes.map((n) => [n.id, n]));
+      const brief = (id: string) => {
+        const n = nodes.get(id);
+        return n ? { id, title: n.title, year: n.year, cited: n.cited } : { id };
+      };
+      // 엣지는 from=피인용, to=인용. 씨앗이 to 면 씨앗이 인용한 것이다.
+      const neighbors = seed
+        ? d.edges
+            .filter((e) => e.from === seed || e.to === seed)
+            .map((e) => ({
+              ...brief(e.to === seed ? e.from : e.to),
+              relation: e.to === seed ? "cites" : "cited_by",
+              spc: Math.round(e.spc * 100) / 100,
+            }))
+        : undefined;
+      return {
+        main_path: d.main_path.map(brief),
+        ...(seed ? { seed: brief(seed), neighbors } : {}),
+        node_count: d.nodes.length,
+        edge_count: d.edges.length,
+      };
+    },
+    async compare_papers(a) {
+      const ids = Array.isArray(a.ids)
+        ? [...new Set(a.ids.map(paperId).filter((x): x is string => !!x))]
+        : [];
+      if (ids.length < 2) return { error: "ids 에 논문 id 가 2개 이상 필요합니다." };
+      if (ids.length > 6) return { error: "한 번에 6편까지 비교합니다." };
+      const [map, clusters] = await Promise.all([deps.map(), deps.clusters()]);
+      const missing: string[] = [];
+      const papers = (
+        await Promise.all(
+          ids.map(async (id) => {
+            const pos = paperPosition(map, id);
+            if (!pos) {
+              missing.push(id);
+              return null;
+            }
+            const [w, c] = await Promise.all([
+              deps.api.fetchWork(id, run),
+              deps.api.fetchCitations(run, id, "references", 500),
+            ]);
+            const k = map.cluster[map.id.indexOf(id)] ?? null;
+            return {
+              id,
+              title: w.title,
+              year: w.year,
+              venue: w.venue,
+              cited_by_count: w.cited_by_count ?? 0,
+              authors: w.authors.slice(0, 3),
+              topics: w.topics.slice(0, 3).map((t) => t.name),
+              cluster_id: k,
+              cluster_label: clusters.find((x) => x.cluster_id === k)?.label ?? null,
+              refs_in_corpus: w.refs_in_corpus,
+              cited_by_in_corpus: w.cited_by_in_corpus,
+              abstract: w.abstract ? truncate(w.abstract, 400) : null,
+              pos,
+              refs: new Set(c.references.map((r) => r.id)),
+            };
+          }),
+        )
+      ).filter((p): p is NonNullable<typeof p> => p !== null);
+      if (papers.length < 2)
+        return { error: "비교할 논문이 2편 미만입니다.", missing };
+      const cites: [string, string][] = [];
+      const pairs: {
+        a: string;
+        b: string;
+        distance: number;
+        same_topic: boolean;
+      }[] = [];
+      for (let i = 0; i < papers.length; i++)
+        for (let j = 0; j < papers.length; j++) {
+          const p = papers[i]!,
+            q = papers[j]!;
+          if (i !== j && p.refs.has(q.id)) cites.push([p.id, q.id]);
+          if (i < j)
+            pairs.push({
+              a: p.id,
+              b: q.id,
+              distance: dist(p.pos, q.pos),
+              same_topic: p.cluster_id !== null && p.cluster_id === q.cluster_id,
+            });
+        }
+      // 지도 전체 대각선. 거리를 가늠하는 기준으로 함께 준다.
+      const lo = { x: Infinity, y: Infinity },
+        hi = { x: -Infinity, y: -Infinity };
+      for (let i = 0; i < map.n; i++) {
+        lo.x = Math.min(lo.x, map.x[i]!);
+        lo.y = Math.min(lo.y, map.y[i]!);
+        hi.x = Math.max(hi.x, map.x[i]!);
+        hi.y = Math.max(hi.y, map.y[i]!);
+      }
+      const span = dist(lo, hi);
+      return {
+        papers: papers.map(({ pos, refs: _refs, ...rest }) => ({
+          ...rest,
+          x: pos.x,
+          y: pos.y,
+        })),
+        cites,
+        pairs,
+        map_span: span,
+        ...(missing.length ? { missing } : {}),
       };
     },
     async set_filter(a) {
@@ -303,7 +487,7 @@ export function createToolExecutors(
       return { query: next.q, year_from: next.from, year_to: next.to, total: matches.total };
     },
     async select(a) {
-      const paper = asStr(a.paper_id),
+      const paper = paperId(a.paper_id),
         cluster = asInt(a.cluster_id);
       if (paper) {
         const map = await deps.map();
@@ -322,7 +506,7 @@ export function createToolExecutors(
       return { opened: null };
     },
     async fly_to(a) {
-      const paper = asStr(a.paper_id),
+      const paper = paperId(a.paper_id),
         cluster = asInt(a.cluster_id),
         level = asStr(a.level) as LabelLevel | undefined;
       let target: [number, number, number] | undefined, name = "";
@@ -358,7 +542,11 @@ export function createToolExecutors(
       return { steps };
     },
     async annotate(a) {
-      const items = Array.isArray(a.items) ? (a.items as AnnotateItem[]) : [];
+      const items = Array.isArray(a.items)
+        ? (a.items as AnnotateItem[]).map((it) =>
+            it.paper_id === undefined ? it : { ...it, paper_id: paperId(it.paper_id) },
+          )
+        : [];
       if (!items.length) return { error: "items 가 비어 있습니다." };
       const [map, clusters] = await Promise.all([deps.map(), deps.clusters()]);
       const { annotations, missing } = resolveAnnotations(items, map, clusters);

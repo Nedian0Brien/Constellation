@@ -21,6 +21,16 @@ import {
   type ToolName,
 } from "./tools";
 
+/**
+ * 에이전트 서버 주소. 브라우저는 Vite 가 `/api/agent` 를 프록시하지만,
+ * 설치된 앱의 웹뷰(`tauri://localhost`)에는 프록시가 없어 서버를 직접 부른다.
+ * 서버는 그 출처를 CORS 로 허용한다. 서버가 꺼져 있으면 첫 메시지가
+ * 오류로 표시된다 — `npm --prefix agent start`.
+ */
+export const AGENT_API = api.desktop
+  ? "http://127.0.0.1:8787/api/agent"
+  : "/api/agent";
+
 /** 서버가 도구 결과를 기다리는 자리. 실행은 여기서 끝났고 결과만 돌려준다. */
 async function postToolResult(
   sessionId: string,
@@ -29,7 +39,7 @@ async function postToolResult(
   isError = false,
 ) {
   try {
-    await fetch("/api/agent/tool-result", {
+    await fetch(`${AGENT_API}/tool-result`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId, toolCallId, result, isError }),
@@ -178,7 +188,7 @@ export function AgentProvider({
   const runtime = useDataStreamRuntime(
     useMemo(
       () => ({
-        api: "/api/agent",
+        api: AGENT_API,
         body: () => ({ sessionId: thread.sessionId }),
         adapters: { history: createHistoryAdapter(run, thread) },
         onError: (error: Error) => console.error("[agent]", error),

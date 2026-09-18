@@ -129,6 +129,11 @@ function ToolFallbackDuration({
   );
 }
 
+const builtinToolTitles: Record<string, string> = {
+  WebSearch: "웹 검색",
+  WebFetch: "웹 페이지 읽기",
+};
+
 function ToolFallbackTrigger({
   toolName,
   status,
@@ -145,6 +150,8 @@ function ToolFallbackTrigger({
 
   const Icon = statusIconMap[statusType];
   const label = isCancelled ? "취소된 도구" : "도구";
+  // NOTE(constellation): 서버 쪽에서 도는 내장 도구는 이름 대신 한국어 제목.
+  const title = builtinToolTitles[toolName] ?? toolName;
 
   return (
     <CollapsibleTrigger
@@ -171,7 +178,7 @@ function ToolFallbackTrigger({
           isRunning && "shimmer motion-reduce:animate-none",
         )}
       >
-        {label}: <b>{toolName}</b>
+        {label}: <b>{title}</b>
       </span>
       <ToolFallbackDuration />
       <ChevronDownIcon

@@ -114,6 +114,25 @@ export interface LineageData {
   main_path: string[];
 }
 
+export interface CitedWork {
+  id: string;
+  title: string;
+  year: number | null;
+  cited: number;
+  /** 현재 run 의 주제. run 밖 논문이면 null */
+  cluster: number | null;
+}
+
+export interface Citations {
+  id: string;
+  references: CitedWork[];
+  cited_by: CitedWork[];
+  ref_total: number;
+  cited_by_total: number;
+}
+
+export type CitationDirection = "references" | "cited_by" | "both";
+
 export interface Work {
   id: string;
   doi: string | null;
@@ -230,6 +249,20 @@ export const fetchFlowPapers = (
     "flow_papers",
     "/flow/papers?" + params({ run, window: w, cluster: c }),
     { run, window: w, cluster: c },
+    signal,
+  );
+// 논문 id 에 `/` 가 올 수 있어 `/works/{id}/…` 대신 쿼리로 보낸다.
+export const fetchCitations = (
+  run: string,
+  id: string,
+  direction: CitationDirection = "both",
+  limit = 20,
+  signal?: AbortSignal,
+) =>
+  call<Citations>(
+    "citations",
+    "/citations?" + params({ run, id, direction, limit }),
+    { run, id, direction, limit },
     signal,
   );
 export const fetchLineage = (
