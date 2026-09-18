@@ -1,4 +1,9 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { useStore } from "../store";

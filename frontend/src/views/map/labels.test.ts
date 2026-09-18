@@ -1,16 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
-  PAPER_LABEL_ZOOM,
-  clampRegionLabel,
   descendants,
-  fitCamera,
   labelLevel,
   labelOpacity,
   paperLabelOpacity,
   paperTitleOpacity,
+  clampRegionLabel,
   regionRadii,
   revealZooms,
   truncateTitle,
+  fitCamera,
+  PAPER_LABEL_ZOOM,
   type LabelBox,
 } from "./labels";
 import type { TreeData, MapData, ClusterInfo } from "../../api";

@@ -752,8 +752,9 @@ export default function MapView() {
   // 가려지지 않는다.
   const titleOpacity = (t: Title) =>
     t.selected ? paperOpacity : opacityAt(reveals.zoom[t.k]);
-  // 활성 노드(강조 노드와 그래프의 이웃). 지도 제목에서는 알파 0으로 감추고(배열은
-  // 그대로 — 다시 만들면 글자를 전부 다시 놓는다) 활성 라벨 레이어가 대신 그린다.
+  // 활성 노드(강조 노드와 그래프의 이웃). 지도 제목에서는 강조가 켜지는 만큼 옅어져
+  // 활성 라벨 레이어와 교차 페이드한다(배열은 그대로 — 다시 만들면 글자를 전부 다시
+  // 놓는다). 켜지는 순간 알파 0으로 두면 이미 켜져 있던 제목이 한 번 꺼졌다 켜진다.
   const activeSet = useMemo(() => new Set(graph.nodes), [graph]);
   const activeKey = heldIndex + ":" + graph.nodes.length;
   // 활성 라벨의 자리. 강조 노드는 항상, 나머지는 피인용수 순으로 앞서 놓인 활성
@@ -1011,10 +1012,12 @@ export default function MapView() {
       getAlignmentBaseline: "top",
       getColor: (t) => [
         ...typo.color,
-        activeSet.has(t.i) ? 0 : Math.round(255 * titleOpacity(t)),
+        Math.round(
+          255 * titleOpacity(t) * (activeSet.has(t.i) ? 1 - hoverT : 1),
+        ),
       ],
       updateTriggers: {
-        getColor: [camera.zoom, paperFloor, regionless, activeKey],
+        getColor: [camera.zoom, paperFloor, regionless, activeKey, hoverT],
       },
       pickable: true,
       onHover: (info) => setHover(info.object ? info : null),
@@ -1091,12 +1094,14 @@ export default function MapView() {
       // 바로 나가면 툴팁과 인용 선이 남으므로 여기서 거둔다.
       onPointerLeave={() => setHover(null)}
       onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
+        // Escape는 버튼 셋에 포커스가 있어도 선택을 지운다. 상세 Dialog는 포털 밖이라
+        // 여기로 오지 않는다.
         if (e.key === "Escape" && state.selected) {
           e.preventDefault();
           update({ selected: undefined });
           return;
         }
+        if (e.target !== e.currentTarget) return;
         if (["+", "=", "-"].includes(e.key)) {
           e.preventDefault();
           move(
