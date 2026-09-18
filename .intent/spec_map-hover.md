@@ -11,18 +11,18 @@ date: 2026-09-18
 
 ## 요구사항
 
-- [ ] 점 반지름(px) = 지금의 점별 반지름 × `dotScale(Δ)`, `Δ = camera.zoom − home.zoom`, `dotScale = 1 + 2·clamp(Δ/5, 0, 1)`. 기준 배율에서 1배, 3200%에서 3배, 그 위는 3배 고정. 상한 7px(`radiusMaxPixels`; 제목이 점 중심 아래 9px에서 시작한다). 기본 색에서 3200% 이상은 지름 9px — `dataviz` 표식 규격 "Marker ≥ 8px(r ≥ 4)"를 넘는다.
-- [ ] 선택한 논문의 고리 반지름 = `max(10, 선택한 점의 반지름 px + 5)`. 기준 배율에서 지금과 같다.
-- [ ] `/api/edges?run=` 과 Tauri 명령 `edges({run})`이 `{run_id, n, citing: number[], cited: number[]}`를 준다. `citing[k]`·`cited[k]`는 `/map` 배열의 인덱스(같은 `ORDER BY work_id`). 자기 인용과 run 밖 논문으로 가는 인용은 뺀다. `(citing, cited)` 오름차순. run에 투영이 없으면 404.
-- [ ] 프론트는 지도마다 한 번 `edges`를 받아(`useQuery(["edges", run])`) 인접 표(CSR)를 만든다. `n !== map.n`이거나 인덱스가 범위를 벗어나면 표를 만들지 않고 `console.error`를 남긴다(선은 안 그린다).
-- [ ] 점이나 제목에 마우스를 올리면 `t`가 0 → 1로 240ms ease-out(`useTween`, 동작 줄이기면 즉시). 떠나면 1 → 0. 그동안: 기본 점 레이어 `opacity = 1 − 0.5·t`, 연결선 레이어와 강조 점 레이어 `opacity = t`.
-- [ ] 연결선은 `LineLayer`, 굵기 2px(`dataviz` 표식 규격 "Line 2px"). 색: 참조(올린 논문 → 이웃) `[57,135,229]`(#3987e5), 피인용(이웃 → 올린 논문) `[230,103,103]`(#e66767). `dataviz` 기준 팔레트의 다크 모드 blue·red 발산 쌍. 지도 바탕 `#0e1319` 위에서 검증기 통과(CVD ΔE 19.2, 정상 시각 ΔE 29.0, 대비 ≥ 3:1).
-- [ ] 강조 점 레이어는 올린 점(흰색 `[255,255,255,255]`, 지금의 autoHighlight 색)과 이웃(`colors[j]` 그대로 — 필터 밖이면 지금처럼 옅다)을 그린다. 반지름 규칙은 기본 레이어와 같다. 픽킹은 하지 않는다(호버는 기본 레이어·제목 레이어가 낸다).
-- [ ] 마우스가 떠나 옅어지는 240ms 동안 마지막 호버의 선·강조 점이 남아 있다가 사라진다.
-- [ ] 이웃이 없는 논문: 선 0개, 올린 점만 강조, 나머지는 옅어진다.
-- [ ] 확대·이동 비용: 호버 중이 아닐 때 프로덕션 빽빽한 3200% 화면 휠 한 단계 RunTask가 지금(7~9ms)을 넘지 않는다. 호버 중 확대도 같은 자릿수.
-- [ ] 컨테이너에 `data-hover-id`(올린 논문 id 또는 없음)·`data-hover-links`(그려진 선 수). `__map` 다리에 `degree(id): number`.
-- [ ] Rust 테스트: 표본 DB에서 `edges("a")` = `n 4, citing [1,2], cited [0,0]`(3→1, 2→1; 1→x-outside는 빠짐), 자기 인용 행은 빠짐, `edges("nope")` 404. Tauri 테스트: `edges({run:"a"})`의 `n`. Vitest: `citationIndex`(CSR 구성, 방향, 범위 검사)·`dotScale`(0·2.5·5·8). E2E: 제목이 켜진 배율에서 이웃이 있는 점에 마우스를 올리면 `data-hover-links > 0`, 떼면 0.
+- [x] 점 반지름(px) = 지금의 점별 반지름 × `dotScale(Δ)`, `Δ = camera.zoom − home.zoom`, `dotScale = 1 + 2·clamp(Δ/5, 0, 1)`. 기준 배율에서 1배, 3200%에서 3배, 그 위는 3배 고정. 상한 7px(`radiusMaxPixels`; 제목이 점 중심 아래 9px에서 시작한다). 기본 색에서 3200% 이상은 지름 9px — `dataviz` 표식 규격 "Marker ≥ 8px(r ≥ 4)"를 넘는다.
+- [x] 선택한 논문의 고리 반지름 = `max(10, 선택한 점의 반지름 px + 5)`. 기준 배율에서 지금과 같다.
+- [x] `/api/edges?run=` 과 Tauri 명령 `edges({run})`이 `{run_id, n, citing: number[], cited: number[]}`를 준다. `citing[k]`·`cited[k]`는 `/map` 배열의 인덱스(같은 `ORDER BY work_id`). 자기 인용과 run 밖 논문으로 가는 인용은 뺀다. `(citing, cited)` 오름차순. run에 투영이 없으면 404.
+- [x] 프론트는 지도마다 한 번 `edges`를 받아(`useQuery(["edges", run])`) 인접 표(CSR)를 만든다. `n !== map.n`이거나 인덱스가 범위를 벗어나면 표를 만들지 않고 `console.error`를 남긴다(선은 안 그린다).
+- [x] 점이나 제목에 마우스를 올리면 `t`가 0 → 1로 240ms ease-out(`useTween`, 동작 줄이기면 즉시). 떠나면 1 → 0. 그동안: 기본 점 레이어 `opacity = 1 − 0.5·t`, 연결선 레이어와 강조 점 레이어 `opacity = t`.
+- [x] 연결선은 `LineLayer`, 굵기 2px(`dataviz` 표식 규격 "Line 2px"). 색: 참조(올린 논문 → 이웃) `[57,135,229]`(#3987e5), 피인용(이웃 → 올린 논문) `[230,103,103]`(#e66767). `dataviz` 기준 팔레트의 다크 모드 blue·red 발산 쌍. 지도 바탕 `#0e1319` 위에서 검증기 통과(CVD ΔE 19.2, 정상 시각 ΔE 29.0, 대비 ≥ 3:1).
+- [x] 강조 점 레이어는 올린 점(흰색 `[255,255,255,255]`, 지금의 autoHighlight 색)과 이웃(`colors[j]` 그대로 — 필터 밖이면 지금처럼 옅다)을 그린다. 반지름 규칙은 기본 레이어와 같다. 픽킹은 하지 않는다(호버는 기본 레이어·제목 레이어가 낸다).
+- [x] 마우스가 떠나 옅어지는 240ms 동안 마지막 호버의 선·강조 점이 남아 있다가 사라진다.
+- [x] 이웃이 없는 논문: 선 0개, 올린 점만 강조, 나머지는 옅어진다.
+- [x] 확대·이동 비용: 호버 중이 아닐 때 프로덕션 빽빽한 3200% 화면 휠 한 단계 RunTask가 지금(7~9ms)을 넘지 않는다. 호버 중 확대도 같은 자릿수.
+- [x] 컨테이너에 `data-hover-id`(올린 논문 id 또는 없음)·`data-hover-links`(그려진 선 수). `__map` 다리에 `degree(id): number`.
+- [x] Rust 테스트: 표본 DB에서 `edges("a")` = `n 4, citing [1,2], cited [0,0]`(3→1, 2→1; 1→x-outside는 빠짐), 자기 인용 행은 빠짐, `edges("nope")` 404. Tauri 테스트: `edges({run:"a"})`의 `n`. Vitest: `citationIndex`(CSR 구성, 방향, 범위 검사)·`dotScale`(0·2.5·5·8). E2E: 제목이 켜진 배율에서 이웃이 있는 점에 마우스를 올리면 `data-hover-links > 0`, 떼면 0.
 
 ## 설계
 
@@ -49,6 +49,10 @@ date: 2026-09-18
 - E2E의 API는 8000의 기존 바이너리를 재사용한다(`reuseExistingServer`). 새 경로가 없으므로 이 워크트리의 서버를 8010에 띄우고 `CONSTELLATION_API=http://127.0.0.1:8010`으로 Vite 프록시를 돌린다. DB 경로는 절대 경로(`data/`는 워크트리에 없다). DuckDB는 읽기 전용 다중 접속이 된다.
 - 다른 워크트리(desktop-app)가 지워져 cargo 캐시가 없다. duckdb 번들 컴파일이 오래 걸린다.
 - 호버 중 카메라를 움직이면 deck이 `onHover(null)`을 내지 않을 수 있다 — `hover` 상태는 지금도 그렇게 둔다.
+- 8000의 공용 API는 지워진 워크트리(desktop-app)의 바이너리가 그 폴더를 cwd로 잡고 돌던 것이라, 폴더가 사라진 뒤 모든 질의가 "Could not get working directory" 503을 냈다. 죽이고 `.claude/launch.json`의 `constellation-api`(`cargo run -p constellation-serve`, 메인 체크아웃)로 다시 띄웠다.
+- 실측(프로덕션, 1440×950 DPR 2, 빽빽한 3200% 화면, main과 번갈아 3회): 휠 한 단계 RunTask main 9.9~12.1ms · 이 브랜치 10.2~12.4ms — 회차 간 잡음(±1ms) 안. 호버 중(이웃 35편) 휠 7.9~8.2ms·이동 1.9~2.1ms. 처음엔 빈 호버 레이어 둘을 늘 두었는데, 올린 것이 없으면 레이어를 아예 빼도록 바꿨다.
+- 브라우저 패널의 합성 `PointerEvent`로는 deck 호버가 안 잡힌다. 패널의 실제 `hover` 동작(좌표는 CSS × 800/1024)이나 Playwright `mouse.move`를 쓴다.
+- prettier가 프로젝트 의존성이 아니라 `npx`로 받아 쓴다. 파일 전체에 돌리면 손대지 않은 긴 줄(api.ts의 `fetchClusters`, E2E의 에이전트 채팅 검사)까지 접으므로 내가 바꾼 줄만 남기고 되돌렸다.
 - `ScatterplotLayer` `radiusMaxPixels`는 픽셀 상한이라 피인용 색의 큰 점은 264%(4.5×1.56 = 7)부터 7px에 걸린다. 제목과 겹치지 않는 값이 우선이다.
 
 ## 완료 기준

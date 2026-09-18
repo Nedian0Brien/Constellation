@@ -125,6 +125,7 @@ interface Bridge {
   titles(): { id: string; x: number; y: number; dy: number; opacity: number }[];
   project(x: number, y: number): [number, number] | null;
   pick(x: number, y: number): string | null;
+  degree(id: string): number;
 }
 type Bridged = HTMLElement & { __map?: Bridge };
 test("semantic zoom, reversibility, and list does not replace the map", async ({
@@ -212,6 +213,35 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
       return [Math.round(x) !== Math.round(wheeled), await pick(x, y)];
     })
     .toEqual([true, pin!.id]);
+  // 점에 마우스를 올리면 run 안의 인용 관계가 선으로 나타나고, 떼면 사라진다. 이웃이
+  // 있는 제목 하나를 골라 그 점 위에 마우스를 둔다(인용 자료는 지도 뒤에 따로 온다).
+  const linkedPin = () =>
+    map.evaluate(
+      (el, size) => {
+        const b = (el as Bridged).__map!;
+        for (const t of b.titles()) {
+          const [x, y] = b.project(t.x, t.y)!;
+          const degree = b.degree(t.id);
+          if (
+            degree > 0 &&
+            x > 40 &&
+            x < size[0] - 40 &&
+            y > 40 &&
+            y < size[1] - 40
+          )
+            return { id: t.id, x, y, degree };
+        }
+        return null;
+      },
+      [box.width, box.height],
+    );
+  await expect.poll(linkedPin).not.toBeNull();
+  const linked = (await linkedPin())!;
+  await page.mouse.move(box.x + linked.x, box.y + linked.y);
+  await expect(map).toHaveAttribute("data-hover-id", linked.id);
+  await expect(map).toHaveAttribute("data-hover-links", String(linked.degree));
+  await page.mouse.move(box.x + box.width - 8, box.y + box.height / 2);
+  await expect(map).toHaveAttribute("data-hover-links", "0");
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();

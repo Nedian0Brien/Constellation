@@ -1,8 +1,10 @@
 import { useReducedMotion } from "../hooks/use-reduced-motion";
 import { useTween } from "../hooks/use-tween";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import DeckGL, { type DeckGLRef } from "@deck.gl/react";
 import {
+  LineLayer,
   ScatterplotLayer,
   TextLayer,
   type TextLayerProps,
@@ -13,6 +15,7 @@ import { Minus, Plus, RotateCcw } from "lucide-react";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { useStore, type Camera } from "../store";
+import { fetchEdges } from "../api";
 // 제목 타일의 zoomStep(아래)과 이름이 겹쳐 에이전트 쪽은 별칭으로 들여온다.
 import { levelOffset, zoomStep as agentZoomStep } from "../agent/resolve";
 import { Button } from "../components/ui/button";
@@ -31,13 +34,34 @@ import {
   descendants,
 } from "./map/labels";
 import { clusterColor, regionBlobs, type RegionBlob } from "./map/regions";
+import {
+  citationIndex,
+  degreeOf,
+  dotScale,
+  linksOf,
+  type Link,
+} from "./map/edges";
 import { SnapTextExtension } from "./map/text-snap";
 import { RegionGradientExtension } from "./map/region-gradient";
 const view = new OrthographicView({ id: "research-map" });
 const snapText = new SnapTextExtension(),
   regionGradient = new RegionGradientExtension();
-// 라벨이 켜지고 꺼지는 시간. `.region-name`의 transition과 같다.
+// 라벨이 켜지고 꺼지는 시간. `.region-name`의 transition과 같다. 호버 연결선과
+// 옅어짐도 같은 시간에 맞춘다.
 const LABEL_FADE_MS = 240;
+// 점 반지름의 픽셀 상한. 제목이 점 중심 아래 9px에서 시작하므로 그 안에 둔다. 선택한
+// 논문의 고리는 점보다 5px 밖, 기준 배율에서는 지금처럼 10px.
+const DOT_RADIUS_MAX = 7,
+  HALO_GAP = 5,
+  HALO_MIN = 10;
+// 마우스를 올린 논문의 인용 관계. 참조(올린 논문 → 이웃)는 파랑, 피인용(이웃 → 올린
+// 논문)은 빨강 — dataviz 기준 팔레트의 다크 모드 발산 쌍(#3987e5·#e66767)으로, 지도
+// 바탕 #0e1319 위에서 검증기를 통과한다(CVD ΔE 19.2, 정상 시각 29.0, 대비 3:1 이상).
+// 굵기 2px는 같은 규격의 선 표식. 나머지 점은 절반으로 옅어진다(shadcn `opacity-50`).
+const LINK_OUT: [number, number, number] = [57, 135, 229],
+  LINK_IN: [number, number, number] = [230, 103, 103],
+  LINK_WIDTH = 2,
+  HOVER_DIM = 0.5;
 // 논문 제목 상자. 본문 글꼴 11px, 220px 최대 폭(안쪽 여백 2px 4px를 뺀 212px에
 // 글자), 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의 줄
 // 간격이기도 하다. 글자는 점 아래 9px(위 여백 7 + 안쪽 2)에서 시작한다.
@@ -172,6 +196,8 @@ export interface MapBridge {
   project(x: number, y: number): [number, number] | null;
   /** 화면 픽셀 자리에 그려진 논문 id. */
   pick(x: number, y: number): string | null;
+  /** 이 run 안에서 그 논문과 인용으로 이어진 논문 수. 자료가 아직 없으면 -1. */
+  degree(id: string): number;
 }
 const EMPTY_TITLES: Title[] = [];
 // 영역 이름 하나. 켜진 동안만 자리를 옮기고, 꺼지면 마지막 자리에 그대로 두어 240ms
@@ -226,6 +252,33 @@ export default function MapView() {
     frame = useRef(0);
   const reduced = useReducedMotion();
   const [hover, setHover] = useState<PickingInfo<{ i: number }> | null>(null);
+  // run 안의 인용 관계 전부를 한 번 받아 인접 표로 둔다. 호버는 로컬에서 바로 그린다.
+  const edges = useQuery({
+    queryKey: ["edges", map.run_id],
+    queryFn: ({ signal }) => fetchEdges(map.run_id, signal),
+  });
+  const index = useMemo(() => {
+    const e = edges.data;
+    if (!e) return null;
+    const built =
+      e.n === map.n ? citationIndex(map.n, e.citing, e.cited) : null;
+    if (!built)
+      console.error(
+        "인용 관계 자료가 지도와 어긋난다 — 연결선을 그리지 않는다.",
+        {
+          edges: e.n,
+          map: map.n,
+        },
+      );
+    return built;
+  }, [edges.data, map.n]);
+  // 호버 강조의 진행도. 올리면 0 → 1, 떼면 1 → 0. 떼고 옅어지는 동안은 마지막으로
+  // 올렸던 논문의 선·강조 점을 그대로 둔다(이전 렌더의 값을 state에 남기는 방식).
+  const hoverT = useTween(hover ? 1 : 0, LABEL_FADE_MS, reduced);
+  const hoverIndex = hover?.object?.i ?? -1;
+  const [lastHover, setLastHover] = useState(hoverIndex);
+  if (hoverIndex >= 0 && hoverIndex !== lastHover) setLastHover(hoverIndex);
+  const heldIndex = hoverIndex >= 0 ? hoverIndex : hoverT > 0 ? lastHover : -1;
   const deckRef = useRef<DeckGLRef<typeof view>>(null);
   useEffect(() => {
     if (reduced) cancelAnimationFrame(frame.current);
@@ -386,6 +439,31 @@ export default function MapView() {
   );
   const relativeZoom = camera.zoom - home.zoom;
   const level = labelLevel(relativeZoom);
+  // 점 반지름. 점마다의 기본값(피인용 색이면 피인용수에 따라 1.5~4.5px)에 배율 배수를
+  // 레이어 uniform으로 곱한다 — 확대해도 점별 속성은 다시 채우지 않는다.
+  const scale = dotScale(relativeZoom);
+  const baseRadius = (p: { i: number }) =>
+    state.color === "cited"
+      ? 1.5 + (3 * Math.log1p(map.cited[p.i])) / maxLog
+      : 1.5;
+  const radiusPx = (p: { i: number }) =>
+    Math.min(DOT_RADIUS_MAX, scale * baseRadius(p));
+  const haloRadius =
+    selectedIndex >= 0
+      ? Math.max(HALO_MIN, radiusPx(points[selectedIndex]) + HALO_GAP)
+      : HALO_MIN;
+  // 마우스를 올린(또는 방금 뗀) 논문의 인용 이웃과 그 점들. 이웃이 없으면 올린 점만.
+  const links = useMemo<Link[]>(
+    () => (index && heldIndex >= 0 ? linksOf(index, heldIndex) : []),
+    [index, heldIndex],
+  );
+  const hoverNodes = useMemo(
+    () =>
+      heldIndex >= 0
+        ? [points[heldIndex], ...links.map((l) => points[l.j])]
+        : [],
+    [points, heldIndex, links],
+  );
   // 에이전트의 시스템 프롬프트가 읽는 확대 단계.
   const setMapLevel = useStore((s) => s.setMapLevel);
   useEffect(() => setMapLevel(level), [level, setMapLevel]);
@@ -633,6 +711,10 @@ export default function MapView() {
           deckRef.current?.pickObject({ x, y, radius: 6 })?.object as
             { id?: string } | undefined
         )?.id ?? null,
+      degree: (id) => {
+        const i = map.id.indexOf(id);
+        return !index ? -1 : i < 0 ? 0 : degreeOf(index, i);
+      },
     };
   });
   const layers = [
@@ -655,12 +737,13 @@ export default function MapView() {
       data: points,
       getPosition: (p) => p.position,
       getFillColor: (p) => colors[p.i],
-      getRadius: (p) =>
-        state.color === "cited"
-          ? 1.5 + (3 * Math.log1p(map.cited[p.i])) / maxLog
-          : 1.5,
+      getRadius: baseRadius,
       radiusUnits: "pixels",
+      radiusScale: scale,
       radiusMinPixels: 1.3,
+      radiusMaxPixels: DOT_RADIUS_MAX,
+      // 마우스를 올린 동안 올린 점과 이웃 말고는 절반으로 옅어진다.
+      opacity: 1 - HOVER_DIM * hoverT,
       pickable: true,
       autoHighlight: true,
       highlightColor: [255, 255, 255, 255],
@@ -670,11 +753,46 @@ export default function MapView() {
         if (info.object) update({ selected: info.object.id });
       },
     }),
+    // 올린 논문의 인용 관계. 참조는 파랑, 피인용은 빨강. 올린 점은 흰색, 이웃은 제 색
+    // 그대로 위에 다시 그린다. 픽킹은 기본 점·제목 레이어가 맡는다. 올린 것이 없으면
+    // 레이어 자체를 두지 않는다(deck은 falsy 항목을 거른다).
+    heldIndex >= 0 &&
+      new LineLayer<Link>({
+        id: "hover-links",
+        data: links,
+        getSourcePosition: () => points[heldIndex].position,
+        getTargetPosition: (l) => points[l.j].position,
+        getColor: (l) => (l.incoming ? LINK_IN : LINK_OUT),
+        getWidth: LINK_WIDTH,
+        widthUnits: "pixels",
+        opacity: hoverT,
+        pickable: false,
+        updateTriggers: { getSourcePosition: [heldIndex] },
+      }),
+    heldIndex >= 0 &&
+      new ScatterplotLayer({
+        id: "hover-nodes",
+        data: hoverNodes,
+        getPosition: (p) => p.position,
+        getFillColor: (p) =>
+          p.i === heldIndex ? [255, 255, 255, 255] : colors[p.i],
+        getRadius: baseRadius,
+        radiusUnits: "pixels",
+        radiusScale: scale,
+        radiusMinPixels: 1.3,
+        radiusMaxPixels: DOT_RADIUS_MAX,
+        opacity: hoverT,
+        pickable: false,
+        updateTriggers: {
+          getFillColor: [colors, heldIndex],
+          getRadius: [state.color],
+        },
+      }),
     new ScatterplotLayer({
       id: "selected-halo",
       data: selectedIndex >= 0 ? [points[selectedIndex]] : [],
       getPosition: (p) => p.position,
-      getRadius: 10,
+      getRadius: haloRadius,
       radiusUnits: "pixels",
       filled: false,
       stroked: true,
@@ -740,6 +858,8 @@ export default function MapView() {
       data-paper-labels={paperLabelsOn}
       data-paper-opacity={paperOpacity.toFixed(2)}
       data-title-count={titles.length}
+      data-hover-id={heldIndex >= 0 ? points[heldIndex].id : undefined}
+      data-hover-links={links.length}
       data-reveal-floor={settledHome.toFixed(4)}
       data-camera={`${camera.zoom.toFixed(4)}:${camera.target.slice(0, 2).join(",")}`}
       tabIndex={0}
