@@ -864,6 +864,9 @@ export default function MapView() {
       data-camera={`${camera.zoom.toFixed(4)}:${camera.target.slice(0, 2).join(",")}`}
       tabIndex={0}
       aria-label="연구 지도. 방향키 이동, 더하기와 빼기로 확대 축소"
+      // deck은 캔버스 안에서 빈 곳으로 옮겨야 호버를 거둔다. 지도 밖(사이드바·도구 막대)으로
+      // 바로 나가면 툴팁과 인용 선이 남으므로 여기서 거둔다.
+      onPointerLeave={() => setHover(null)}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (["+", "=", "-"].includes(e.key)) {

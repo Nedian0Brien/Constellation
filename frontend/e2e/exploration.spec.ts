@@ -240,7 +240,9 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
   await page.mouse.move(box.x + linked.x, box.y + linked.y);
   await expect(map).toHaveAttribute("data-hover-id", linked.id);
   await expect(map).toHaveAttribute("data-hover-links", String(linked.degree));
-  await page.mouse.move(box.x + box.width - 8, box.y + box.height / 2);
+  // 캔버스 밖(위 도구 막대)으로 나가야 deck이 호버를 확실히 거둔다. 오른쪽 가장자리
+  // 안쪽은 거기에도 점이 있을 수 있다.
+  await page.mouse.move(box.x + box.width / 2, box.y - 20);
   await expect(map).toHaveAttribute("data-hover-links", "0");
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
