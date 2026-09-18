@@ -60,3 +60,45 @@ export function dotScale(relativeZoom: number): number {
   const t = Math.min(1, Math.max(0, relativeZoom / DOT_SCALE_ZOOM));
   return 1 + (DOT_SCALE_MAX - 1) * t;
 }
+// 선택 노드의 로컬 그래프: 2홉 이웃까지의 노드와 그 안의 인용선. `seed`가 참인 선은
+// 선택 노드에 닿는 것(방향 색), 나머지는 옅은 한 색으로 그린다. 선은 인용 방향
+// a → b(a가 b를 인용)로 한 번씩만 든다.
+export interface GraphLink {
+  a: number;
+  b: number;
+  seed: boolean;
+}
+export interface LocalGraph {
+  nodes: number[];
+  links: GraphLink[];
+}
+export function localGraph(
+  index: CitationIndex,
+  i: number,
+  hops = 2,
+): LocalGraph {
+  const depth = new Map<number, number>([[i, 0]]);
+  let frontier = [i];
+  for (let d = 1; d <= hops; d++) {
+    const next: number[] = [];
+    for (const u of frontier)
+      for (let k = index.offsets[u]; k < index.offsets[u + 1]; k++) {
+        const v = index.neighbors[k];
+        if (!depth.has(v)) {
+          depth.set(v, d);
+          next.push(v);
+        }
+      }
+    frontier = next;
+  }
+  const nodes = [...depth.keys()];
+  const links: GraphLink[] = [];
+  for (const u of nodes)
+    for (let k = index.offsets[u]; k < index.offsets[u + 1]; k++) {
+      const v = index.neighbors[k];
+      // u가 v를 인용하는 방향만 든다 — 반대 방향은 v 쪽에서 든다.
+      if (index.incoming[k] === 1 || !depth.has(v)) continue;
+      links.push({ a: u, b: v, seed: u === i || v === i });
+    }
+  return { nodes, links };
+}

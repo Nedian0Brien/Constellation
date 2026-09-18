@@ -1,15 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
+  PAPER_LABEL_ZOOM,
+  clampRegionLabel,
   descendants,
+  fitCamera,
   labelLevel,
   labelOpacity,
   paperLabelOpacity,
   paperTitleOpacity,
-  clampRegionLabel,
   regionRadii,
   revealZooms,
   truncateTitle,
-  PAPER_LABEL_ZOOM,
   type LabelBox,
 } from "./labels";
 import type { TreeData, MapData, ClusterInfo } from "../../api";
@@ -231,5 +232,20 @@ describe("per-paper reveal zoom", () => {
     expect(labelOpacity(9, 6, 4.5)).toBe(1);
     expect(labelOpacity(3, -Infinity, -Infinity)).toBe(1);
     expect(labelOpacity(9, -Infinity, Infinity)).toBe(0);
+  });
+});
+
+describe("fitCamera", () => {
+  it("fits the bounding box with padding and clamps the zoom", () => {
+    // 폭 10·높이 5의 상자를 1000×600 화면에 80px 여백으로: 가로 840/10 = 84배,
+    // 세로 440/5 = 88배 → 작은 쪽 84배 = zoom log2(84).
+    const cam = fitCamera([0, 10], [0, 5], 1000, 600, 80, 0, 20);
+    expect(cam.target).toEqual([5, 2.5, 0]);
+    expect(cam.zoom).toBeCloseTo(Math.log2(84), 6);
+    expect(fitCamera([0, 10], [0, 5], 1000, 600, 80, 0, 5).zoom).toBe(5);
+    expect(fitCamera([3], [3], 1000, 600, 80, 0, 5)).toEqual({
+      target: [3, 3, 0],
+      zoom: 5,
+    });
   });
 });

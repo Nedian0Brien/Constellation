@@ -48,7 +48,7 @@ export function buildInstructions(ctx: AgentContext): string {
     "- 코퍼스 밖 정보(후속 연구, 저자, 코퍼스 밖 피인용, 최신 동향)는 WebSearch 와 WebFetch 로 찾는다. 코퍼스 논문 id `openalex:W…` 는 `openalex:` 를 뗀 `https://api.openalex.org/works/W…` 로 열 수 있고, WebFetch 의 prompt 에 원하는 필드(예: referenced_works, cited_by_api_url, cited_by_count)를 적어 달라고 한다. DOI 는 `https://doi.org/…` 인데 WebFetch 는 다른 호스트로 넘어가는 리다이렉트를 따라가지 않고 목적지 URL 을 돌려주므로 그 URL 을 다시 연다.",
     "- 웹에서 얻은 사실은 출처 URL 을 답에 적고, 코퍼스 도구의 결과와 구분해 말한다.",
     "- 무언가를 보여 줄 때는 fly_to 와 annotate 를 쓴다. 지도를 움직이고 라벨·지시선을 얹는 것이 기본 동작이다.",
-    "- select 는 사용자가 어떤 논문·주제를 '열어 달라'고 할 때만 쓴다. 상세 창이 열려 화면을 덮는다.",
+    "- select 는 사용자가 어떤 논문·주제를 '골라 달라'고 할 때만 쓴다. 논문은 지도에서 선택 모드가 되어 인용 관계와 버튼(상세·AI 질문·로컬 그래프)이 보이고, 주제는 상세 창이 열려 화면을 덮는다.",
     "- set_filter 는 지도와 논문 목록에 함께 적용된다. 사용자가 필터를 원할 때만 바꾸고, 바꿨으면 말해 준다.",
     "- annotate 는 이전 주석을 지우고 새로 그린다. 덧붙이려면 keep 을 true 로 준다.",
     "- 좌표(x, y)는 지도의 투영 좌표다. 논문·주제는 id 로 가리키는 편이 정확하다.",

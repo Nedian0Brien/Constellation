@@ -132,7 +132,7 @@ export const toolDefinitions = {
   },
   select: {
     description:
-      "논문 또는 주제를 선택해 상세 창을 연다. 사용자가 열어 달라고 할 때만 쓴다. 인자가 없으면 선택을 지우고 창을 닫는다.",
+      "논문 또는 주제를 선택한다. 논문은 지도에서 선택 모드가 되어(인용 관계 선·이웃·제목, 상세·AI 질문·로컬 그래프 버튼) 지도로 이동하고, 주제는 상세 창을 연다. 사용자가 골라 달라고 할 때만 쓴다. 인자가 없으면 선택을 지운다.",
     parameters: {
       type: "object",
       properties: {
@@ -493,7 +493,7 @@ export function createToolExecutors(
         const map = await deps.map();
         const p = paperPosition(map, paper);
         if (!p) return { error: `논문 ${paper} 을 찾지 못했습니다.` };
-        deps.update({ selected: paper, cluster: undefined, node: undefined });
+        deps.update({ selected: paper, cluster: undefined, node: undefined, view: "map" });
         return { opened: "paper", id: paper, title: p.title };
       }
       if (cluster !== undefined) {

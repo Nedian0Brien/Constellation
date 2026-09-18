@@ -90,7 +90,9 @@ export function PaperListOverlay() {
             variant="link"
             data-testid="paper-title"
             className="h-auto whitespace-normal px-0 text-left"
-            onClick={() => update({ selected: c.row.original.id, list: false })}
+            onClick={() =>
+              update({ selected: c.row.original.id, list: false, view: "map" })
+            }
           >
             {c.getValue()}
           </Button>

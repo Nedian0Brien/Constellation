@@ -11,6 +11,8 @@ export interface Exploration {
   cluster?: number;
   node?: number;
   list: boolean;
+  /** 선택 논문의 로컬 그래프(2홉 이웃)를 지도 위에 보인다. */
+  local: boolean;
   sort: "title" | "year" | "cited";
   order: "asc" | "desc";
   page: number;
@@ -41,6 +43,7 @@ export function parseSearch(s: Record<string, unknown>): Exploration {
     cluster: number(s.cluster, 0, 1000000),
     node: number(s.node, 0, 1000000),
     list: s.list === true || s.list === "true",
+    local: s.local === true || s.local === "true",
     sort: ["title", "year", "cited"].includes(String(s.sort))
       ? (s.sort as Exploration["sort"])
       : "cited",
@@ -70,5 +73,13 @@ export function changeSearch(
   }
   if (["q", "from", "to", "sort", "order"].some((k) => k in patch))
     next.page = 1;
+  // 로컬 그래프는 선택 논문에 매인다. 선택이 바뀌거나 없어지면 꺼진다.
+  if (
+    "selected" in patch &&
+    patch.selected !== previous.selected &&
+    !("local" in patch)
+  )
+    next.local = false;
+  if (next.selected === undefined) next.local = false;
   return parseSearch(next);
 }

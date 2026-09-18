@@ -71,20 +71,20 @@ CONSTELLATION_API=http://127.0.0.1:8010 npm run test:e2e   # 10/10
 
 ### 요구사항
 
-- [ ] 호버 강조는 같은 점(또는 제목) 위에 1000ms 머문 뒤 켜진다(`HOVER_DELAY_MS`, 사용자 지정값). 그 전에 떠나거나 다른 점으로 옮기면 켜지지 않는다. 켜진 뒤 다른 점으로 옮기면 즉시 꺼지고(240ms 페이드) 새 점은 다시 1000ms 뒤에 켜진다.
-- [ ] 점 위 툴팁이 없다. 강조가 켜지면 활성 노드(강조 노드 + 인용 이웃, 로컬 그래프면 2홉까지)의 제목이 `TextLayer`(같은 글꼴·크기·점 아래 9px)로 나타난다. 강조 노드의 제목은 항상, 나머지는 피인용수 내림차순으로 화면 상자(폭 `widths[i]`, 높이 24px)가 이미 놓인 상자 — 앞서 놓인 활성 라벨과 현재 켜진 지도 제목(활성 노드 것 제외) — 와 겹치지 않을 때만 놓는다. 카메라 칸(240px·반 단계)이 바뀌면 다시 놓는다. 활성 노드의 지도 제목은 알파 0으로 감춰 이중으로 그리지 않는다.
-- [ ] 점·제목 클릭은 `update({selected: id, local: undefined})`만 한다 — 상세 Dialog가 열리지 않는다. 선택된 노드는 마우스와 무관하게 강조(연결선·이웃·활성 라벨)를 유지한다. 호버가 켜지면 그 노드의 강조로 바뀌고, 꺼지면 선택 노드로 돌아온다.
-- [ ] 선택 인디케이터: 기존 `selected-halo`(점 반지름 + 5px, 1px 선). 버튼 셋: 노드 중심에서 36px 떨어진 원 위 −90°·30°·150°에 지름 32px 원형 아이콘 버튼(shadcn `Button size="icon"` = 32px, `variant="secondary"`, `rounded-full`). 접근성 이름 "노드 상세정보"·"AI에게 질문하기"·"로컬 그래프 보기", 같은 글의 shadcn Tooltip. 아이콘 lucide `Info`·`MessageSquareText`·`Waypoints`. 노드가 화면 밖이면 버튼도 없다.
-- [ ] 선택 해제: 컨테이너에서 Escape, deck `onClick`에 객체가 없을 때(빈 곳 클릭), 다른 점 클릭(교체). 해제하면 `local`도 지운다.
-- [ ] 선택 시 노드가 지도 가장자리 90px 안쪽이면 중앙으로 옮긴다(기존 70px → 90px).
-- [ ] 논문 목록·에이전트 `select`·3D 별자리에서 논문을 고르면 `view: "map"`으로 함께 바꾼다. 인용 계보 화면의 노드 클릭은 그대로(씨앗 교체)이고 Dialog는 열리지 않는다.
-- [ ] 상세 Dialog는 `useStore.detailOpen`(세션, 기본 false)이 true이고 `selected`가 지도에 있을 때 연다. "노드 상세정보"가 true로, 닫기(✕·Escape·바깥)는 false로만 바꾸고 `selected`는 그대로다. 주제·분야 Dialog는 지금 그대로.
-- [ ] 지도에 없는 `selected`(딥링크 `selected=missing`)는 Dialog 대신 `.invalid-region` 안내("선택한 논문을 찾을 수 없습니다" + 선택 해제)를 보인다.
-- [ ] "AI에게 질문하기": `useStore.requestChat()`(카운터). AppShell이 이를 보고 `save({chatOpen: true})`, AgentSidebar가 입력창(`textarea`)에 포커스를 둔다.
-- [ ] "로컬 그래프 보기"(`aria-pressed`): URL `local=1` 토글. 켜지면 활성 집합 = 선택 노드 + 1홉 + 2홉, 선 = 선택 노드에 닿는 선(지금 색) + 활성 집합 안의 나머지 run 안 인용선(`--ink-soft` #93a3b4, 1px, 알파 110/255). 카메라는 활성 집합의 좌표 범위가 80px 여백을 두고 들어오도록 옮긴다(`fitCamera`, `home.zoom − 2 ~ home.zoom + ZOOM_RANGE`). `selected`가 바뀌면 `local`을 지운다.
-- [ ] 에이전트 `select` 도구 설명과 시스템 프롬프트의 select 규칙이 "지도에서 선택 모드"로 바뀐다.
-- [ ] 컨테이너 속성 `data-hover-id`(강조 노드 = 켜진 호버 또는 선택), `data-hover-links`, `data-active-labels`(놓인 활성 라벨 수), `data-local`. E2E: 점에 마우스를 올리고 300ms 안에는 `data-hover-id`가 없고 1초 뒤엔 있다; 클릭하면 Dialog가 없고 버튼 셋이 보인다; "노드 상세정보"로 Dialog가 열리고 닫으면 `selected`가 남는다; "로컬 그래프 보기"로 `local=1`과 `data-hover-links` 증가; 목록에서 고르면 지도 선택 모드; `selected=missing`은 `.invalid-region`.
-- [ ] Vitest: `localGraph(index, i)`(2홉 집합·선 분류), `placeLabels`(항상 첫 라벨, 겹침 배제, 순서), `fitCamera`.
+- [x] 호버 강조는 같은 점(또는 제목) 위에 1000ms 머문 뒤 켜진다(`HOVER_DELAY_MS`, 사용자 지정값). 그 전에 떠나거나 다른 점으로 옮기면 켜지지 않는다. 켜진 뒤 다른 점으로 옮기면 즉시 꺼지고(240ms 페이드) 새 점은 다시 1000ms 뒤에 켜진다.
+- [x] 점 위 툴팁이 없다. 강조가 켜지면 활성 노드(강조 노드 + 인용 이웃, 로컬 그래프면 2홉까지)의 제목이 `TextLayer`(같은 글꼴·크기·점 아래 9px)로 나타난다. 강조 노드의 제목은 항상, 나머지는 피인용수 내림차순으로 화면 상자(폭 `widths[i]`, 높이 24px)가 이미 놓인 상자 — 앞서 놓인 활성 라벨과 이 칸의 지도 제목 배열(활성 노드 것 제외; 켜졌는지는 보지 않는다 — 배율마다 다시 재지 않으려고) — 와 겹치지 않을 때만 놓는다. 지도 제목이 있는 노드는 그 자리(쌓인 줄)를 그대로 쓴다. 카메라 칸(240px·반 단계)이 바뀌면 다시 놓는다. 활성 노드의 지도 제목은 알파 0으로 감춰 이중으로 그리지 않는다.
+- [x] 점·제목 클릭은 `update({selected: id, local: undefined})`만 한다 — 상세 Dialog가 열리지 않는다. 선택된 노드는 마우스와 무관하게 강조(연결선·이웃·활성 라벨)를 유지한다. 호버가 켜지면 그 노드의 강조로 바뀌고, 꺼지면 선택 노드로 돌아온다.
+- [x] 선택 인디케이터: 기존 `selected-halo`(점 반지름 + 5px, 1px 선). 버튼 셋: 노드 중심에서 36px 떨어진 원의 위쪽 호 −150°·−90°·−30°(아래는 노드의 제목이 차지한다 — 처음 −90°·30°·150°로 두니 아래 두 버튼이 제목을 가렸다)에 지름 32px 원형 아이콘 버튼(shadcn `Button size="icon"` = 32px, `variant="secondary"`, `rounded-full`). 접근성 이름 "노드 상세정보"·"AI에게 질문하기"·"로컬 그래프 보기", 같은 글의 shadcn Tooltip. 아이콘 lucide `Info`·`MessageSquareText`·`Waypoints`. 노드가 화면 밖이면 버튼도 없다.
+- [x] 선택 해제: 컨테이너에서 Escape, deck `onClick`에 객체가 없을 때(빈 곳 클릭), 다른 점 클릭(교체). 해제하면 `local`도 지운다.
+- [x] 선택 시 노드가 지도 가장자리 90px 안쪽이면 중앙으로 옮긴다(기존 70px → 90px).
+- [x] 논문 목록·에이전트 `select`·3D 별자리에서 논문을 고르면 `view: "map"`으로 함께 바꾼다. 인용 계보 화면의 노드 클릭은 그대로(씨앗 교체)이고 Dialog는 열리지 않는다.
+- [x] 상세 Dialog는 `useStore.detailOpen`(세션, 기본 false)이 true이고 `selected`가 지도에 있을 때 연다. "노드 상세정보"가 true로, 닫기(✕·Escape·바깥)는 false로만 바꾸고 `selected`는 그대로다. 주제·분야 Dialog는 지금 그대로.
+- [x] 지도에 없는 `selected`(딥링크 `selected=missing`)는 Dialog 대신 `.invalid-region` 안내("선택한 논문을 찾을 수 없습니다" + 선택 해제)를 보인다.
+- [x] "AI에게 질문하기": `useStore.requestChat()`(카운터). AppShell이 이를 보고 `save({chatOpen: true})`, AgentSidebar가 입력창(`textarea`)에 포커스를 둔다.
+- [x] "로컬 그래프 보기"(`aria-pressed`): URL `local=1` 토글. 켜지면 활성 집합 = 선택 노드 + 1홉 + 2홉, 선 = 선택 노드에 닿는 선(지금 색) + 활성 집합 안의 나머지 run 안 인용선(`--ink-soft` #93a3b4, 1px, 알파 110/255). 카메라는 활성 집합의 좌표 범위가 80px 여백을 두고 들어오도록 옮긴다(`fitCamera`, `home.zoom − 2 ~ home.zoom + ZOOM_RANGE`). 끄면 켜기 전 카메라로 돌아간다(선택이 바뀌어 꺼진 경우는 그대로). `selected`가 바뀌면 `local`을 지운다.
+- [x] 에이전트 `select` 도구 설명과 시스템 프롬프트의 select 규칙이 "지도에서 선택 모드"로 바뀐다.
+- [x] 컨테이너 속성 `data-hover-id`(강조 노드 = 켜진 호버 또는 선택), `data-hover-links`, `data-active-labels`(놓인 활성 라벨 수), `data-local`. E2E: 점에 마우스를 올리고 300ms 안에는 `data-hover-id`가 없고 1초 뒤엔 있다; 클릭하면 Dialog가 없고 버튼 셋이 보인다; "노드 상세정보"로 Dialog가 열리고 닫으면 `selected`가 남는다; "로컬 그래프 보기"로 `local=1`과 `data-hover-links` 증가; 목록에서 고르면 지도 선택 모드; `selected=missing`은 `.invalid-region`.
+- [x] Vitest: `localGraph(index, i)`(2홉 집합·선 분류), `placeLabels`(항상 첫 라벨, 겹침 배제, 순서), `fitCamera`.
 
 ### 설계
 
@@ -110,3 +110,6 @@ CONSTELLATION_API=http://127.0.0.1:8010 npm run test:e2e   # 10/10
 - deck `onClick`은 드래그 뒤에는 오지 않는다(mjolnir가 구분). 빈 곳 클릭 해제는 그 위에서만 동작한다.
 - `usePersistentLayout`은 AppShell의 지역 상태라 MapView가 직접 채팅을 열 수 없다 — 스토어 카운터로 부탁한다.
 - 상세 Dialog 안의 Escape는 Dialog가 먼저 받는다(선택은 남는다). 지도의 Escape는 컨테이너에 포커스가 있을 때만.
+- `.node-menu`는 0×0 상자라 Playwright가 hidden으로 본다. E2E는 안의 "노드 상세정보" 버튼으로 본다.
+- 실측(프로덕션, 빽빽한 3200% 화면 휠 한 단계 RunTask): 강조 없음 11.5ms(main과 같은 자릿수) · 호버 켜짐(이웃 35) 7.6ms · 로컬 그래프(선 1,586) 8.0ms, 이동 2.75ms. 활성 라벨은 배율 단계마다만 다시 놓는다.
+- 호버 지연 실측: 올린 뒤 300ms에 `data-hover-id` 없음, 1200ms에 있음. 지도 밖으로 나가도 선택은 남고 강조도 남는다. 상세 Dialog를 Escape로 닫으면 `selected`가 남는다. "AI에게 질문하기" 뒤 `document.activeElement`가 textarea.
