@@ -1,5 +1,5 @@
 import { useReducedMotion } from "../hooks/use-reduced-motion";
-import { useFront, useTween } from "../hooks/use-tween";
+import { useFront, useTween, useTyping } from "../hooks/use-tween";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DeckGL, { type DeckGLRef } from "@deck.gl/react";
@@ -945,50 +945,63 @@ export default function MapView() {
   // 놓는다). 켜지는 순간 알파 0으로 두면 이미 켜져 있던 제목이 한 번 꺼졌다 켜진다.
   const activeSet = useMemo(() => new Set(graph.nodes), [graph]);
   const activeKey = heldIndex + ":" + graph.nodes.length;
-  // 강조 노드의 제목 전문을 미리 줄바꿈해 둔다. 줄 수와 가장 긴 줄로 펼친 상자를 잡는다.
-  const expanded = useMemo(() => {
-    if (heldIndex < 0) return null;
-    const lines = wrapTitle(
-      measure,
-      map.title[heldIndex].toUpperCase(),
-      TITLE_MAX_WIDTH - TITLE_PADDING,
-    );
-    const text = lines.join("\n");
-    return {
-      i: heldIndex,
-      lines,
-      text,
-      chars: Array.from(text),
-      width: Math.max(0, ...lines.map(measure)),
-      lastWidth: lines.length ? measure(lines[lines.length - 1]) : 0,
-    };
-  }, [heldIndex, map, measure]);
-  // 타이핑 진행. 강조 노드가 바뀌면 그때의 시각을 시작점으로 잡고(이전 렌더 값을
-  // state에 남기는 방식), 다 그릴 때까지 프레임마다 다시 렌더한다. 같은 노드가 호버 →
-  // 선택으로 바뀌면 이어서 간다.
-  const [typing, setTyping] = useState({ i: -1, start: -1 });
-  if (expanded && typing.i !== expanded.i)
-    setTyping({ i: expanded.i, start: -1 });
-  const [now, setNow] = useState(0);
-  const typedCount = !expanded
-    ? 0
-    : reduced
-      ? expanded.chars.length
-      : typing.start < 0
-        ? 0
-        : Math.min(
-            expanded.chars.length,
-            Math.max(0, Math.floor((now - typing.start) / TYPE_MS)),
-          );
-  useEffect(() => {
-    if (!expanded || reduced || typedCount >= expanded.chars.length) return;
-    const raf = requestAnimationFrame((t) => {
-      if (typing.start < 0) setTyping({ i: expanded.i, start: t });
-      setNow(t);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [expanded, reduced, typedCount, now, typing]);
+  // 펼친 라벨: 강조 노드와, 선택 중에 마우스를 올린 이웃(0.5초 뒤). 제목 전문을 미리
+  // 줄바꿈해 두고 줄 수와 가장 긴 줄로 펼친 상자를 잡는다.
+  const hoverNeighbor =
+    selectedIndex >= 0 &&
+    active >= 0 &&
+    active !== selectedIndex &&
+    activeSet.has(active)
+      ? active
+      : -1;
+  const expandFor = useCallback(
+    (i: number) => {
+      if (i < 0) return null;
+      const lines = wrapTitle(
+        measure,
+        map.title[i].toUpperCase(),
+        TITLE_MAX_WIDTH - TITLE_PADDING,
+      );
+      const text = lines.join("\n");
+      return {
+        i,
+        lines,
+        text,
+        chars: Array.from(text),
+        width: Math.max(0, ...lines.map(measure)),
+        lastWidth: lines.length ? measure(lines[lines.length - 1]) : 0,
+      };
+    },
+    [map, measure],
+  );
+  const expanded = useMemo(() => expandFor(heldIndex), [expandFor, heldIndex]);
+  const expandedHover = useMemo(
+    () => expandFor(hoverNeighbor),
+    [expandFor, hoverNeighbor],
+  );
+  // 타이핑 진행. 같은 노드가 호버 → 선택으로 바뀌면 이어서 간다.
+  const typedCount = useTyping(
+    heldIndex,
+    expanded?.chars.length ?? 0,
+    TYPE_MS,
+    reduced,
+  );
+  const typedHover = useTyping(
+    hoverNeighbor,
+    expandedHover?.chars.length ?? 0,
+    TYPE_MS,
+    reduced,
+  );
   const typingDone = !!expanded && typedCount >= expanded.chars.length;
+  const typingHoverDone =
+    !!expandedHover && typedHover >= expandedHover.chars.length;
+  // 활성 라벨 하나의 펼침 상태와 타이핑 진행.
+  const expansionOf = (i: number) =>
+    expanded && i === expanded.i
+      ? { ex: expanded, typed: typedCount, done: typingDone }
+      : expandedHover && i === expandedHover.i
+        ? { ex: expandedHover, typed: typedHover, done: typingHoverDone }
+        : null;
   // 활성 라벨의 자리. 강조 노드는 항상, 나머지는 피인용수 순으로 앞서 놓인 활성
   // 라벨·지도 제목(이 칸에서 켜질 수 있는 것 전부)과 겹치지 않을 때만. 반 단계 배율의
   // 내림값으로 재므로 같은 단계 안에서 더 확대돼도 겹치지 않고, 단계가 오르면 다시
@@ -1013,49 +1026,60 @@ export default function MapView() {
           Number.isFinite(map.y[i]),
       )
       .sort((p, q) => map.cited[q] - map.cited[p]);
-    const candidates = [heldIndex, ...order].map((i) => ({
-      i,
-      dy: baseDy.get(i) ?? 0,
-    }));
+    // 마우스를 올린 이웃(펼침)은 강조 노드 바로 다음에 놓아 자리를 먼저 잡는다.
+    const hovered = expandedHover ? [expandedHover.i] : [];
+    const candidates = [
+      heldIndex,
+      ...hovered,
+      ...order.filter((i) => !hovered.includes(i)),
+    ].map((i) => ({ i, dy: baseDy.get(i) ?? 0 }));
     // 지도 제목은 장애물로 두지 않는다 — 활성 라벨이 우선이고, 겹치는 지도 제목 쪽이
     // 옅어진다(`covered`). 확대하면서 지도 제목이 새로 켜져도 활성 라벨은 그대로다.
-    // 강조 노드의 상자는 펼친 크기(전문의 가장 긴 줄 × 줄 수)로 둔다.
-    const focusBox = (dy: number): LabelBox => {
+    // 펼친 라벨의 상자는 펼친 크기(전문의 가장 긴 줄 × 줄 수)로 둔다.
+    const expandedOf = (i: number) =>
+      expanded && i === expanded.i
+        ? expanded
+        : expandedHover && i === expandedHover.i
+          ? expandedHover
+          : null;
+    const expandedBox = (i: number, dy: number): LabelBox => {
+      const ex = expandedOf(i)!;
       const half =
         TITLE_OFFSET_X +
-        (expanded?.width ?? 0) +
+        ex.width +
         VALUE_GAP +
-        measure(values[heldIndex]) +
+        measure(values[i]) +
         TITLE_PADDING / 2;
       return {
-        x: map.x[heldIndex] * s - half,
-        y: map.y[heldIndex] * s + dy - TITLE_HEIGHT / 2,
+        x: map.x[i] * s - half,
+        y: map.y[i] * s + dy - TITLE_HEIGHT / 2,
         w: 2 * half,
-        h: TITLE_HEIGHT * Math.max(1, expanded?.lines.length ?? 1),
+        h: TITLE_HEIGHT * Math.max(1, ex.lines.length),
       };
     };
     return placeLabels(
-      candidates.map((c, k) => (k === 0 ? focusBox(c.dy) : boxOf(c.i, c.dy))),
+      candidates.map((c) =>
+        expandedOf(c.i) ? expandedBox(c.i, c.dy) : boxOf(c.i, c.dy),
+      ),
       [],
     ).map((k) => {
       const { i, dy } = candidates[k];
-      const focus = k === 0 && expanded;
+      const ex = expandedOf(i);
       return {
         id: map.id[i],
         i,
-        text: focus ? expanded.text : displays[i],
+        text: ex ? ex.text : displays[i],
         value: values[i],
-        valueDx: focus
-          ? TITLE_OFFSET_X + expanded.lastWidth + VALUE_GAP
-          : valueDx[i],
+        valueDx: ex ? TITLE_OFFSET_X + ex.lastWidth + VALUE_GAP : valueDx[i],
         position: [map.x[i], map.y[i]] as [number, number],
         dy,
-        valueDy: focus ? dy + TITLE_HEIGHT * (expanded.lines.length - 1) : dy,
-        showValue: !focus,
+        valueDy: ex ? dy + TITLE_HEIGHT * (ex.lines.length - 1) : dy,
+        showValue: !ex,
       };
     });
   }, [
     expanded,
+    expandedHover,
     measure,
     heldIndex,
     graph,
@@ -1079,21 +1103,27 @@ export default function MapView() {
         y0 = map.y[i] * s + dy - TITLE_HEIGHT / 2;
       return [x0, y0, x0 + width, y0 + TITLE_HEIGHT * lines] as const;
     };
-    const active = activeTitles.map((t) =>
-      expanded && t.i === expanded.i
+    const active = activeTitles.map((t) => {
+      const ex =
+        expanded && t.i === expanded.i
+          ? expanded
+          : expandedHover && t.i === expandedHover.i
+            ? expandedHover
+            : null;
+      return ex
         ? rect(
             t.i,
             t.dy,
-            expanded.lines.length,
-            expanded.width + VALUE_GAP + measure(values[t.i]),
+            ex.lines.length,
+            ex.width + VALUE_GAP + measure(values[t.i]),
           )
         : rect(
             t.i,
             t.dy,
             1,
             widths[t.i] / 2 - TITLE_GAP_X / 2 - TITLE_OFFSET_X,
-          ),
-    );
+          );
+    });
     for (const t of titles) {
       if (activeSet.has(t.i)) continue;
       const [x0, y0, x1, y1] = rect(
@@ -1114,6 +1144,7 @@ export default function MapView() {
   }, [
     activeTitles,
     expanded,
+    expandedHover,
     zoomStep,
     map,
     measure,
@@ -1452,10 +1483,10 @@ export default function MapView() {
         // 줄 높이는 제목 줄 간격과 같다. 블록의 위를 첫 줄이 점 중심에 오도록 둔다.
         lineHeight: TITLE_HEIGHT / TITLE_FONT_SIZE,
         getPosition: (t) => t.position,
-        getText: (t) =>
-          expanded && t.i === expanded.i
-            ? expanded.chars.slice(0, typedCount).join("")
-            : t.text,
+        getText: (t) => {
+          const e = expansionOf(t.i);
+          return e ? e.ex.chars.slice(0, e.typed).join("") : t.text;
+        },
         getPixelOffset: (t) => [TITLE_OFFSET_X, t.dy - TITLE_HEIGHT / 2],
         getTextAnchor: "start",
         getAlignmentBaseline: "top",
@@ -1466,7 +1497,7 @@ export default function MapView() {
         ],
         pickable: true,
         updateTriggers: {
-          getText: [expanded, typedCount],
+          getText: [expanded, expandedHover, typedCount, typedHover],
           getColor: [heldIndex, hoverT, front, linkLength],
         },
         onHover: (info) => setHover(info.object ? info : null),
@@ -1486,7 +1517,7 @@ export default function MapView() {
         sizeUnits: "pixels",
         getSize: TITLE_FONT_SIZE,
         getPosition: (t) => t.position,
-        getText: (t) => (t.showValue || typingDone ? t.value : ""),
+        getText: (t) => (t.showValue || expansionOf(t.i)?.done ? t.value : ""),
         getPixelOffset: (t) => [t.valueDx, t.valueDy],
         getTextAnchor: "start",
         getAlignmentBaseline: "center",
@@ -1499,7 +1530,7 @@ export default function MapView() {
         pickable: false,
         updateTriggers: {
           getColor: [colors, heldIndex, hoverT, front, linkLength],
-          getText: [typingDone],
+          getText: [typingDone, typingHoverDone, expanded, expandedHover],
         },
       }),
   ];

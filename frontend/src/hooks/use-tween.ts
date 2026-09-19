@@ -64,3 +64,34 @@ export function useFront(
   }, [key, on, speed, limit, immediate]);
   return immediate ? limit : d;
 }
+// 타이핑 진행(글자 수). 열쇠가 0 이상이면 0부터 `total`까지 `msPerChar`마다 한 글자씩
+// 는다. 열쇠가 바뀌면 처음부터. 시작 시각은 첫 프레임의 rAF 시각으로 잡는다(렌더 중에
+// performance.now()를 부르지 않는다). `immediate`면 바로 전부.
+export function useTyping(
+  key: number,
+  total: number,
+  msPerChar: number,
+  immediate = false,
+): number {
+  const [typing, setTyping] = useState({ key, start: -1 });
+  if (key >= 0 && typing.key !== key) setTyping({ key, start: -1 });
+  const start = typing.key === key ? typing.start : -1;
+  const [now, setNow] = useState(0);
+  const count =
+    key < 0
+      ? 0
+      : immediate
+        ? total
+        : start < 0
+          ? 0
+          : Math.min(total, Math.max(0, Math.floor((now - start) / msPerChar)));
+  useEffect(() => {
+    if (key < 0 || immediate || count >= total) return;
+    const raf = requestAnimationFrame((t) => {
+      if (start < 0) setTyping({ key, start: t });
+      setNow(t);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [key, immediate, count, total, start, now]);
+  return count;
+}
