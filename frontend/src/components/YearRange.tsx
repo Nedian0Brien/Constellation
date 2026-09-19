@@ -3,31 +3,26 @@ import { Pause, Play } from "lucide-react";
 import { Button } from "./ui/button";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
-import { descendants } from "../views/map/labels";
 // 발행연도 범위. 스테이지 아래쪽에 가로로 꽉 차게 얹힌다(모든 뷰에 적용되는 필터라 뷰
 // 밖, 스테이지 안). 축은 비례 축이다: 해마다 폭이 그 해 논문 수의 비율(최소 2px)이라
-// 논문이 몰린 시대가 넓고 빈 시대는 몇 픽셀로 지나간다. 막대 높이는 균일하고(폭이
-// 분포다), 선택한 영역(주제·분야)의 논문 지분은 각 해 칸 안의 주황 높이로 보인다.
-// - 띠: 범위 밖은 옅게, 범위 안은 밝게.
+// 논문이 몰린 시대가 넓고 빈 시대는 몇 픽셀로 지나간다. 눈금자 모양이다 — 해마다 눈금,
+// 칸이 넓은 해는 라벨, 좁은 시대는 10년마다 라벨. 범위 안의 선은 밝다.
 // - 손잡이 끌기, 가운데 구간 끌기(폭 유지 이동), 트랙 클릭(가까운 손잡이 이동),
 //   더블클릭(전체 범위), 키보드 ←→ 1년·Shift 10년·Home/End.
 // - 손잡이 위 연도 라벨을 클릭하면 직접 입력.
 // - 재생: 창을 초당 1년씩 앞으로 민다. 범위가 전체면 처음 5년 창으로 시작한다. 끝에
 //   닿거나 손잡이를 잡으면 멈춘다. 선택 노드의 인용선도 그 시점까지만 그려진다.
 // 범위가 전체와 같으면 URL에서 from·to를 뺀다. 끄는 동안의 갱신은 프레임마다 한 번.
-const BAR_MAX = 22,
-  MIN_CELL_PX = 2,
+const MIN_CELL_PX = 2,
   LABEL_MIN_PX = 24,
-  ACCENT = "var(--warn)",
   PLAY_WINDOW = 5,
   PLAY_MS = 1000;
 export function YearRange() {
   const a = useAnalysis(),
     { state, update } = useExploration();
-  const map = a.map.data,
-    tree = a.tree.data;
+  const map = a.map.data;
   // 연도 범위와 해마다 논문 수. 연도가 없는 논문은 세지 않는다(필터도 그대로 통과시킨다).
-  const { lo, hi, counts, regionCounts } = useMemo(() => {
+  const { lo, hi, counts } = useMemo(() => {
     const years = map?.year ?? [];
     let lo = Infinity,
       hi = -Infinity;
@@ -40,21 +35,10 @@ export function YearRange() {
       lo = 1945;
       hi = 2026;
     }
-    const counts = new Array<number>(hi - lo + 1).fill(0),
-      regionCounts = new Array<number>(hi - lo + 1).fill(0);
-    const region =
-      state.node !== undefined && tree
-        ? descendants(tree, state.node)
-        : state.cluster !== undefined
-          ? new Set([state.cluster])
-          : null;
-    years.forEach((y, i) => {
-      if (y === null) return;
-      counts[y - lo]++;
-      if (region && map && region.has(map.cluster[i])) regionCounts[y - lo]++;
-    });
-    return { lo, hi, counts, regionCounts };
-  }, [map, state.node, state.cluster, tree]);
+    const counts = new Array<number>(hi - lo + 1).fill(0);
+    for (const y of years) if (y !== null) counts[y - lo]++;
+    return { lo, hi, counts };
+  }, [map]);
   const from = Math.min(Math.max(state.from ?? lo, lo), hi),
     to = Math.min(Math.max(state.to ?? hi, lo), hi);
   const track = useRef<HTMLDivElement>(null);
@@ -215,17 +199,19 @@ export function YearRange() {
     e.preventDefault();
     commit(f, t);
   };
-  // 눈금: 칸이 넓은 해(24px 이상)는 해마다 라벨, 좁은 시대는 10년마다. 앞 라벨과 겹치면
-  // 건너뛴다. 눈금 자리는 칸의 왼쪽 가장자리.
+  // 눈금: 해마다 하나(칸의 왼쪽 가장자리, 2px보다 촘촘하면 생략). 라벨은 칸이 넓은
+  // 해(24px 이상)는 해마다, 좁은 시대는 10년마다, 앞 라벨과 겹치면 건너뛴다.
   const ticks: { y: number; x: number; label: boolean }[] = [];
-  let lastLabelRight = -Infinity;
-  for (let y = lo; y <= hi; y++) {
+  let lastLabelRight = -Infinity,
+    lastTickX = -Infinity;
+  for (let y = lo; y <= hi + 1; y++) {
     const x = xOf(y),
-      wide = cellWidth(y) >= LABEL_MIN_PX,
-      candidate = wide || y % 10 === 0;
-    if (!candidate) continue;
+      wide = y <= hi && cellWidth(y) >= LABEL_MIN_PX,
+      decade = y % 10 === 0;
+    if (x - lastTickX < 3 && !decade) continue;
+    lastTickX = x;
     const half = 14;
-    const label = x - half > lastLabelRight;
+    const label = (wide || decade) && x - half > lastLabelRight;
     if (label) lastLabelRight = x + half;
     ticks.push({ y, x, label });
   }
@@ -262,33 +248,6 @@ export function YearRange() {
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
       >
-        {/* 연도 띠. 폭이 논문 수, 주황 높이가 선택 영역의 지분. 범위 밖은 옅게. */}
-        <div className="year-bars" aria-hidden="true">
-          {counts.map((n, k) => {
-            const y = lo + k,
-              inRange = y >= from && y <= to,
-              w = cellWidth(y);
-            return (
-              <div
-                key={y}
-                className="year-bar"
-                data-in={inRange || undefined}
-                data-wide={w >= 6 || undefined}
-                style={{ left: xOf(y), width: w, height: BAR_MAX }}
-              >
-                {n > 0 && regionCounts[k] > 0 && (
-                  <i
-                    style={{
-                      height: (BAR_MAX * regionCounts[k]) / n,
-                      background: ACCENT,
-                      opacity: inRange ? 1 : 0.35,
-                    }}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
         <div className="year-line" aria-hidden="true" />
         <div
           className="year-line-in"

@@ -1368,46 +1368,14 @@ input:focus-visible,
   /* 트랙 줄(눈금 14px 위)에 버튼 중심을 맞춘다. */
   margin-bottom: -2px;
 }
-.year-range[data-playing] .year-label {
-  color: var(--warn);
-}
 .year-track {
   position: relative;
+  /* 라벨 12 + 손잡이 22 + 눈금 라벨 14 */
+  height: 48px;
   flex: 1 1 auto;
-  /* 라벨 12 + 막대 22 + 트랙 2 + 눈금 14 */
-  height: 50px;
   cursor: pointer;
   touch-action: none;
   user-select: none;
-}
-.year-bars {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 16px;
-  height: var(--bar-max);
-}
-.year-bar {
-  position: absolute;
-  bottom: 0;
-  background: var(--muted-foreground);
-  opacity: 0.22;
-  box-sizing: border-box;
-}
-.year-bar[data-wide] {
-  /* 칸 경계. 좁은 칸(6px 미만)은 선을 그리면 칸이 사라져 뺀다. */
-  border-right: 1px solid var(--map-ground, #0c1118);
-}
-.year-bar[data-in] {
-  background: var(--foreground);
-  opacity: 0.45;
-}
-.year-bar i {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: block;
 }
 .year-line {
   position: absolute;
@@ -1427,7 +1395,7 @@ input:focus-visible,
 .year-window {
   position: absolute;
   bottom: 14px;
-  height: calc(var(--bar-max) + 12px);
+  height: 22px;
   cursor: grab;
 }
 .year-range[data-dragging="window"] .year-window {
@@ -1437,7 +1405,7 @@ input:focus-visible,
   position: absolute;
   bottom: 10px;
   width: 2px;
-  height: calc(var(--bar-max) + 8px);
+  height: 22px;
   background: var(--foreground);
   transform: translateX(-1px);
   cursor: ew-resize;
@@ -1471,7 +1439,8 @@ input:focus-visible,
 .year-thumb[data-kind="to"] .year-label {
   left: 3px;
 }
-.year-range[data-dragging] .year-label {
+.year-range[data-dragging] .year-label,
+.year-range[data-playing] .year-label {
   color: var(--warn);
 }
 .year-input {
@@ -1497,24 +1466,27 @@ input:focus-visible,
 }
 .year-tick {
   position: absolute;
-  top: 0;
+  bottom: 14px;
   width: 1px;
-  height: 3px;
+  height: 4px;
   background: var(--muted-foreground);
-  opacity: 0.6;
+  opacity: 0.55;
 }
 .year-tick[data-major] {
-  height: 5px;
+  height: 8px;
+  opacity: 0.9;
 }
 .year-tick span {
   position: absolute;
-  top: 5px;
+  top: 100%;
   left: 0;
   transform: translateX(-50%);
+  margin-top: 3px;
   font: 9px var(--font-mono);
   letter-spacing: 0.04em;
   color: var(--muted-foreground);
   white-space: nowrap;
+  text-shadow: 0 0 4px var(--map-ground, #0c1118);
 }
 .tooltip {
   max-width: 280px;
