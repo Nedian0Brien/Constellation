@@ -1,5 +1,5 @@
 import { useReducedMotion } from "../hooks/use-reduced-motion";
-import { useTween } from "../hooks/use-tween";
+import { useKeyedTween, useTween } from "../hooks/use-tween";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DeckGL, { type DeckGLRef } from "@deck.gl/react";
@@ -93,6 +93,10 @@ const LINK_OUT: [number, number, number] = [57, 135, 229],
 // 로컬 그래프에서 선택 노드에 닿지 않는 선(이웃끼리의 인용). `--ink-soft` #93a3b4, 1px, 옅게.
 const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
   LINK_FAR_WIDTH = 1;
+// 강조가 켜지면 연결선이 강조 노드에서 이웃으로 이만큼에 걸쳐 뻗어 나온다(ease-out).
+// 다 닿은 뒤에 이웃의 점·라벨이 240ms 페이드인한다. 꺼지면 선은 되돌아가고 라벨은 바로
+// 옅어진다.
+const LINK_GROW_MS = 400;
 // 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값(1초 → 0.5초).
 const HOVER_DELAY_MS = 500;
 // 강조 노드의 라벨은 아래로 펼쳐지며 제목 전문을 한 글자씩(한 프레임에 하나) 보여준다.
@@ -539,9 +543,22 @@ export default function MapView() {
   // 1 → 0이고, 옅어지는 동안은 마지막 강조 노드의 선·라벨을 그대로 둔다.
   const focusIndex = active >= 0 ? active : selectedIndex;
   const hoverT = useTween(focusIndex >= 0 ? 1 : 0, LABEL_FADE_MS, reduced);
+  // 연결선 길이(0 → 1). 강조 노드가 바뀌면 새 노드에서 0부터.
+  const growT = useKeyedTween(focusIndex, LINK_GROW_MS, reduced);
+  // 이웃의 점·라벨. 선이 다 닿은 뒤에 켜지고, 강조가 꺼지면 바로 옅어진다.
+  const linkedT = useTween(
+    focusIndex >= 0 && growT >= 1 ? 1 : 0,
+    LABEL_FADE_MS,
+    reduced,
+  );
   const [lastFocus, setLastFocus] = useState(focusIndex);
   if (focusIndex >= 0 && focusIndex !== lastFocus) setLastFocus(focusIndex);
-  const heldIndex = focusIndex >= 0 ? focusIndex : hoverT > 0 ? lastFocus : -1;
+  const heldIndex =
+    focusIndex >= 0
+      ? focusIndex
+      : hoverT > 0 || growT > 0 || linkedT > 0
+        ? lastFocus
+        : -1;
   const points = useMemo(
     () =>
       map.id.map((id, i) => ({
@@ -766,7 +783,11 @@ export default function MapView() {
   const displays = useMemo(
     () =>
       map.title.map((t) =>
-        truncateTitle(measure, t.toUpperCase(), TITLE_MAX_WIDTH - TITLE_PADDING),
+        truncateTitle(
+          measure,
+          t.toUpperCase(),
+          TITLE_MAX_WIDTH - TITLE_PADDING,
+        ),
       ),
     [map, measure],
   );
@@ -987,9 +1008,7 @@ export default function MapView() {
       };
     };
     return placeLabels(
-      candidates.map((c, k) =>
-        k === 0 ? focusBox(c.dy) : boxOf(c.i, c.dy),
-      ),
+      candidates.map((c, k) => (k === 0 ? focusBox(c.dy) : boxOf(c.i, c.dy))),
       obstacles,
     ).map((k) => {
       const { i, dy } = candidates[k];
@@ -1004,9 +1023,7 @@ export default function MapView() {
           : valueDx[i],
         position: [map.x[i], map.y[i]] as [number, number],
         dy,
-        valueDy: focus
-          ? dy + TITLE_HEIGHT * (expanded.lines.length - 1)
-          : dy,
+        valueDy: focus ? dy + TITLE_HEIGHT * (expanded.lines.length - 1) : dy,
         showValue: !focus,
       };
     });
@@ -1169,17 +1186,17 @@ export default function MapView() {
     // 배율에서도 매끈하다.
     SHOW_REGION_BLOBS &&
       new ScatterplotLayer<RegionBlob>({
-      id: "soft-regions",
-      data: blobs,
-      getPosition: (b) => b.position,
-      getRadius: (b) => b.radius,
-      radiusUnits: "common",
-      getFillColor: (b) => [...b.color, 255],
-      antialiasing: false,
-      opacity: state.color === "cluster" ? 0.7 : 0.2,
-      extensions: [regionGradient],
-      pickable: false,
-    }),
+        id: "soft-regions",
+        data: blobs,
+        getPosition: (b) => b.position,
+        getRadius: (b) => b.radius,
+        radiusUnits: "common",
+        getFillColor: (b) => [...b.color, 255],
+        antialiasing: false,
+        opacity: state.color === "cluster" ? 0.7 : 0.2,
+        extensions: [regionGradient],
+        pickable: false,
+      }),
     new ScatterplotLayer({
       id: "papers",
       data: points,
@@ -1217,38 +1234,72 @@ export default function MapView() {
       new LineLayer<GraphLink>({
         id: "hover-links",
         data: graph.links,
-        getSourcePosition: (l) => points[l.a].position,
-        getTargetPosition: (l) => points[l.b].position,
+        // 강조 노드에 닿는 선은 강조 노드에서 이웃 쪽으로 `growT`만큼 뻗는다. 로컬
+        // 그래프의 이웃끼리 선은 선이 다 닿은 뒤 옅게 나타난다.
+        getSourcePosition: (l) =>
+          l.seed && l.b === heldIndex
+            ? points[l.b].position
+            : points[l.a].position,
+        getTargetPosition: (l) => {
+          const from = l.seed && l.b === heldIndex ? points[l.b] : points[l.a],
+            to = l.seed && l.b === heldIndex ? points[l.a] : points[l.b];
+          if (!l.seed) return to.position;
+          return [
+            from.position[0] + (to.position[0] - from.position[0]) * growT,
+            from.position[1] + (to.position[1] - from.position[1]) * growT,
+            0,
+          ];
+        },
         // 강조 노드에 닿는 선은 방향 색(강조 노드가 인용 → 파랑, 강조 노드를 인용 →
         // 빨강), 로컬 그래프의 나머지 선은 옅은 한 색.
         getColor: (l) =>
-          !l.seed ? LINK_FAR : l.a === heldIndex ? LINK_OUT : LINK_IN,
+          !l.seed
+            ? [LINK_FAR[0], LINK_FAR[1], LINK_FAR[2], LINK_FAR[3] * linkedT]
+            : l.a === heldIndex
+              ? LINK_OUT
+              : LINK_IN,
         getWidth: (l) => (l.seed ? LINK_WIDTH : LINK_FAR_WIDTH),
         widthUnits: "pixels",
-        opacity: hoverT,
         pickable: false,
-        updateTriggers: { getColor: [heldIndex] },
+        updateTriggers: {
+          getSourcePosition: [heldIndex],
+          getTargetPosition: [heldIndex, growT],
+          getColor: [heldIndex, linkedT],
+        },
       }),
     heldIndex >= 0 &&
       new ScatterplotLayer({
         id: "hover-nodes",
         data: hoverNodes,
         getPosition: (p) => p.position,
+        // 강조 노드는 바로, 이웃은 선이 닿은 뒤에.
         getFillColor: (p) =>
-          p.i === heldIndex ? [255, 255, 255, 255] : colors[p.i],
+          p.i === heldIndex
+            ? [255, 255, 255, 255 * hoverT]
+            : [
+                colors[p.i][0],
+                colors[p.i][1],
+                colors[p.i][2],
+                colors[p.i][3] * linkedT,
+              ],
         getRadius: baseRadius,
         radiusUnits: "pixels",
         radiusScale: scale,
         radiusMinPixels: 1.3,
         radiusMaxPixels: DOT_RADIUS_MAX,
         stroked: true,
-        getLineColor: [255, 255, 255, 235],
+        getLineColor: (p) => [
+          255,
+          255,
+          255,
+          235 * (p.i === heldIndex ? hoverT : linkedT),
+        ],
         getLineWidth: (p) => (topCited[p.i] ? 1 : 0),
         lineWidthUnits: "pixels",
-        opacity: hoverT,
         pickable: false,
         updateTriggers: {
-          getFillColor: [colors, heldIndex],
+          getFillColor: [colors, heldIndex, hoverT, linkedT],
+          getLineColor: [heldIndex, hoverT, linkedT],
           getRadius: [topCited],
           getLineWidth: [topCited],
         },
@@ -1356,10 +1407,16 @@ export default function MapView() {
         getPixelOffset: (t) => [TITLE_OFFSET_X, t.dy - TITLE_HEIGHT / 2],
         getTextAnchor: "start",
         getAlignmentBaseline: "top",
-        getColor: [...typo.color, 255],
-        opacity: hoverT,
+        // 강조 노드의 라벨은 바로, 이웃의 라벨은 선이 닿은 뒤에.
+        getColor: (t) => [
+          ...typo.color,
+          Math.round(255 * (t.i === heldIndex ? hoverT : linkedT)),
+        ],
         pickable: true,
-        updateTriggers: { getText: [expanded, typedCount] },
+        updateTriggers: {
+          getText: [expanded, typedCount],
+          getColor: [heldIndex, hoverT, linkedT],
+        },
         onHover: (info) => setHover(info.object ? info : null),
         onClick: (info) => {
           if (info.object) update({ selected: info.object.id });
@@ -1381,10 +1438,17 @@ export default function MapView() {
         getPixelOffset: (t) => [t.valueDx, t.valueDy],
         getTextAnchor: "start",
         getAlignmentBaseline: "center",
-        getColor: (t) => [colors[t.i][0], colors[t.i][1], colors[t.i][2], 255],
-        opacity: hoverT,
+        getColor: (t) => [
+          colors[t.i][0],
+          colors[t.i][1],
+          colors[t.i][2],
+          Math.round(255 * (t.i === heldIndex ? hoverT : linkedT)),
+        ],
         pickable: false,
-        updateTriggers: { getColor: [colors], getText: [typingDone] },
+        updateTriggers: {
+          getColor: [colors, heldIndex, hoverT, linkedT],
+          getText: [typingDone],
+        },
       }),
   ];
   const renderRegions = (items: typeof top, active: boolean, prefix: string) =>
@@ -1421,6 +1485,8 @@ export default function MapView() {
       data-title-count={titles.length}
       data-hover-id={heldIndex >= 0 ? points[heldIndex].id : undefined}
       data-hover-links={graph.links.length}
+      data-link-grow={growT.toFixed(2)}
+      data-linked={linkedT.toFixed(2)}
       data-active-labels={activeTitles.length}
       data-local={showLocal || undefined}
       data-reveal-floor={settledHome.toFixed(4)}
