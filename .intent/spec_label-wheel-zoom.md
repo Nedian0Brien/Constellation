@@ -11,12 +11,12 @@ date: 2026-09-19
 
 ## 요구사항
 
-- [ ] 켜진 `.region-name[data-active=true]` 위에서 `wheel`이 일어나면 지도의 `zoom`이 바뀐다. 라벨 밖에서 같은 delta로 굴렸을 때와 같은 양이다(둘 다 deck 컨트롤러가 계산).
-- [ ] 확대 중심은 마우스 위치다. 라벨 밖에서 굴릴 때와 같은 `clientX/Y`가 deck에 전달된다.
-- [ ] `ctrlKey`·`shiftKey`·`deltaMode`가 그대로 전달된다 — 트랙패드 핀치(ctrl+휠)와 shift 감속(mjolnir `SHIFT_MULTIPLIER`)이 라벨 밖과 같다.
-- [ ] 원본 휠 이벤트는 `preventDefault`된다. 웹뷰가 스크롤·튕김하지 않는다.
-- [ ] 영역 이름 클릭은 여전히 `RegionName.onClick`으로 이동한다. deck의 `onClick`·`onHover`는 라벨 위에서 받지 않는다(휠만 넘긴다).
-- [ ] 되보낸 이벤트가 다시 `.map-labels`로 돌아와 무한히 반복되지 않는다.
+- [x] 켜진 `.region-name[data-active=true]` 위에서 `wheel`이 일어나면 지도의 `zoom`이 바뀐다. 라벨 밖에서 같은 delta로 굴렸을 때와 같은 양이다(둘 다 deck 컨트롤러가 계산). — e2e `wheel over a region name` 통과(수정 전에는 5.4573 그대로라 실패). 브라우저에서 3틱에 +0.93, 라벨 밖과 같다.
+- [x] 확대 중심은 마우스 위치다. 라벨 밖에서 굴릴 때와 같은 `clientX/Y`가 deck에 전달된다.
+- [x] `ctrlKey`·`shiftKey`·`deltaMode`가 그대로 전달된다 — 트랙패드 핀치(ctrl+휠)와 shift 감속(mjolnir `SHIFT_MULTIPLIER`)이 라벨 밖과 같다.
+- [x] 원본 휠 이벤트는 `preventDefault`된다. 웹뷰가 스크롤·튕김하지 않는다. — Chromium에서 `scrollY` 0 유지. `body { overflow: hidden }`이라 원래도 문서는 안 움직였다.
+- [x] 영역 이름 클릭은 여전히 `RegionName.onClick`으로 이동한다. deck의 `onClick`·`onHover`는 라벨 위에서 받지 않는다(휠만 넘긴다).
+- [x] 되보낸 이벤트가 다시 `.map-labels`로 돌아와 무한히 반복되지 않는다.
 
 ## 설계
 
