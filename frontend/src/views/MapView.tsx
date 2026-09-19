@@ -541,9 +541,10 @@ export default function MapView() {
       move({ ...camera, target: [map.x[i], map.y[i], 0] });
   }, [state.selected, map, viewport, move, camera, size.width, size.height]);
   const selectedIndex = map.id.indexOf(state.selected ?? "");
-  // 강조 노드: 켜진 호버, 없으면 선택 노드. 강조의 진행도는 켜지면 0 → 1, 꺼지면
-  // 1 → 0이고, 옅어지는 동안은 마지막 강조 노드의 선·라벨을 그대로 둔다.
-  const focusIndex = active >= 0 ? active : selectedIndex;
+  // 강조 노드: 선택 노드가 있으면 그것(다른 점에 마우스를 올려도 안 바뀐다), 없으면
+  // 켜진 호버. 강조의 진행도는 켜지면 0 → 1, 꺼지면 1 → 0이고, 옅어지는 동안은 마지막
+  // 강조 노드의 선·라벨을 그대로 둔다.
+  const focusIndex = selectedIndex >= 0 ? selectedIndex : active;
   const hoverT = useTween(focusIndex >= 0 ? 1 : 0, LABEL_FADE_MS, reduced);
   const [lastFocus, setLastFocus] = useState(focusIndex);
   if (focusIndex >= 0 && focusIndex !== lastFocus) setLastFocus(focusIndex);
@@ -661,34 +662,44 @@ export default function MapView() {
     () => graph.nodes.map((i) => points[i]),
     [points, graph],
   );
-  // 강조 노드에서 각 이웃까지의 화면 거리(픽셀). 연결선 앞머리와 견줘 닿았는지 본다.
+  // 강조 노드에서 각 이웃까지의 거리(지도 단위). 연결선 앞머리와 견줘 닿았는지 본다.
+  // 지도 단위로 두어야 확대·축소해도 이미 닿은 선·라벨이 그대로다(픽셀로 재면 배율이
+  // 바뀔 때 앞머리가 뒤로 밀려 애니메이션이 다시 돈다).
   const linkLength = useMemo(() => {
     const out = new Map<number, number>();
     if (heldIndex < 0) return out;
-    const s = 2 ** camera.zoom;
     for (const i of graph.nodes)
       if (i !== heldIndex)
         out.set(
           i,
-          Math.hypot(map.x[i] - map.x[heldIndex], map.y[i] - map.y[heldIndex]) *
-            s,
+          Math.hypot(map.x[i] - map.x[heldIndex], map.y[i] - map.y[heldIndex]),
         );
     return out;
-  }, [graph, heldIndex, map, camera.zoom]);
+  }, [graph, heldIndex, map]);
   const farthest = Math.max(0, ...linkLength.values());
-  // 연결선 앞머리(픽셀). 가장 먼 이웃에 닿고 그 라벨이 다 켜질 만큼까지 나아간다.
+  // 라벨 페이드 거리는 강조가 켜진 순간의 배율로 지도 단위로 굳힌다 — 그 뒤 배율이
+  // 바뀌어도 이미 켜진 라벨이 다시 옅어지지 않는다.
+  const [focusZoom, setFocusZoom] = useState({
+    key: focusIndex,
+    zoom: camera.zoom,
+  });
+  if (focusIndex >= 0 && focusZoom.key !== focusIndex)
+    setFocusZoom({ key: focusIndex, zoom: camera.zoom });
+  const fadeWorld = LINK_FADE_PX / 2 ** focusZoom.zoom;
+  // 연결선 앞머리(지도 단위). 화면에서 초당 LINK_SPEED px가 되도록 지금 배율로 나눈
+  // 속도로 나아가고, 가장 먼 이웃에 닿고 그 라벨이 다 켜질 만큼까지 간다.
   const front = useFront(
     focusIndex,
-    LINK_SPEED,
-    farthest + LINK_FADE_PX,
+    LINK_SPEED / 2 ** camera.zoom,
+    farthest + fadeWorld,
     reduced,
   );
   // 이웃 i의 점·라벨 알파(0~1): 선이 닿은 뒤 240ms에 걸쳐 켜지고, 강조가 꺼지면 hoverT로
   // 같이 옅어진다.
   const linked = (i: number) =>
     hoverT *
-    Math.min(1, Math.max(0, (front - (linkLength.get(i) ?? 0)) / LINK_FADE_PX));
-  const allLinked = front >= farthest + LINK_FADE_PX;
+    Math.min(1, Math.max(0, (front - (linkLength.get(i) ?? 0)) / fadeWorld));
+  const allLinked = front >= farthest;
   // 에이전트의 시스템 프롬프트가 읽는 확대 단계.
   const setMapLevel = useStore((s) => s.setMapLevel);
   useEffect(() => setMapLevel(level), [level, setMapLevel]);
@@ -1006,9 +1017,8 @@ export default function MapView() {
       i,
       dy: baseDy.get(i) ?? 0,
     }));
-    const obstacles = titles
-      .filter((t) => !activeSet.has(t.i))
-      .map((t) => boxOf(t.i, t.dy));
+    // 지도 제목은 장애물로 두지 않는다 — 활성 라벨이 우선이고, 겹치는 지도 제목 쪽이
+    // 옅어진다(`covered`). 확대하면서 지도 제목이 새로 켜져도 활성 라벨은 그대로다.
     // 강조 노드의 상자는 펼친 크기(전문의 가장 긴 줄 × 줄 수)로 둔다.
     const focusBox = (dy: number): LabelBox => {
       const half =
@@ -1026,7 +1036,7 @@ export default function MapView() {
     };
     return placeLabels(
       candidates.map((c, k) => (k === 0 ? focusBox(c.dy) : boxOf(c.i, c.dy))),
-      obstacles,
+      [],
     ).map((k) => {
       const { i, dy } = candidates[k];
       const focus = k === 0 && expanded;
@@ -1049,7 +1059,6 @@ export default function MapView() {
     measure,
     heldIndex,
     graph,
-    activeSet,
     zoomStep,
     map,
     widths,
@@ -1058,23 +1067,48 @@ export default function MapView() {
     valueDx,
     titles,
   ]);
-  // 펼친 라벨에 가려지는 지도 제목. 강조가 켜지는 동안 함께 옅어진다.
+  // 활성 라벨(펼친 강조 라벨과 이웃 라벨)에 가려지는 지도 제목. 강조가 켜지는 동안
+  // 함께 옅어진다 — 활성 라벨이 지도 제목보다 우선이다.
   const covered = useMemo(() => {
     const out = new Set<number>();
-    const focus = activeTitles[0];
-    if (!expanded || !focus || focus.i !== expanded.i) return out;
+    if (!activeTitles.length) return out;
     const s = 2 ** (zoomStep * TITLE_ZOOM_STEP);
-    const fx0 = map.x[expanded.i] * s + TITLE_OFFSET_X,
-      fx1 = fx0 + expanded.width + VALUE_GAP + measure(values[expanded.i]),
-      fy0 = map.y[expanded.i] * s + focus.dy - TITLE_HEIGHT / 2,
-      fy1 = fy0 + TITLE_HEIGHT * expanded.lines.length;
+    // 라벨 하나의 실제 사각형(점 오른쪽). 지도 제목·이웃 라벨은 한 줄, 강조 라벨은 펼친 크기.
+    const rect = (i: number, dy: number, lines: number, width: number) => {
+      const x0 = map.x[i] * s + TITLE_OFFSET_X,
+        y0 = map.y[i] * s + dy - TITLE_HEIGHT / 2;
+      return [x0, y0, x0 + width, y0 + TITLE_HEIGHT * lines] as const;
+    };
+    const active = activeTitles.map((t) =>
+      expanded && t.i === expanded.i
+        ? rect(
+            t.i,
+            t.dy,
+            expanded.lines.length,
+            expanded.width + VALUE_GAP + measure(values[t.i]),
+          )
+        : rect(
+            t.i,
+            t.dy,
+            1,
+            widths[t.i] / 2 - TITLE_GAP_X / 2 - TITLE_OFFSET_X,
+          ),
+    );
     for (const t of titles) {
       if (activeSet.has(t.i)) continue;
-      const x0 = map.x[t.i] * s + TITLE_OFFSET_X,
-        x1 = map.x[t.i] * s + widths[t.i] / 2 - TITLE_GAP_X / 2,
-        y0 = map.y[t.i] * s + t.dy - TITLE_HEIGHT / 2,
-        y1 = y0 + TITLE_HEIGHT;
-      if (x0 < fx1 && x1 > fx0 && y0 < fy1 && y1 > fy0) out.add(t.i);
+      const [x0, y0, x1, y1] = rect(
+        t.i,
+        t.dy,
+        1,
+        widths[t.i] / 2 - TITLE_GAP_X / 2 - TITLE_OFFSET_X,
+      );
+      if (
+        active.some(
+          ([ax0, ay0, ax1, ay1]) =>
+            x0 < ax1 && x1 > ax0 && y0 < ay1 && y1 > ay0,
+        )
+      )
+        out.add(t.i);
     }
     return out;
   }, [
@@ -1503,8 +1537,8 @@ export default function MapView() {
       data-title-count={titles.length}
       data-hover-id={heldIndex >= 0 ? points[heldIndex].id : undefined}
       data-hover-links={graph.links.length}
-      data-link-front={front.toFixed(0)}
-      data-link-farthest={farthest.toFixed(0)}
+      data-link-front={(front * 2 ** camera.zoom).toFixed(0)}
+      data-link-farthest={(farthest * 2 ** camera.zoom).toFixed(0)}
       data-active-labels={activeTitles.length}
       data-local={showLocal || undefined}
       data-reveal-floor={settledHome.toFixed(4)}
