@@ -18,6 +18,7 @@ import {
   Plus,
   RotateCcw,
   Waypoints,
+  ZoomIn,
 } from "lucide-react";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
@@ -109,6 +110,9 @@ const TYPE_MS = 16;
 // 높이 분포).
 const MENU_RADIUS = 36,
   MENU_ANGLES = [150, -150, -90];
+// 영역 이름의 버튼 셋: 이름 상자 위쪽 호에 40° 간격, 반지름은 상자 높이의 절반 + 40px.
+const REGION_MENU_ANGLES = [-130, -90, -50],
+  REGION_MENU_GAP = 40;
 // 선택 시 노드가 가장자리 이 안쪽이면 중앙으로 옮긴다 — 버튼이 화면 밖으로 안 나가게.
 const SELECT_MARGIN = 90;
 // 로컬 그래프를 화면에 맞출 때의 여백.
@@ -282,6 +286,66 @@ interface ActiveTitle {
 }
 const EMPTY_ACTIVE: ActiveTitle[] = [];
 const EMPTY_GRAPH: LocalGraph = { nodes: [], links: [] };
+// 원호 위의 버튼 셋. 노드나 영역 이름 주위에 뜬다. 자리는 CSS가 각도·반지름으로 잡고,
+// 등장할 때 원을 따라 돌아 들어온다(`.node-menu-btn`). `menuKey`가 바뀌면 다시 마운트해
+// 등장 애니메이션을 다시 튼다.
+interface MenuItem {
+  label: string;
+  icon: React.ReactNode;
+  pressed?: boolean;
+  onClick: () => void;
+}
+function ArcMenu({
+  at,
+  items,
+  angles,
+  radius,
+  menuKey,
+  testId,
+}: {
+  at: [number, number];
+  items: MenuItem[];
+  angles: number[];
+  radius: number;
+  menuKey: string;
+  testId: string;
+}) {
+  return (
+    <div
+      key={menuKey}
+      className="node-menu"
+      data-testid={testId}
+      style={{ left: at[0], top: at[1] }}
+    >
+      {items.map((item, k) => (
+        <Tooltip key={item.label}>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="secondary"
+                size="icon"
+                className="node-menu-btn"
+                aria-label={item.label}
+                aria-pressed={item.pressed}
+                style={
+                  {
+                    "--a": `${angles[k]}deg`,
+                    "--r": `${radius}px`,
+                    "--k": k,
+                  } as React.CSSProperties
+                }
+                onClick={item.onClick}
+              />
+            }
+          >
+            {item.icon}
+          </TooltipTrigger>
+          <TooltipContent>{item.label}</TooltipContent>
+        </Tooltip>
+      ))}
+    </div>
+  );
+}
 // 영역 이름 하나. 켜진 동안만 자리를 옮기고, 꺼지면 마지막 자리에 그대로 두어 240ms
 // 페이드아웃만 한다 — 매 프레임 65개의 위치를 갱신하던 것이 스타일 재계산의 대부분이었다.
 // 한 번도 켜진 적 없는 이름은 만들지 않는다. 마지막 자리는 이전 렌더의 값을 state에
@@ -1204,7 +1268,7 @@ export default function MapView() {
       ? ([x, y] as [number, number])
       : null;
   }, [selectedIndex, viewport, map, size]);
-  const menu = [
+  const menu: MenuItem[] = [
     {
       label: "노드 상세정보",
       icon: <Info />,
@@ -1541,22 +1605,62 @@ export default function MapView() {
         label={n.label}
         placed={active ? shownRegions.get(n.id) : undefined}
         opacity={regionOpacity}
-        onClick={() => {
+        // 클릭은 그 영역만 켠다(나머지 점은 옅어진다). 상세·확대는 버튼 셋에서.
+        onClick={() =>
           update({
             node: n.node,
             selected: undefined,
             cluster: n.node === undefined ? n.cluster : undefined,
-          });
-          move({
-            target: [n.x, n.y, 0],
-            zoom: Math.max(
-              camera.zoom + 0.8,
-              home.zoom + (prefix === "top" ? 1.2 : 3),
-            ),
-          });
-        }}
+          })
+        }
       />
     ));
+  // 선택한 영역(주제·분야)의 이름이 화면에 있으면 그 위에 버튼 셋을 띄운다. 논문 선택이
+  // 우선이다.
+  const selectedRegion = useMemo(() => {
+    if (state.selected) return null;
+    const all = [
+      ...top.map((n) => ({ n, prefix: "top" })),
+      ...sub.map((n) => ({ n, prefix: "sub" })),
+      ...leaves.map((n) => ({ n, prefix: "leaf" })),
+    ];
+    return (
+      all.find(({ n }) =>
+        n.node !== undefined
+          ? state.node === n.node
+          : state.cluster !== undefined && state.cluster === n.cluster,
+      ) ?? null
+    );
+  }, [state.selected, state.node, state.cluster, top, sub, leaves]);
+  const regionMenuAt = selectedRegion
+    ? shownRegions.get(selectedRegion.n.id)
+    : undefined;
+  const regionMenu: MenuItem[] = selectedRegion
+    ? [
+        {
+          label: "영역 상세정보",
+          icon: <Info />,
+          onClick: () => setDetailOpen(true),
+        },
+        {
+          label: "AI에게 질문하기",
+          icon: <MessageSquareText />,
+          onClick: () => requestChat(),
+        },
+        {
+          label: "영역 확대",
+          icon: <ZoomIn />,
+          onClick: () =>
+            move({
+              target: [selectedRegion.n.x, selectedRegion.n.y, 0],
+              zoom: Math.max(
+                camera.zoom + 0.8,
+                home.zoom + (selectedRegion.prefix === "top" ? 1.2 : 3),
+              ),
+            }),
+        },
+      ]
+    : [];
   return (
     <div
       ref={container}
@@ -1582,9 +1686,14 @@ export default function MapView() {
       onKeyDown={(e) => {
         // Escape는 버튼 셋에 포커스가 있어도 선택을 지운다. 상세 Dialog는 포털 밖이라
         // 여기로 오지 않는다.
-        if (e.key === "Escape" && state.selected) {
+        if (
+          e.key === "Escape" &&
+          (state.selected ||
+            state.cluster !== undefined ||
+            state.node !== undefined)
+        ) {
           e.preventDefault();
-          update({ selected: undefined });
+          update({ selected: undefined, cluster: undefined, node: undefined });
           return;
         }
         if (e.target !== e.currentTarget) return;
@@ -1646,7 +1755,17 @@ export default function MapView() {
         layers={layers}
         // 빈 곳 클릭은 선택 해제. 점·제목 클릭은 레이어가 먼저 받아 선택을 바꾼다.
         onClick={(info) => {
-          if (!info.object && state.selected) update({ selected: undefined });
+          if (info.object) return;
+          if (
+            state.selected ||
+            state.cluster !== undefined ||
+            state.node !== undefined
+          )
+            update({
+              selected: undefined,
+              cluster: undefined,
+              node: undefined,
+            });
         }}
         getCursor={({ isDragging }) =>
           isDragging ? "grabbing" : hover ? "pointer" : "grab"
@@ -1675,43 +1794,27 @@ export default function MapView() {
           "leaf",
         )}
         {menuAt && (
-          // 선택이 바뀌면 다시 마운트해 등장 애니메이션을 다시 튼다.
-          <div
-            key={state.selected}
-            className="node-menu"
-            data-testid="node-menu"
-            style={{ left: menuAt[0], top: menuAt[1] }}
-          >
-            {menu.map((item, k) => {
-              return (
-                <Tooltip key={item.label}>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        className="node-menu-btn"
-                        aria-label={item.label}
-                        aria-pressed={item.pressed}
-                        // 자리는 CSS가 각도·반지름으로 잡는다(등장 때 원을 따라 돈다).
-                        style={
-                          {
-                            "--a": `${MENU_ANGLES[k]}deg`,
-                            "--r": `${MENU_RADIUS}px`,
-                            "--k": k,
-                          } as React.CSSProperties
-                        }
-                        onClick={item.onClick}
-                      />
-                    }
-                  >
-                    {item.icon}
-                  </TooltipTrigger>
-                  <TooltipContent>{item.label}</TooltipContent>
-                </Tooltip>
-              );
-            })}
-          </div>
+          <ArcMenu
+            at={menuAt}
+            items={menu}
+            angles={MENU_ANGLES}
+            radius={MENU_RADIUS}
+            menuKey={state.selected ?? ""}
+            testId="node-menu"
+          />
+        )}
+        {regionMenuAt && selectedRegion && (
+          <ArcMenu
+            at={regionMenuAt}
+            items={regionMenu}
+            angles={REGION_MENU_ANGLES}
+            radius={
+              (Math.ceil(selectedRegion.n.label.length / 20) * 23) / 2 +
+              REGION_MENU_GAP
+            }
+            menuKey={selectedRegion.n.id}
+            testId="region-menu"
+          />
         )}
       </div>
       {annotations.length > 0 && (
