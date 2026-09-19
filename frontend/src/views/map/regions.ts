@@ -1,12 +1,31 @@
 import type { MapData, ClusterInfo } from "../../api";
+// 레퍼런스(Starfield 갤럭시 맵)의 채도 높은 여섯 색. 초록·노랑·하늘·주황·빨강·보라.
+// 바탕 #0c1118 위 대비는 unverified — 프로토타입.
 export const spectrum: [number, number, number][] = [
-  [183, 164, 255],
-  [134, 217, 240],
-  [242, 203, 141],
-  [141, 223, 193],
-  [242, 167, 213],
-  [167, 187, 255],
+  [96, 214, 96],
+  [232, 196, 88],
+  [126, 178, 214],
+  [236, 142, 46],
+  [230, 72, 62],
+  [178, 150, 255],
 ];
+// 피인용 모드의 서열 색: 레퍼런스의 레벨 색 순서(초록 → 노랑 → 하늘 → 주황 → 빨강).
+// 적록 색각 이상에 불리하다 — 레퍼런스의 선택을 그대로 옮긴 것이고 여기서 고치지 않는다.
+export const ordinal: [number, number, number][] = [
+  [96, 214, 96],
+  [232, 196, 88],
+  [126, 178, 214],
+  [236, 142, 46],
+  [230, 72, 62],
+];
+export function ordinalColor(v: number): [number, number, number] {
+  const t = Math.min(1, Math.max(0, v)) * (ordinal.length - 1),
+    k = Math.min(ordinal.length - 2, Math.floor(t)),
+    f = t - k;
+  return ordinal[k].map((c, i) =>
+    Math.round(c + (ordinal[k + 1][i] - c) * f),
+  ) as [number, number, number];
+}
 export function clusterColor(id: number): [number, number, number] {
   return id < 0 ? [130, 131, 142] : spectrum[id % spectrum.length];
 }

@@ -1,5 +1,5 @@
 import { useReducedMotion } from "../hooks/use-reduced-motion";
-import { useTween } from "../hooks/use-tween";
+import { useFront, useTween, useTyping } from "../hooks/use-tween";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DeckGL, { type DeckGLRef } from "@deck.gl/react";
@@ -18,6 +18,7 @@ import {
   Plus,
   RotateCcw,
   Waypoints,
+  ZoomIn,
 } from "lucide-react";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
@@ -41,13 +42,19 @@ import {
   regionLabels,
   revealZooms,
   truncateTitle,
+  wrapTitle,
   MAX_ROWS,
   homeCamera,
   fitCamera,
   descendants,
 } from "./map/labels";
 import { placeLabels, type LabelBox } from "./map/active-labels";
-import { clusterColor, regionBlobs, type RegionBlob } from "./map/regions";
+import {
+  clusterColor,
+  ordinalColor,
+  regionBlobs,
+  type RegionBlob,
+} from "./map/regions";
 import {
   citationIndex,
   degreeOf,
@@ -59,6 +66,7 @@ import {
 } from "./map/edges";
 import { SnapTextExtension } from "./map/text-snap";
 import { RegionGradientExtension } from "./map/region-gradient";
+import { ZoomDial } from "./map/ZoomDial";
 const view = new OrthographicView({ id: "research-map" });
 const snapText = new SnapTextExtension(),
   regionGradient = new RegionGradientExtension();
@@ -70,6 +78,12 @@ const LABEL_FADE_MS = 240;
 const DOT_RADIUS_MAX = 7,
   HALO_GAP = 5,
   HALO_MIN = 10;
+// 레퍼런스 시각 언어(프로토타입). 영역 블롭은 두고, 점은 기본 1.5px에 상위 피인용 논문만
+// 크게(3px) 흰 테두리로 강조한다. 강조 문턱은 피인용수 98분위.
+const SHOW_REGION_BLOBS = true as boolean,
+  DOT_RADIUS = 1.5,
+  DOT_RADIUS_TOP = 3,
+  TOP_CITED_QUANTILE = 0.98;
 // 마우스를 올린 논문의 인용 관계. 참조(올린 논문 → 이웃)는 파랑, 피인용(이웃 → 올린
 // 논문)은 빨강 — dataviz 기준 팔레트의 다크 모드 발산 쌍(#3987e5·#e66767)으로, 지도
 // 바탕 #0e1319 위에서 검증기를 통과한다(CVD ΔE 19.2, 정상 시각 29.0, 대비 3:1 이상).
@@ -81,13 +95,25 @@ const LINK_OUT: [number, number, number] = [57, 135, 229],
 // 로컬 그래프에서 선택 노드에 닿지 않는 선(이웃끼리의 인용). `--ink-soft` #93a3b4, 1px, 옅게.
 const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
   LINK_FAR_WIDTH = 1;
+// 강조가 켜지면 연결선이 강조 노드에서 이웃으로 초당 이만큼(화면 픽셀) 일정한 속도로
+// 뻗어 나온다 — 가까운 이웃에 먼저 닿는다. 이웃의 점·라벨은 선이 닿은 순간부터 240ms
+// 페이드인(앞머리가 그 뒤로 `LINK_SPEED × 0.24s`만큼 더 나아가는 동안). 꺼지면 선과
+// 라벨이 그 자리에서 240ms 페이드아웃한다.
+const LINK_SPEED = 1200,
+  LINK_FADE_PX = (LINK_SPEED * LABEL_FADE_MS) / 1000;
 // 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값(1초 → 0.5초).
 const HOVER_DELAY_MS = 500;
-// 선택 모드의 버튼 셋: 노드에서 36px 떨어진 원의 위쪽 호에 60° 간격. 아래쪽은 노드의
-// 제목이 차지한다(점 아래 9px). 버튼은 32px(desktop dense, `design-ops`
-// patterns/button.md 높이 분포).
+// 강조 노드의 라벨은 아래로 펼쳐지며 제목 전문을 한 글자씩(한 프레임에 하나) 보여준다.
+// 100자 제목이면 약 1.6초. 동작 줄이기면 즉시 전부.
+const TYPE_MS = 16;
+// 선택 모드의 버튼 셋: 노드에서 36px 떨어진 원의 왼쪽·위쪽 호에 60° 간격. 오른쪽은
+// 노드의 제목이 차지한다. 버튼은 32px(desktop dense, `design-ops` patterns/button.md
+// 높이 분포).
 const MENU_RADIUS = 36,
-  MENU_ANGLES = [-150, -90, -30];
+  MENU_ANGLES = [150, -150, -90];
+// 영역 이름의 버튼 셋: 이름 상자 위쪽 호에 40° 간격, 반지름은 상자 높이의 절반 + 40px.
+const REGION_MENU_ANGLES = [-130, -90, -50],
+  REGION_MENU_GAP = 40;
 // 선택 시 노드가 가장자리 이 안쪽이면 중앙으로 옮긴다 — 버튼이 화면 밖으로 안 나가게.
 const SELECT_MARGIN = 90;
 // 로컬 그래프를 화면에 맞출 때의 여백.
@@ -97,14 +123,21 @@ const LOCAL_HOPS = 1;
 // 논문 제목 상자. 본문 글꼴 11px, 220px 최대 폭(안쪽 여백 2px 4px를 뺀 212px에
 // 글자), 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의 줄
 // 간격이기도 하다. 글자는 점 아래 9px(위 여백 7 + 안쪽 2)에서 시작한다.
-const TITLE_FONT_SIZE = 11,
-  TITLE_MAX_WIDTH = 220,
+// 프로토타입: 10px 대문자 모노, 자간 0.8px, 점 오른쪽(점 상한 반지름 + 6px)에 왼쪽
+// 정렬, 세로는 점 중심. 제목 뒤 5px에 점 색으로 연도. 줄 간격 16px.
+// 겹침 계산(`revealZooms`·`placeLabels`)은 점 중심의 상자를 전제하므로 상자 폭을
+// 2·(오프셋 + 제목 + 연도)로 넣어 오른쪽 라벨을 안에 가둔다 — 안전하지만 같은 배율에서
+// 켜지는 제목이 준다.
+const TITLE_FONT_SIZE = 10,
+  TITLE_TRACKING = 0.8,
+  TITLE_MAX_WIDTH = 240,
   TITLE_PADDING = 8,
   TITLE_GAP_X = 8,
-  TITLE_HEIGHT = 20 + 4,
-  TITLE_OFFSET_Y = 9,
-  // 화면 밖이어도 이만큼 안이면 그린다: 가로는 라벨 폭의 절반, 세로는 쌓인 줄까지.
-  TITLE_MARGIN_X = TITLE_MAX_WIDTH / 2 + TITLE_GAP_X,
+  TITLE_HEIGHT = 16,
+  TITLE_OFFSET_X = DOT_RADIUS_MAX + 6,
+  VALUE_GAP = 5,
+  // 화면 밖이어도 이만큼 안이면 그린다: 가로는 라벨 전체 폭, 세로는 쌓인 줄까지.
+  TITLE_MARGIN_X = TITLE_OFFSET_X + TITLE_MAX_WIDTH + 60,
   TITLE_MARGIN_Y = TITLE_HEIGHT * (MAX_ROWS + 1),
   // 제목 배열을 다시 만드는 카메라 칸: 중심 240px, 배율 반 단계. `titles` 참고.
   TITLE_TILE = 240,
@@ -117,8 +150,12 @@ interface Title {
   /** boxes·reveals의 색인. */
   k: number;
   text: string;
+  /** 제목 뒤에 붙는 값(연도). 없으면 빈 문자열. */
+  value: string;
+  /** 값의 가로 픽셀 오프셋: 제목 오프셋 + 제목 폭 + 간격. */
+  valueDx: number;
   position: [number, number];
-  /** 점 아래 픽셀 거리: 9 + 줄 × 24. */
+  /** 점 중심에서의 세로 픽셀 거리: 줄 × 16. */
   dy: number;
   selected: boolean;
 }
@@ -140,12 +177,13 @@ function titleTypography(): TitleTypography {
       : document.createElement("canvas").getContext("2d");
   // 실측 기본값: 어두운 테마의 글자색(#e8e8ec)과 본문 글꼴.
   const fallback: TitleTypography = {
-    fontFamily: "system-ui, sans-serif",
+    fontFamily: "monospace",
     color: [232, 232, 236],
-    measureChar: () => 6,
+    measureChar: () => 6 + TITLE_TRACKING,
   };
   if (!ctx) return fallback;
   const style = getComputedStyle(document.body);
+  const mono = style.getPropertyValue("--font-mono").trim() || "monospace";
   const rgb = (css: string, or: RGB): RGB => {
     ctx.fillStyle = css;
     const hex = ctx.fillStyle;
@@ -153,11 +191,11 @@ function titleTypography(): TitleTypography {
       ? ([1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as RGB)
       : or;
   };
-  ctx.font = `${TITLE_FONT_SIZE}px ${style.fontFamily}`;
+  ctx.font = `${TITLE_FONT_SIZE}px ${mono}`;
   return {
-    fontFamily: style.fontFamily,
+    fontFamily: mono,
     color: rgb(style.color, fallback.color),
-    measureChar: (char) => ctx.measureText(char).width,
+    measureChar: (char) => ctx.measureText(char).width + TITLE_TRACKING,
   };
 }
 // 글꼴 아틀라스의 글리프를 DOM과 같은 래스터로 만든다. deck 기본 방식은 아틀라스
@@ -192,7 +230,7 @@ function titleFontRenderer(fontFamily: string, dpr: number): FontRenderer {
           descent: Math.ceil(m.fontBoundingBoxDescent * dpr),
         }
       : {
-          advance: m.width * dpr,
+          advance: (m.width + TITLE_TRACKING) * dpr,
           width: Math.ceil(
             (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) * dpr,
           ),
@@ -238,11 +276,77 @@ interface ActiveTitle {
   id: string;
   i: number;
   text: string;
+  value: string;
+  valueDx: number;
   position: [number, number];
   dy: number;
+  /** 값의 세로 오프셋(펼친 라벨은 마지막 줄). */
+  valueDy: number;
+  /** 값을 그릴지 — 펼친 라벨은 타이핑이 끝난 뒤에만. */
+  showValue: boolean;
 }
 const EMPTY_ACTIVE: ActiveTitle[] = [];
 const EMPTY_GRAPH: LocalGraph = { nodes: [], links: [] };
+// 원호 위의 버튼 셋. 노드나 영역 이름 주위에 뜬다. 자리는 CSS가 각도·반지름으로 잡고,
+// 등장할 때 원을 따라 돌아 들어온다(`.node-menu-btn`). `menuKey`가 바뀌면 다시 마운트해
+// 등장 애니메이션을 다시 튼다.
+interface MenuItem {
+  label: string;
+  icon: React.ReactNode;
+  pressed?: boolean;
+  onClick: () => void;
+}
+function ArcMenu({
+  at,
+  items,
+  angles,
+  radius,
+  menuKey,
+  testId,
+}: {
+  at: [number, number];
+  items: MenuItem[];
+  angles: number[];
+  radius: number;
+  menuKey: string;
+  testId: string;
+}) {
+  return (
+    <div
+      key={menuKey}
+      className="node-menu"
+      data-testid={testId}
+      style={{ left: at[0], top: at[1] }}
+    >
+      {items.map((item, k) => (
+        <Tooltip key={item.label}>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="secondary"
+                size="icon"
+                className="node-menu-btn"
+                aria-label={item.label}
+                aria-pressed={item.pressed}
+                style={
+                  {
+                    "--a": `${angles[k]}deg`,
+                    "--r": `${radius}px`,
+                    "--k": k,
+                  } as React.CSSProperties
+                }
+                onClick={item.onClick}
+              />
+            }
+          >
+            {item.icon}
+          </TooltipTrigger>
+          <TooltipContent>{item.label}</TooltipContent>
+        </Tooltip>
+      ))}
+    </div>
+  );
+}
 // 영역 이름 하나. 켜진 동안만 자리를 옮기고, 꺼지면 마지막 자리에 그대로 두어 240ms
 // 페이드아웃만 한다 — 매 프레임 65개의 위치를 갱신하던 것이 스타일 재계산의 대부분이었다.
 // 한 번도 켜진 적 없는 이름은 만들지 않는다. 마지막 자리는 이전 렌더의 값을 state에
@@ -502,9 +606,10 @@ export default function MapView() {
       move({ ...camera, target: [map.x[i], map.y[i], 0] });
   }, [state.selected, map, viewport, move, camera, size.width, size.height]);
   const selectedIndex = map.id.indexOf(state.selected ?? "");
-  // 강조 노드: 켜진 호버, 없으면 선택 노드. 강조의 진행도는 켜지면 0 → 1, 꺼지면
-  // 1 → 0이고, 옅어지는 동안은 마지막 강조 노드의 선·라벨을 그대로 둔다.
-  const focusIndex = active >= 0 ? active : selectedIndex;
+  // 강조 노드: 선택 노드가 있으면 그것(다른 점에 마우스를 올려도 안 바뀐다), 없으면
+  // 켜진 호버. 강조의 진행도는 켜지면 0 → 1, 꺼지면 1 → 0이고, 옅어지는 동안은 마지막
+  // 강조 노드의 선·라벨을 그대로 둔다.
+  const focusIndex = selectedIndex >= 0 ? selectedIndex : active;
   const hoverT = useTween(focusIndex >= 0 ? 1 : 0, LABEL_FADE_MS, reduced);
   const [lastFocus, setLastFocus] = useState(focusIndex);
   if (focusIndex >= 0 && focusIndex !== lastFocus) setLastFocus(focusIndex);
@@ -517,6 +622,26 @@ export default function MapView() {
         position: [map.x[i], map.y[i], 0] as [number, number, number],
       })),
     [map],
+  );
+  // 발행연도 범위 밖의 논문은 그리지 않는다(옅게가 아니라 아예). 연도가 없는 논문은
+  // 서버 필터와 같이 통과시킨다. 인용 그래프의 이웃도 같은 규칙.
+  const inYears = useCallback(
+    (i: number) => {
+      const y = map.year[i];
+      return (
+        y === null ||
+        ((state.from === undefined || y >= state.from) &&
+          (state.to === undefined || y <= state.to))
+      );
+    },
+    [map, state.from, state.to],
+  );
+  const shownPoints = useMemo(
+    () =>
+      state.from === undefined && state.to === undefined
+        ? points
+        : points.filter((p) => inYears(p.i)),
+    [points, inYears, state.from, state.to],
   );
   const nodeClusters = useMemo(
     () =>
@@ -548,14 +673,8 @@ export default function MapView() {
                   135 + Math.round(110 * (v ?? 0)),
                 ];
         }
-        if (state.color === "cited") {
-          const v = Math.log1p(map.cited[p.i]) / maxLog;
-          c = [
-            120 + Math.round(120 * v),
-            110 + Math.round(85 * v),
-            145 - Math.round(35 * v),
-          ];
-        }
+        if (state.color === "cited")
+          c = ordinalColor(Math.log1p(map.cited[p.i]) / maxLog);
         if (state.color === "abstract")
           c = map.has_abstract[p.i] ? [141, 223, 193] : [255, 161, 174];
         const hit =
@@ -586,15 +705,32 @@ export default function MapView() {
     () => regionBlobs(map, a.clusters.data ?? []),
     [map, a.clusters.data],
   );
+  // 주제마다 지금 그려지는(연도 범위 안) 논문 비율. 영역 배경은 이 비율만큼 옅어지고,
+  // 논문이 하나도 없는 영역은 배경도 이름도 그리지 않는다.
+  const clusterShare = useMemo(() => {
+    const total = new Map<number, number>(),
+      shown = new Map<number, number>();
+    for (let i = 0; i < map.n; i++)
+      total.set(map.cluster[i], (total.get(map.cluster[i]) ?? 0) + 1);
+    for (const p of shownPoints)
+      shown.set(map.cluster[p.i], (shown.get(map.cluster[p.i]) ?? 0) + 1);
+    const share = new Map<number, number>();
+    for (const [c, n] of total) share.set(c, (shown.get(c) ?? 0) / n);
+    return share;
+  }, [map, shownPoints]);
   const relativeZoom = camera.zoom - home.zoom;
   const level = labelLevel(relativeZoom);
+  // 상위 피인용 논문(98분위 이상). 크게 그리고 흰 테두리를 두른다.
+  const topCited = useMemo(() => {
+    const sorted = [...map.cited].sort((a, b) => a - b),
+      cut = sorted[Math.floor(sorted.length * TOP_CITED_QUANTILE)] ?? Infinity;
+    return map.cited.map((c) => c >= cut && c > 0);
+  }, [map]);
   // 점 반지름. 점마다의 기본값(피인용 색이면 피인용수에 따라 1.5~4.5px)에 배율 배수를
   // 레이어 uniform으로 곱한다 — 확대해도 점별 속성은 다시 채우지 않는다.
   const scale = dotScale(relativeZoom);
   const baseRadius = (p: { i: number }) =>
-    state.color === "cited"
-      ? 1.5 + (3 * Math.log1p(map.cited[p.i])) / maxLog
-      : 1.5;
+    topCited[p.i] ? DOT_RADIUS_TOP : DOT_RADIUS;
   const radiusPx = (p: { i: number }) =>
     Math.min(DOT_RADIUS_MAX, scale * baseRadius(p));
   const haloRadius =
@@ -606,24 +742,70 @@ export default function MapView() {
   const showLocal = state.local && heldIndex === selectedIndex;
   const graph = useMemo<LocalGraph>(() => {
     if (!index || heldIndex < 0) return EMPTY_GRAPH;
-    if (showLocal) return localGraph(index, heldIndex, LOCAL_HOPS);
-    const links: GraphLink[] = linksOf(index, heldIndex).map((l) =>
-      l.incoming
-        ? { a: l.j, b: heldIndex, seed: true }
-        : { a: heldIndex, b: l.j, seed: true },
-    );
+    const g = showLocal
+      ? localGraph(index, heldIndex, LOCAL_HOPS)
+      : (() => {
+          const links: GraphLink[] = linksOf(index, heldIndex).map((l) =>
+            l.incoming
+              ? { a: l.j, b: heldIndex, seed: true }
+              : { a: heldIndex, b: l.j, seed: true },
+          );
+          return {
+            nodes: [
+              heldIndex,
+              ...new Set(links.map((l) => (l.a === heldIndex ? l.b : l.a))),
+            ],
+            links,
+          };
+        })();
+    // 연도 범위 밖의 이웃은 그래프에서도 뺀다.
     return {
-      nodes: [
-        heldIndex,
-        ...new Set(links.map((l) => (l.a === heldIndex ? l.b : l.a))),
-      ],
-      links,
+      nodes: g.nodes.filter((i) => i === heldIndex || inYears(i)),
+      links: g.links.filter((l) => inYears(l.a) && inYears(l.b)),
     };
-  }, [index, heldIndex, showLocal]);
+  }, [index, heldIndex, showLocal, inYears]);
   const hoverNodes = useMemo(
     () => graph.nodes.map((i) => points[i]),
     [points, graph],
   );
+  // 강조 노드에서 각 이웃까지의 거리(지도 단위). 연결선 앞머리와 견줘 닿았는지 본다.
+  // 지도 단위로 두어야 확대·축소해도 이미 닿은 선·라벨이 그대로다(픽셀로 재면 배율이
+  // 바뀔 때 앞머리가 뒤로 밀려 애니메이션이 다시 돈다).
+  const linkLength = useMemo(() => {
+    const out = new Map<number, number>();
+    if (heldIndex < 0) return out;
+    for (const i of graph.nodes)
+      if (i !== heldIndex)
+        out.set(
+          i,
+          Math.hypot(map.x[i] - map.x[heldIndex], map.y[i] - map.y[heldIndex]),
+        );
+    return out;
+  }, [graph, heldIndex, map]);
+  const farthest = Math.max(0, ...linkLength.values());
+  // 라벨 페이드 거리는 강조가 켜진 순간의 배율로 지도 단위로 굳힌다 — 그 뒤 배율이
+  // 바뀌어도 이미 켜진 라벨이 다시 옅어지지 않는다.
+  const [focusZoom, setFocusZoom] = useState({
+    key: focusIndex,
+    zoom: camera.zoom,
+  });
+  if (focusIndex >= 0 && focusZoom.key !== focusIndex)
+    setFocusZoom({ key: focusIndex, zoom: camera.zoom });
+  const fadeWorld = LINK_FADE_PX / 2 ** focusZoom.zoom;
+  // 연결선 앞머리(지도 단위). 화면에서 초당 LINK_SPEED px가 되도록 지금 배율로 나눈
+  // 속도로 나아가고, 가장 먼 이웃에 닿고 그 라벨이 다 켜질 만큼까지 간다.
+  const front = useFront(
+    focusIndex,
+    LINK_SPEED / 2 ** camera.zoom,
+    farthest + fadeWorld,
+    reduced,
+  );
+  // 이웃 i의 점·라벨 알파(0~1): 선이 닿은 뒤 240ms에 걸쳐 켜지고, 강조가 꺼지면 hoverT로
+  // 같이 옅어진다.
+  const linked = (i: number) =>
+    hoverT *
+    Math.min(1, Math.max(0, (front - (linkLength.get(i) ?? 0)) / fadeWorld));
+  const allLinked = front >= farthest;
   // 에이전트의 시스템 프롬프트가 읽는 확대 단계.
   const setMapLevel = useStore((s) => s.setMapLevel);
   useEffect(() => setMapLevel(level), [level, setMapLevel]);
@@ -639,6 +821,27 @@ export default function MapView() {
     () => regionLabels(a.tree.data, a.clusters.data ?? [], 2),
     [a.tree.data, a.clusters.data],
   );
+  // 영역 이름마다 그려지는 논문이 있는지. 상위·하위 분야는 자손 주제를 합친다.
+  const regionAlive = useMemo(() => {
+    const alive = new Set<string>();
+    const check = (items: ReturnType<typeof regionLabels>) => {
+      for (const n of items) {
+        const clusters =
+          n.node !== undefined
+            ? descendants(a.tree.data, n.node)
+            : new Set([n.cluster!]);
+        for (const c of clusters)
+          if ((clusterShare.get(c) ?? 0) > 0) {
+            alive.add(n.id);
+            break;
+          }
+      }
+    };
+    check(top);
+    check(sub);
+    check(leaves);
+    return alive;
+  }, [top, sub, leaves, a.tree.data, clusterShare]);
   const radii = useMemo(
     () => regionRadii(map, a.tree.data, a.clusters.data ?? []),
     [map, a.tree.data, a.clusters.data],
@@ -654,6 +857,7 @@ export default function MapView() {
     if (relativeZoom >= PAPER_LABEL_ZOOM + 0.5) return out;
     const [cx, cy] = viewport.unproject([size.width / 2, size.height / 2]);
     for (const n of [...regionSet].sort((a, b) => b.size - a.size)) {
+      if (!regionAlive.has(n.id)) continue;
       let [x, y] = viewport.project([n.x, n.y, 0]);
       const w = Math.min(205, n.label.length * 10),
         h = Math.ceil(n.label.length / 20) * 23;
@@ -678,7 +882,7 @@ export default function MapView() {
       out.set(n.id, [x, y]);
     }
     return out;
-  }, [relativeZoom, regionSet, viewport, size, radii]);
+  }, [relativeZoom, regionSet, viewport, size, radii, regionAlive]);
   // 논문 제목의 바닥 배율(절대 zoom). 겹치지 않는 제목은 여기서부터 진해진다.
   // 상위 분야 단계에서는 안 켠다. 하위 분야 단계인데 화면에 영역 이름이 하나도
   // 없으면(영역 사이 빈 곳) 바닥을 없애 겹치지 않는 제목을 바로 켠다 — 그 순간
@@ -702,7 +906,8 @@ export default function MapView() {
   // TextLayer의 글꼴 아틀라스에 넣을 글자. 제목에 나오는 글자 전부와 말줄임표(133자).
   // 'auto'로 두면 새 글자가 화면에 들어올 때마다 아틀라스를 다시 만든다.
   const characterSet = useMemo(
-    () => [...new Set(map.title.join("") + "…")].join(""),
+    () =>
+      [...new Set(map.title.join("").toUpperCase() + "0123456789…")].join(""),
     [map],
   );
   // 글꼴 아틀라스는 실제로 그려질 크기(11px × 기기 픽셀 비율)로, 1:1로 표본한다.
@@ -731,20 +936,34 @@ export default function MapView() {
   }, [characterSet, typo]);
   // 제목 상자 폭과 한 줄로 줄인 제목(`…`). 지도마다 한 번(1만 편에 약 70ms). 필터가
   // 바뀌어도 다시 재지 않는다.
-  const widths = useMemo(
-    () =>
-      map.title.map(
-        (t) =>
-          Math.min(TITLE_MAX_WIDTH, measure(t) + TITLE_PADDING) + TITLE_GAP_X,
-      ),
-    [map, measure],
-  );
   const displays = useMemo(
     () =>
       map.title.map((t) =>
-        truncateTitle(measure, t, TITLE_MAX_WIDTH - TITLE_PADDING),
+        truncateTitle(
+          measure,
+          t.toUpperCase(),
+          TITLE_MAX_WIDTH - TITLE_PADDING,
+        ),
       ),
     [map, measure],
+  );
+  const values = useMemo(
+    () => map.year.map((y) => (y === null ? "" : String(y))),
+    [map],
+  );
+  // 값의 가로 오프셋과, 겹침 계산용 상자 폭(점 중심 대칭: 오른쪽 라벨 끝까지의 두 배).
+  const valueDx = useMemo(
+    () => displays.map((d) => TITLE_OFFSET_X + measure(d) + VALUE_GAP),
+    [displays, measure],
+  );
+  const widths = useMemo(
+    () =>
+      displays.map(
+        (_, i) =>
+          2 * (valueDx[i] + measure(values[i]) + TITLE_PADDING / 2) +
+          TITLE_GAP_X,
+      ),
+    [displays, values, valueDx, measure],
   );
   // 제목 상자: 필터에 든 논문만. 필터 밖 논문은 자리를 차지하지 않는다.
   const boxes = useMemo(
@@ -819,8 +1038,10 @@ export default function MapView() {
         i: b.i,
         k,
         text: displays[b.i],
+        value: values[b.i],
+        valueDx: valueDx[b.i],
         position: [b.x, b.y],
-        dy: TITLE_OFFSET_Y + TITLE_HEIGHT * reveals.row[k],
+        dy: TITLE_HEIGHT * reveals.row[k],
         selected: isSelected,
       };
       if (isSelected) selected = t;
@@ -834,6 +1055,8 @@ export default function MapView() {
     reveals,
     map,
     displays,
+    values,
+    valueDx,
     state.selected,
     memberFloor,
     zoomStep,
@@ -850,6 +1073,63 @@ export default function MapView() {
   // 놓는다). 켜지는 순간 알파 0으로 두면 이미 켜져 있던 제목이 한 번 꺼졌다 켜진다.
   const activeSet = useMemo(() => new Set(graph.nodes), [graph]);
   const activeKey = heldIndex + ":" + graph.nodes.length;
+  // 펼친 라벨: 강조 노드와, 선택 중에 마우스를 올린 이웃(0.5초 뒤). 제목 전문을 미리
+  // 줄바꿈해 두고 줄 수와 가장 긴 줄로 펼친 상자를 잡는다.
+  const hoverNeighbor =
+    selectedIndex >= 0 &&
+    active >= 0 &&
+    active !== selectedIndex &&
+    activeSet.has(active)
+      ? active
+      : -1;
+  const expandFor = useCallback(
+    (i: number) => {
+      if (i < 0) return null;
+      const lines = wrapTitle(
+        measure,
+        map.title[i].toUpperCase(),
+        TITLE_MAX_WIDTH - TITLE_PADDING,
+      );
+      const text = lines.join("\n");
+      return {
+        i,
+        lines,
+        text,
+        chars: Array.from(text),
+        width: Math.max(0, ...lines.map(measure)),
+        lastWidth: lines.length ? measure(lines[lines.length - 1]) : 0,
+      };
+    },
+    [map, measure],
+  );
+  const expanded = useMemo(() => expandFor(heldIndex), [expandFor, heldIndex]);
+  const expandedHover = useMemo(
+    () => expandFor(hoverNeighbor),
+    [expandFor, hoverNeighbor],
+  );
+  // 타이핑 진행. 같은 노드가 호버 → 선택으로 바뀌면 이어서 간다.
+  const typedCount = useTyping(
+    heldIndex,
+    expanded?.chars.length ?? 0,
+    TYPE_MS,
+    reduced,
+  );
+  const typedHover = useTyping(
+    hoverNeighbor,
+    expandedHover?.chars.length ?? 0,
+    TYPE_MS,
+    reduced,
+  );
+  const typingDone = !!expanded && typedCount >= expanded.chars.length;
+  const typingHoverDone =
+    !!expandedHover && typedHover >= expandedHover.chars.length;
+  // 활성 라벨 하나의 펼침 상태와 타이핑 진행.
+  const expansionOf = (i: number) =>
+    expanded && i === expanded.i
+      ? { ex: expanded, typed: typedCount, done: typingDone }
+      : expandedHover && i === expandedHover.i
+        ? { ex: expandedHover, typed: typedHover, done: typingHoverDone }
+        : null;
   // 활성 라벨의 자리. 강조 노드는 항상, 나머지는 피인용수 순으로 앞서 놓인 활성
   // 라벨·지도 제목(이 칸에서 켜질 수 있는 것 전부)과 겹치지 않을 때만. 반 단계 배율의
   // 내림값으로 재므로 같은 단계 안에서 더 확대돼도 겹치지 않고, 단계가 오르면 다시
@@ -859,7 +1139,7 @@ export default function MapView() {
     const s = 2 ** (zoomStep * TITLE_ZOOM_STEP);
     const boxOf = (i: number, dy: number): LabelBox => ({
       x: map.x[i] * s - widths[i] / 2,
-      y: map.y[i] * s + dy,
+      y: map.y[i] * s + dy - TITLE_HEIGHT / 2,
       w: widths[i],
       h: TITLE_HEIGHT,
     });
@@ -874,27 +1154,138 @@ export default function MapView() {
           Number.isFinite(map.y[i]),
       )
       .sort((p, q) => map.cited[q] - map.cited[p]);
-    const candidates = [heldIndex, ...order].map((i) => ({
-      i,
-      dy: baseDy.get(i) ?? TITLE_OFFSET_Y,
-    }));
-    const obstacles = titles
-      .filter((t) => !activeSet.has(t.i))
-      .map((t) => boxOf(t.i, t.dy));
+    // 마우스를 올린 이웃(펼침)은 강조 노드 바로 다음에 놓아 자리를 먼저 잡는다.
+    const hovered = expandedHover ? [expandedHover.i] : [];
+    const candidates = [
+      heldIndex,
+      ...hovered,
+      ...order.filter((i) => !hovered.includes(i)),
+    ].map((i) => ({ i, dy: baseDy.get(i) ?? 0 }));
+    // 지도 제목은 장애물로 두지 않는다 — 활성 라벨이 우선이고, 겹치는 지도 제목 쪽이
+    // 옅어진다(`covered`). 확대하면서 지도 제목이 새로 켜져도 활성 라벨은 그대로다.
+    // 펼친 라벨의 상자는 펼친 크기(전문의 가장 긴 줄 × 줄 수)로 둔다.
+    const expandedOf = (i: number) =>
+      expanded && i === expanded.i
+        ? expanded
+        : expandedHover && i === expandedHover.i
+          ? expandedHover
+          : null;
+    const expandedBox = (i: number, dy: number): LabelBox => {
+      const ex = expandedOf(i)!;
+      const half =
+        TITLE_OFFSET_X +
+        ex.width +
+        VALUE_GAP +
+        measure(values[i]) +
+        TITLE_PADDING / 2;
+      return {
+        x: map.x[i] * s - half,
+        y: map.y[i] * s + dy - TITLE_HEIGHT / 2,
+        w: 2 * half,
+        h: TITLE_HEIGHT * Math.max(1, ex.lines.length),
+      };
+    };
     return placeLabels(
-      candidates.map((c) => boxOf(c.i, c.dy)),
-      obstacles,
+      candidates.map((c) =>
+        expandedOf(c.i) ? expandedBox(c.i, c.dy) : boxOf(c.i, c.dy),
+      ),
+      [],
     ).map((k) => {
       const { i, dy } = candidates[k];
+      const ex = expandedOf(i);
       return {
         id: map.id[i],
         i,
-        text: displays[i],
+        text: ex ? ex.text : displays[i],
+        value: values[i],
+        valueDx: ex ? TITLE_OFFSET_X + ex.lastWidth + VALUE_GAP : valueDx[i],
         position: [map.x[i], map.y[i]] as [number, number],
         dy,
+        valueDy: ex ? dy + TITLE_HEIGHT * (ex.lines.length - 1) : dy,
+        showValue: !ex,
       };
     });
-  }, [heldIndex, graph, activeSet, zoomStep, map, widths, displays, titles]);
+  }, [
+    expanded,
+    expandedHover,
+    measure,
+    heldIndex,
+    graph,
+    zoomStep,
+    map,
+    widths,
+    displays,
+    values,
+    valueDx,
+    titles,
+  ]);
+  // 활성 라벨(펼친 강조 라벨과 이웃 라벨)에 가려지는 지도 제목. 강조가 켜지는 동안
+  // 함께 옅어진다 — 활성 라벨이 지도 제목보다 우선이다.
+  const covered = useMemo(() => {
+    const out = new Set<number>();
+    if (!activeTitles.length) return out;
+    const s = 2 ** (zoomStep * TITLE_ZOOM_STEP);
+    // 라벨 하나의 실제 사각형(점 오른쪽). 지도 제목·이웃 라벨은 한 줄, 강조 라벨은 펼친 크기.
+    const rect = (i: number, dy: number, lines: number, width: number) => {
+      const x0 = map.x[i] * s + TITLE_OFFSET_X,
+        y0 = map.y[i] * s + dy - TITLE_HEIGHT / 2;
+      return [x0, y0, x0 + width, y0 + TITLE_HEIGHT * lines] as const;
+    };
+    const active = activeTitles.map((t) => {
+      const ex =
+        expanded && t.i === expanded.i
+          ? expanded
+          : expandedHover && t.i === expandedHover.i
+            ? expandedHover
+            : null;
+      return ex
+        ? rect(
+            t.i,
+            t.dy,
+            ex.lines.length,
+            ex.width + VALUE_GAP + measure(values[t.i]),
+          )
+        : rect(
+            t.i,
+            t.dy,
+            1,
+            widths[t.i] / 2 - TITLE_GAP_X / 2 - TITLE_OFFSET_X,
+          );
+    });
+    for (const t of titles) {
+      if (activeSet.has(t.i)) continue;
+      const [x0, y0, x1, y1] = rect(
+        t.i,
+        t.dy,
+        1,
+        widths[t.i] / 2 - TITLE_GAP_X / 2 - TITLE_OFFSET_X,
+      );
+      if (
+        active.some(
+          ([ax0, ay0, ax1, ay1]) =>
+            x0 < ax1 && x1 > ax0 && y0 < ay1 && y1 > ay0,
+        )
+      )
+        out.add(t.i);
+    }
+    return out;
+  }, [
+    activeTitles,
+    expanded,
+    expandedHover,
+    zoomStep,
+    map,
+    measure,
+    values,
+    titles,
+    activeSet,
+    widths,
+  ]);
+  const coveredKey = [...covered].join(",");
+  const titleAlpha = (t: Title) =>
+    255 *
+    titleOpacity(t) *
+    (activeSet.has(t.i) || covered.has(t.i) ? 1 - hoverT : 1);
   useEffect(() => {
     const el = container.current as
       (HTMLDivElement & { __map?: MapBridge }) | null;
@@ -941,7 +1332,7 @@ export default function MapView() {
       ? ([x, y] as [number, number])
       : null;
   }, [selectedIndex, viewport, map, size]);
-  const menu = [
+  const menu: MenuItem[] = [
     {
       label: "노드 상세정보",
       icon: <Info />,
@@ -1003,21 +1394,27 @@ export default function MapView() {
   const layers = [
     // 영역 배경. 영역마다 옅어지는 원 하나를 GPU에서 픽셀마다 계산한다 — 어떤
     // 배율에서도 매끈하다.
-    new ScatterplotLayer<RegionBlob>({
-      id: "soft-regions",
-      data: blobs,
-      getPosition: (b) => b.position,
-      getRadius: (b) => b.radius,
-      radiusUnits: "common",
-      getFillColor: (b) => [...b.color, 255],
-      antialiasing: false,
-      opacity: state.color === "cluster" ? 0.7 : 0.2,
-      extensions: [regionGradient],
-      pickable: false,
-    }),
+    SHOW_REGION_BLOBS &&
+      new ScatterplotLayer<RegionBlob>({
+        id: "soft-regions",
+        data: blobs,
+        getPosition: (b) => b.position,
+        getRadius: (b) => b.radius,
+        radiusUnits: "common",
+        // 그려지는 논문 비율만큼 옅어진다(연도 범위 밖이면 사라진다).
+        getFillColor: (b) => [
+          ...b.color,
+          Math.round(255 * (clusterShare.get(b.id) ?? 0)),
+        ],
+        antialiasing: false,
+        opacity: state.color === "cluster" ? 0.7 : 0.2,
+        extensions: [regionGradient],
+        pickable: false,
+        updateTriggers: { getFillColor: [clusterShare] },
+      }),
     new ScatterplotLayer({
       id: "papers",
-      data: points,
+      data: shownPoints,
       getPosition: (p) => p.position,
       getFillColor: (p) => colors[p.i],
       getRadius: baseRadius,
@@ -1025,12 +1422,21 @@ export default function MapView() {
       radiusScale: scale,
       radiusMinPixels: 1.3,
       radiusMaxPixels: DOT_RADIUS_MAX,
+      // 상위 피인용 논문은 흰 테두리.
+      stroked: true,
+      getLineColor: [255, 255, 255, 235],
+      getLineWidth: (p) => (topCited[p.i] ? 1 : 0),
+      lineWidthUnits: "pixels",
       // 마우스를 올린 동안 올린 점과 이웃 말고는 절반으로 옅어진다.
       opacity: 1 - HOVER_DIM * hoverT,
       pickable: true,
       autoHighlight: true,
       highlightColor: [255, 255, 255, 255],
-      updateTriggers: { getFillColor: [colors], getRadius: [state.color] },
+      updateTriggers: {
+        getFillColor: [colors],
+        getRadius: [topCited],
+        getLineWidth: [topCited],
+      },
       onHover: (info) => setHover(info.object ? info : null),
       onClick: (info) => {
         if (info.object) update({ selected: info.object.id });
@@ -1043,35 +1449,75 @@ export default function MapView() {
       new LineLayer<GraphLink>({
         id: "hover-links",
         data: graph.links,
-        getSourcePosition: (l) => points[l.a].position,
-        getTargetPosition: (l) => points[l.b].position,
+        // 강조 노드에 닿는 선은 강조 노드에서 이웃 쪽으로 앞머리(`front`)까지만
+        // 뻗는다. 로컬 그래프의 이웃끼리 선은 전부 닿은 뒤 옅게 나타난다.
+        getSourcePosition: (l) =>
+          l.seed && l.b === heldIndex
+            ? points[l.b].position
+            : points[l.a].position,
+        getTargetPosition: (l) => {
+          const from = l.seed && l.b === heldIndex ? points[l.b] : points[l.a],
+            to = l.seed && l.b === heldIndex ? points[l.a] : points[l.b];
+          if (!l.seed) return to.position;
+          const len = linkLength.get(to.i) ?? 0,
+            f = len > 0 ? Math.min(1, front / len) : 1;
+          return [
+            from.position[0] + (to.position[0] - from.position[0]) * f,
+            from.position[1] + (to.position[1] - from.position[1]) * f,
+            0,
+          ];
+        },
         // 강조 노드에 닿는 선은 방향 색(강조 노드가 인용 → 파랑, 강조 노드를 인용 →
         // 빨강), 로컬 그래프의 나머지 선은 옅은 한 색.
-        getColor: (l) =>
-          !l.seed ? LINK_FAR : l.a === heldIndex ? LINK_OUT : LINK_IN,
+        getColor: (l) => {
+          const c = !l.seed ? LINK_FAR : l.a === heldIndex ? LINK_OUT : LINK_IN,
+            a = (!l.seed ? LINK_FAR[3] * (allLinked ? 1 : 0) : 255) * hoverT;
+          return [c[0], c[1], c[2], a];
+        },
         getWidth: (l) => (l.seed ? LINK_WIDTH : LINK_FAR_WIDTH),
         widthUnits: "pixels",
-        opacity: hoverT,
         pickable: false,
-        updateTriggers: { getColor: [heldIndex] },
+        updateTriggers: {
+          getSourcePosition: [heldIndex],
+          getTargetPosition: [heldIndex, front, linkLength],
+          getColor: [heldIndex, hoverT, allLinked],
+        },
       }),
     heldIndex >= 0 &&
       new ScatterplotLayer({
         id: "hover-nodes",
         data: hoverNodes,
         getPosition: (p) => p.position,
+        // 강조 노드는 바로, 이웃은 선이 닿은 뒤에.
         getFillColor: (p) =>
-          p.i === heldIndex ? [255, 255, 255, 255] : colors[p.i],
+          p.i === heldIndex
+            ? [255, 255, 255, 255 * hoverT]
+            : [
+                colors[p.i][0],
+                colors[p.i][1],
+                colors[p.i][2],
+                colors[p.i][3] * linked(p.i),
+              ],
         getRadius: baseRadius,
         radiusUnits: "pixels",
         radiusScale: scale,
         radiusMinPixels: 1.3,
         radiusMaxPixels: DOT_RADIUS_MAX,
-        opacity: hoverT,
+        stroked: true,
+        getLineColor: (p) => [
+          255,
+          255,
+          255,
+          235 * (p.i === heldIndex ? hoverT : linked(p.i)),
+        ],
+        getLineWidth: (p) => (topCited[p.i] ? 1 : 0),
+        lineWidthUnits: "pixels",
         pickable: false,
         updateTriggers: {
-          getFillColor: [colors, heldIndex],
-          getRadius: [state.color],
+          getFillColor: [colors, heldIndex, hoverT, front, linkLength],
+          getLineColor: [heldIndex, hoverT, front, linkLength],
+          getRadius: [topCited],
+          getLineWidth: [topCited],
         },
       }),
     new ScatterplotLayer({
@@ -1100,23 +1546,60 @@ export default function MapView() {
       sizeUnits: "pixels",
       getSize: TITLE_FONT_SIZE,
       getPosition: (t) => t.position,
-      getPixelOffset: (t) => [0, t.dy],
-      getTextAnchor: "middle",
-      getAlignmentBaseline: "top",
-      getColor: (t) => [
-        ...typo.color,
-        Math.round(
-          255 * titleOpacity(t) * (activeSet.has(t.i) ? 1 - hoverT : 1),
-        ),
-      ],
+      getPixelOffset: (t) => [TITLE_OFFSET_X, t.dy],
+      getTextAnchor: "start",
+      getAlignmentBaseline: "center",
+      getColor: (t) => [...typo.color, Math.round(titleAlpha(t))],
       updateTriggers: {
-        getColor: [camera.zoom, paperFloor, regionless, activeKey, hoverT],
+        getColor: [
+          camera.zoom,
+          paperFloor,
+          regionless,
+          activeKey,
+          coveredKey,
+          hoverT,
+        ],
       },
       pickable: true,
       onHover: (info) => setHover(info.object ? info : null),
       onClick: (info) => {
         if (info.object) update({ selected: info.object.id });
       },
+    }),
+    // 제목 뒤의 값(연도). 점과 같은 색, 제목과 같은 불투명도.
+    new TextLayer<Title>({
+      id: "paper-values",
+      data: titles,
+      characterSet,
+      fontFamily: typo.fontFamily,
+      fontSettings,
+      _getFontRenderer: getFontRenderer,
+      extensions: [snapText],
+      sizeUnits: "pixels",
+      getSize: TITLE_FONT_SIZE,
+      getPosition: (t) => t.position,
+      getText: (t) => t.value,
+      getPixelOffset: (t) => [t.valueDx, t.dy],
+      getTextAnchor: "start",
+      getAlignmentBaseline: "center",
+      getColor: (t) => [
+        colors[t.i][0],
+        colors[t.i][1],
+        colors[t.i][2],
+        Math.round(titleAlpha(t)),
+      ],
+      updateTriggers: {
+        getColor: [
+          camera.zoom,
+          paperFloor,
+          regionless,
+          activeKey,
+          coveredKey,
+          hoverT,
+          colors,
+        ],
+      },
+      pickable: false,
     }),
     // 활성 라벨. 강조가 켜지는 동안 지도 제목과 같은 모양으로 나타난다.
     heldIndex >= 0 &&
@@ -1130,16 +1613,57 @@ export default function MapView() {
         extensions: [snapText],
         sizeUnits: "pixels",
         getSize: TITLE_FONT_SIZE,
+        // 줄 높이는 제목 줄 간격과 같다. 블록의 위를 첫 줄이 점 중심에 오도록 둔다.
+        lineHeight: TITLE_HEIGHT / TITLE_FONT_SIZE,
         getPosition: (t) => t.position,
-        getPixelOffset: (t) => [0, t.dy],
-        getTextAnchor: "middle",
+        getText: (t) => {
+          const e = expansionOf(t.i);
+          return e ? e.ex.chars.slice(0, e.typed).join("") : t.text;
+        },
+        getPixelOffset: (t) => [TITLE_OFFSET_X, t.dy - TITLE_HEIGHT / 2],
+        getTextAnchor: "start",
         getAlignmentBaseline: "top",
-        getColor: [...typo.color, 255],
-        opacity: hoverT,
+        // 강조 노드의 라벨은 바로, 이웃의 라벨은 선이 닿은 뒤에.
+        getColor: (t) => [
+          ...typo.color,
+          Math.round(255 * (t.i === heldIndex ? hoverT : linked(t.i))),
+        ],
         pickable: true,
+        updateTriggers: {
+          getText: [expanded, expandedHover, typedCount, typedHover],
+          getColor: [heldIndex, hoverT, front, linkLength],
+        },
         onHover: (info) => setHover(info.object ? info : null),
         onClick: (info) => {
           if (info.object) update({ selected: info.object.id });
+        },
+      }),
+    heldIndex >= 0 &&
+      new TextLayer<ActiveTitle>({
+        id: "active-values",
+        data: activeTitles,
+        characterSet,
+        fontFamily: typo.fontFamily,
+        fontSettings,
+        _getFontRenderer: getFontRenderer,
+        extensions: [snapText],
+        sizeUnits: "pixels",
+        getSize: TITLE_FONT_SIZE,
+        getPosition: (t) => t.position,
+        getText: (t) => (t.showValue || expansionOf(t.i)?.done ? t.value : ""),
+        getPixelOffset: (t) => [t.valueDx, t.valueDy],
+        getTextAnchor: "start",
+        getAlignmentBaseline: "center",
+        getColor: (t) => [
+          colors[t.i][0],
+          colors[t.i][1],
+          colors[t.i][2],
+          Math.round(255 * (t.i === heldIndex ? hoverT : linked(t.i))),
+        ],
+        pickable: false,
+        updateTriggers: {
+          getColor: [colors, heldIndex, hoverT, front, linkLength],
+          getText: [typingDone, typingHoverDone, expanded, expandedHover],
         },
       }),
   ];
@@ -1150,22 +1674,62 @@ export default function MapView() {
         label={n.label}
         placed={active ? shownRegions.get(n.id) : undefined}
         opacity={regionOpacity}
-        onClick={() => {
+        // 클릭은 그 영역만 켠다(나머지 점은 옅어진다). 상세·확대는 버튼 셋에서.
+        onClick={() =>
           update({
             node: n.node,
             selected: undefined,
             cluster: n.node === undefined ? n.cluster : undefined,
-          });
-          move({
-            target: [n.x, n.y, 0],
-            zoom: Math.max(
-              camera.zoom + 0.8,
-              home.zoom + (prefix === "top" ? 1.2 : 3),
-            ),
-          });
-        }}
+          })
+        }
       />
     ));
+  // 선택한 영역(주제·분야)의 이름이 화면에 있으면 그 위에 버튼 셋을 띄운다. 논문 선택이
+  // 우선이다.
+  const selectedRegion = useMemo(() => {
+    if (state.selected) return null;
+    const all = [
+      ...top.map((n) => ({ n, prefix: "top" })),
+      ...sub.map((n) => ({ n, prefix: "sub" })),
+      ...leaves.map((n) => ({ n, prefix: "leaf" })),
+    ];
+    return (
+      all.find(({ n }) =>
+        n.node !== undefined
+          ? state.node === n.node
+          : state.cluster !== undefined && state.cluster === n.cluster,
+      ) ?? null
+    );
+  }, [state.selected, state.node, state.cluster, top, sub, leaves]);
+  const regionMenuAt = selectedRegion
+    ? shownRegions.get(selectedRegion.n.id)
+    : undefined;
+  const regionMenu: MenuItem[] = selectedRegion
+    ? [
+        {
+          label: "영역 상세정보",
+          icon: <Info />,
+          onClick: () => setDetailOpen(true),
+        },
+        {
+          label: "AI에게 질문하기",
+          icon: <MessageSquareText />,
+          onClick: () => requestChat(),
+        },
+        {
+          label: "영역 확대",
+          icon: <ZoomIn />,
+          onClick: () =>
+            move({
+              target: [selectedRegion.n.x, selectedRegion.n.y, 0],
+              zoom: Math.max(
+                camera.zoom + 0.8,
+                home.zoom + (selectedRegion.prefix === "top" ? 1.2 : 3),
+              ),
+            }),
+        },
+      ]
+    : [];
   return (
     <div
       ref={container}
@@ -1177,6 +1741,8 @@ export default function MapView() {
       data-title-count={titles.length}
       data-hover-id={heldIndex >= 0 ? points[heldIndex].id : undefined}
       data-hover-links={graph.links.length}
+      data-link-front={(front * 2 ** camera.zoom).toFixed(0)}
+      data-link-farthest={(farthest * 2 ** camera.zoom).toFixed(0)}
       data-active-labels={activeTitles.length}
       data-local={showLocal || undefined}
       data-reveal-floor={settledHome.toFixed(4)}
@@ -1189,9 +1755,14 @@ export default function MapView() {
       onKeyDown={(e) => {
         // Escape는 버튼 셋에 포커스가 있어도 선택을 지운다. 상세 Dialog는 포털 밖이라
         // 여기로 오지 않는다.
-        if (e.key === "Escape" && state.selected) {
+        if (
+          e.key === "Escape" &&
+          (state.selected ||
+            state.cluster !== undefined ||
+            state.node !== undefined)
+        ) {
           e.preventDefault();
-          update({ selected: undefined });
+          update({ selected: undefined, cluster: undefined, node: undefined });
           return;
         }
         if (e.target !== e.currentTarget) return;
@@ -1253,7 +1824,17 @@ export default function MapView() {
         layers={layers}
         // 빈 곳 클릭은 선택 해제. 점·제목 클릭은 레이어가 먼저 받아 선택을 바꾼다.
         onClick={(info) => {
-          if (!info.object && state.selected) update({ selected: undefined });
+          if (info.object) return;
+          if (
+            state.selected ||
+            state.cluster !== undefined ||
+            state.node !== undefined
+          )
+            update({
+              selected: undefined,
+              cluster: undefined,
+              node: undefined,
+            });
         }}
         getCursor={({ isDragging }) =>
           isDragging ? "grabbing" : hover ? "pointer" : "grab"
@@ -1282,38 +1863,27 @@ export default function MapView() {
           "leaf",
         )}
         {menuAt && (
-          <div
-            className="node-menu"
-            data-testid="node-menu"
-            style={{ left: menuAt[0], top: menuAt[1] }}
-          >
-            {menu.map((item, k) => {
-              const a = (MENU_ANGLES[k] * Math.PI) / 180;
-              return (
-                <Tooltip key={item.label}>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        className="node-menu-btn"
-                        aria-label={item.label}
-                        aria-pressed={item.pressed}
-                        style={{
-                          left: MENU_RADIUS * Math.cos(a),
-                          top: MENU_RADIUS * Math.sin(a),
-                        }}
-                        onClick={item.onClick}
-                      />
-                    }
-                  >
-                    {item.icon}
-                  </TooltipTrigger>
-                  <TooltipContent>{item.label}</TooltipContent>
-                </Tooltip>
-              );
-            })}
-          </div>
+          <ArcMenu
+            at={menuAt}
+            items={menu}
+            angles={MENU_ANGLES}
+            radius={MENU_RADIUS}
+            menuKey={state.selected ?? ""}
+            testId="node-menu"
+          />
+        )}
+        {regionMenuAt && selectedRegion && (
+          <ArcMenu
+            at={regionMenuAt}
+            items={regionMenu}
+            angles={REGION_MENU_ANGLES}
+            radius={
+              (Math.ceil(selectedRegion.n.label.length / 20) * 23) / 2 +
+              REGION_MENU_GAP
+            }
+            menuKey={selectedRegion.n.id}
+            testId="region-menu"
+          />
         )}
       </div>
       {annotations.length > 0 && (
@@ -1363,22 +1933,6 @@ export default function MapView() {
         <Button
           variant="ghost"
           size="icon"
-          aria-label="지도 축소"
-          onClick={() =>
-            move({
-              ...camera,
-              zoom: Math.max(home.zoom - 2, camera.zoom - 0.6),
-            })
-          }
-        >
-          <Minus />
-        </Button>
-        <span className="mono">
-          {Math.round(100 * 2 ** (camera.zoom - home.zoom))}%
-        </span>
-        <Button
-          variant="ghost"
-          size="icon"
           aria-label="지도 확대"
           onClick={() =>
             move({
@@ -1389,29 +1943,40 @@ export default function MapView() {
         >
           <Plus />
         </Button>
+        <ZoomDial
+          zoom={camera.zoom}
+          home={home.zoom}
+          min={home.zoom - 2}
+          max={home.zoom + ZOOM_RANGE}
+          onChange={(zoom) => move({ ...camera, zoom }, false)}
+        />
         <Button
           variant="ghost"
           size="icon"
-          aria-label="지도 전체 보기"
-          onClick={() => {
-            update({ cluster: undefined, node: undefined });
-            move(home);
-          }}
+          aria-label="지도 축소"
+          onClick={() =>
+            move({
+              ...camera,
+              zoom: Math.max(home.zoom - 2, camera.zoom - 0.6),
+            })
+          }
         >
-          <RotateCcw />
+          <Minus />
         </Button>
       </div>
-      <div className="map-footnote">
-        {state.color === "year"
-          ? "발행연도 · 밝을수록 최근 · 연도 미상은 회색"
-          : state.color === "cited"
-            ? "피인용수 · 색·크기 로그 척도"
-            : state.color === "abstract"
-              ? "초록 있음: 녹색 / 없음: 분홍"
-              : "색상: 연구 주제 · 미분류: 회색"}
-        <br />
-        지도 거리는 차원 축소 결과입니다. 인용 관계와 함께 확인하세요.
-      </div>
+      {/* 전체 보기는 다이얼 묶음 밖에 따로 둔다 — 다이얼이 화면 세로 정가운데에 오도록. */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="map-reset"
+        aria-label="지도 전체 보기"
+        onClick={() => {
+          update({ cluster: undefined, node: undefined });
+          move(home);
+        }}
+      >
+        <RotateCcw />
+      </Button>
     </div>
   );
 }
