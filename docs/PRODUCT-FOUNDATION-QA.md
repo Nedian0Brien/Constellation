@@ -106,3 +106,20 @@ curl: `GET /api/citations`(ResNet: 참고문헌 17·피인용 204, 주제 id 포
 2. "Faster R-CNN, Mask R-CNN, DenseNet 세 논문을 비교해 줘" → `search_papers` 3회 → `compare_papers`·`annotate`·`fly_to`. 표(저자·학술지·피인용·코퍼스 안 참고/피인용)와 관계(Mask R-CNN → Faster R-CNN 직접 인용, 거리 0.01/21.07; DenseNet 은 인용 없음, 0.55)를 서술.
 3. 이어서 "Mask R-CNN 은 OpenAlex 기준 피인용이 몇이고 코퍼스 밖 2024년 이후 후속 연구 두 편" → `WebFetch`(OpenAlex 29,637, 코퍼스 값 29,463과 비교)·`WebSearch`·`WebFetch` 2회(arXiv 초록) → 출처 URL 과 "코퍼스 밖" 표시. 도구 카드 제목 "웹 검색"·"웹 페이지 읽기". 콘솔 오류 0.
 
+## 모델 선택기·Codex 백엔드 검증 — 2026-09-19
+
+| 검사 | 결과 |
+|---|---|
+| `agent/` node:test + typecheck | 6개 통과 |
+| Vitest | 39개 통과(history v2·codexThreadId patch·v1 폴백, settings 4개 추가) |
+| TypeScript + Vite build, Oxlint | 성공, 경고 39개(레지스트리 설치본 3개 추가: fast refresh) |
+| Playwright | 11개 통과(health·models 목 추가, 오프라인 → 다시 시도 시나리오 1개 추가) |
+
+curl(에이전트 서버 8788): `GET /api/agent/models` → claude 4·codex 5 모델. `tools:{zoom}`을 보낸 Codex 턴(`codex/gpt-5.5`, low, priority)에서 `b:{"toolName":"zoom"}` → `tool-result` `delivered: true` → "두 단계 확대했습니다. 현재 줌은 3.2입니다". `readOnlyHint` 없이는 codex가 "승인 정책 때문에 실행이 차단"이라고 답하고 MCP 엔드포인트에 `tools/call`이 오지 않았다.
+
+브라우저(Chromium, Vite 5176 → 서버 8788, SciNCL 실데이터):
+
+1. 선택기 → Codex·GPT-5.5·Low·Fast → "지도를 두 단계 확대해 줘" → 사고 과정 요약 → 도구 호출 1건(zoom) → 카메라 5.44 → 6.64 → "지도를 두 단계 확대했습니다". 본문에 `modelName·reasoningEffort·speed·sessionId`, 도구 15개. 두 번째 턴에 `codexThreadId`가 실리고 "방금 몇 단계 확대했지?" → "2".
+2. Opus·XHigh 선택 → 빈 Claude 대화로 갈아탐(Codex 대화는 `…:codex` 키에 남음) → "한 단어로 인사해" → "안녕하세요!"(`modelName: claude/opus[1m]`, `reasoningEffort: xhigh`). Codex에서 고른 `priority`는 Opus로 바꾸는 순간 지워진다.
+3. 서버 종료 → 새로고침 → "에이전트 서버가 꺼져 있습니다" + 다시 시도 → 서버 기동 → 다시 시도 → Claude 대화 복원. 콘솔 오류는 꺼져 있는 동안의 502뿐.
+
