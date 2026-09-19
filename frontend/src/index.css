@@ -1155,6 +1155,12 @@ input:focus-visible,
 }
 .region-name[data-active="true"] {
   pointer-events: auto;
+  /* 이름 위에서도 지도처럼 끌 수 있다. 터치는 브라우저 스크롤에 넘기지 않는다. */
+  cursor: grab;
+  touch-action: none;
+}
+.map-labels[data-dragging] .region-name {
+  cursor: grabbing;
 }
 /* 에이전트가 얹는 주석. 라벨 색·그림자는 .paper-name 과 같은 계열이다. */
 .map-annotations {

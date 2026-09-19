@@ -248,6 +248,62 @@ export default function MapView() {
     el.addEventListener("wheel", forward, { passive: false });
     return () => el.removeEventListener("wheel", forward);
   }, []);
+  // 영역 이름 위에서 누르고 끌면 지도가 따라온다. 포인터 이벤트는 deck에 되보내지
+  // 않는다 — mjolnir가 down/up으로 클릭을 다시 만들어 이름 뒤의 점을 집는다. 대신
+  // 시작 시점의 뷰포트로 픽셀 차를 지도 좌표 차로 바꿔 target을 옮긴다(화살표 키와
+  // 같은 경로). 4px 넘게 끌었으면 놓을 때 나오는 click은 onClickCapture에서 막는다.
+  const drag = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    from: Camera;
+    vp: OrthographicViewport;
+    moved: boolean;
+  } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const onLabelPointerDown = (e: React.PointerEvent) => {
+    const button = (e.target as Element).closest(".region-name");
+    if (!button || e.button !== 0) return;
+    button.setPointerCapture(e.pointerId);
+    drag.current = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      from: camera,
+      vp: new OrthographicViewport({ ...camera, ...size }),
+      moved: false,
+    };
+  };
+  const onLabelPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    if (!d.moved) {
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;
+      d.moved = true;
+      setDragging(true);
+    }
+    const [x0, y0] = d.vp.unproject([d.x, d.y]),
+      [x1, y1] = d.vp.unproject([e.clientX, e.clientY]);
+    move(
+      {
+        ...d.from,
+        target: [d.from.target[0] - (x1 - x0), d.from.target[1] - (y1 - y0), 0],
+      },
+      false,
+    );
+  };
+  const onLabelPointerEnd = (e: React.PointerEvent) => {
+    if (drag.current?.id !== e.pointerId) return;
+    // click은 pointerup 다음에 오므로 moved는 onClickCapture가 읽은 뒤에 지운다.
+    if (!drag.current.moved) drag.current = null;
+    setDragging(false);
+  };
+  const onLabelClickCapture = (e: React.MouseEvent) => {
+    if (drag.current?.moved) {
+      e.stopPropagation();
+      drag.current = null;
+    }
+  };
   useEffect(() => {
     const o = new ResizeObserver(([entry]) => {
       if (entry.contentRect.width > 0 && entry.contentRect.height > 0)
@@ -824,7 +880,17 @@ export default function MapView() {
           isDragging ? "grabbing" : hover ? "pointer" : "grab"
         }
       />
-      <div ref={labels} className="map-labels" aria-label="지도 라벨">
+      <div
+        ref={labels}
+        className="map-labels"
+        aria-label="지도 라벨"
+        data-dragging={dragging || undefined}
+        onPointerDown={onLabelPointerDown}
+        onPointerMove={onLabelPointerMove}
+        onPointerUp={onLabelPointerEnd}
+        onPointerCancel={onLabelPointerEnd}
+        onClickCapture={onLabelClickCapture}
+      >
         {renderRegions(top, level === "field", "top")}
         {renderRegions(
           sub,

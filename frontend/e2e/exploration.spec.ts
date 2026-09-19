@@ -343,6 +343,40 @@ test("wheel over a region name zooms the map and the name still opens the region
     })
     .toBe(true);
 });
+test("drag over a region name pans the map without opening the region", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const map = page.getByTestId("research-map");
+  await expect(map).toHaveAttribute("data-label-level", "field");
+  const targetOf = async () =>
+    (await map.getAttribute("data-camera"))!.split(":")[1];
+  const name = page.locator(".region-name[data-active=true]").first();
+  await expect(name).toBeVisible();
+  const box = (await name.boundingBox())!;
+  const cx = box.x + box.width / 2,
+    cy = box.y + box.height / 2;
+  // 이름 위에서 누르고 120px 끌면 지도가 따라오고, 놓아도 그 영역으로 들어가지 않는다.
+  const start = await targetOf();
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 60, cy + 40, { steps: 4 });
+  await page.mouse.move(cx + 120, cy + 80, { steps: 4 });
+  await expect.poll(targetOf).not.toBe(start);
+  await page.mouse.up();
+  // 클릭이 났다면 URL이 바로 바뀐다. 잠시 두고 확인한다.
+  await page.waitForTimeout(300);
+  const q = new URL(page.url()).searchParams;
+  expect(q.has("node") || q.has("cluster")).toBe(false);
+  // 끈 뒤 같은 이름을 그냥 클릭하면 들어간다.
+  await name.click();
+  await expect
+    .poll(() => {
+      const q = new URL(page.url()).searchParams;
+      return q.has("node") || q.has("cluster");
+    })
+    .toBe(true);
+});
 test("explicit region selection replaces paper detail with the real cluster", async ({
   page,
   request,
