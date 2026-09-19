@@ -192,12 +192,21 @@ def cluster(
 @app.command()
 def hierarchy(
     model: str = typer.Option("scincl", "--model", "-m"),
-    levels: str = typer.Option("8,18", "--levels", help="레벨별 노드 수. 잎은 자동"),
+    method: str = typer.Option("2d", "--method", help="2d(지도 좌표 ward) 또는 topical(임베딩 중심 · 2D 이웃 제약 ward)"),
+    levels: str | None = typer.Option(None, "--levels",
+                                      help="상위·하위 분야 절단. 2d는 노드 수(기본 8,18), topical은 병합 비용 문턱(기본 0.16,0.10)"),
+    compare: bool = typer.Option(False, "--compare", help="두 방식을 세워 지표를 비교만 한다. DB에 쓰지 않는다"),
 ) -> None:
-    """클러스터 위에 ward 트리를 세운다 (bottom-up, 2D 좌표)."""
-    from .analyze.hierarchy import build
-    ks = tuple(int(x) for x in levels.split(",") if x.strip())
-    r = build(model, levels=ks, log=console.print)
+    """클러스터 위에 ward 트리를 세운다 (bottom-up)."""
+    from .analyze.hierarchy import build, compare as run_compare
+    if compare:
+        run_compare(model, log=console.print)
+        return
+    ks = None
+    if levels:
+        vals = [x.strip() for x in levels.split(",") if x.strip()]
+        ks = tuple(int(v) for v in vals) if method == "2d" else tuple(float(v) for v in vals)
+    r = build(model, method=method, levels=ks, log=console.print)
     console.print()
     console.print("[green]완료[/] — 노드 %d개(잎 %d), 레벨 %s"
                   % (r["n_nodes"], r["n_leaves"],
