@@ -77,6 +77,7 @@ export async function pipeAgentToStream(
           type: "data",
           name: "session",
           data: {
+            provider: "claude",
             sessionId: msg.session_id,
             model: msg.model,
             cwd: msg.cwd,
