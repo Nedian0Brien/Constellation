@@ -41,6 +41,11 @@ pub fn clusters(state: State<AppState>, run: String) -> Reply<Vec<queries::Clust
 }
 
 #[tauri::command]
+pub fn edges(state: State<AppState>, run: String) -> Reply<queries::EdgesData> {
+    queries::edges(&state.db(), &run)
+}
+
+#[tauri::command]
 pub fn cluster_detail(
     state: State<AppState>,
     run: String,

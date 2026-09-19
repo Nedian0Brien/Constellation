@@ -1,21 +1,36 @@
 import { useReducedMotion } from "../hooks/use-reduced-motion";
 import { useTween } from "../hooks/use-tween";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import DeckGL, { type DeckGLRef } from "@deck.gl/react";
 import {
+  LineLayer,
   ScatterplotLayer,
   TextLayer,
   type TextLayerProps,
 } from "@deck.gl/layers";
 import { OrthographicView, OrthographicViewport } from "@deck.gl/core";
 import type { PickingInfo } from "@deck.gl/core";
-import { Minus, Plus, RotateCcw } from "lucide-react";
+import {
+  Info,
+  MessageSquareText,
+  Minus,
+  Plus,
+  RotateCcw,
+  Waypoints,
+} from "lucide-react";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { useStore, type Camera } from "../store";
+import { fetchEdges } from "../api";
 // 제목 타일의 zoomStep(아래)과 이름이 겹쳐 에이전트 쪽은 별칭으로 들여온다.
 import { levelOffset, zoomStep as agentZoomStep } from "../agent/resolve";
 import { Button } from "../components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip";
 import {
   labelLevel,
   paperTitleOpacity,
@@ -28,16 +43,57 @@ import {
   truncateTitle,
   MAX_ROWS,
   homeCamera,
+  fitCamera,
   descendants,
 } from "./map/labels";
+import { placeLabels, type LabelBox } from "./map/active-labels";
 import { clusterColor, regionBlobs, type RegionBlob } from "./map/regions";
+import {
+  citationIndex,
+  degreeOf,
+  dotScale,
+  linksOf,
+  localGraph,
+  type GraphLink,
+  type LocalGraph,
+} from "./map/edges";
 import { SnapTextExtension } from "./map/text-snap";
 import { RegionGradientExtension } from "./map/region-gradient";
 const view = new OrthographicView({ id: "research-map" });
 const snapText = new SnapTextExtension(),
   regionGradient = new RegionGradientExtension();
-// 라벨이 켜지고 꺼지는 시간. `.region-name`의 transition과 같다.
+// 라벨이 켜지고 꺼지는 시간. `.region-name`의 transition과 같다. 호버 연결선과
+// 옅어짐도 같은 시간에 맞춘다.
 const LABEL_FADE_MS = 240;
+// 점 반지름의 픽셀 상한. 제목이 점 중심 아래 9px에서 시작하므로 그 안에 둔다. 선택한
+// 논문의 고리는 점보다 5px 밖, 기준 배율에서는 지금처럼 10px.
+const DOT_RADIUS_MAX = 7,
+  HALO_GAP = 5,
+  HALO_MIN = 10;
+// 마우스를 올린 논문의 인용 관계. 참조(올린 논문 → 이웃)는 파랑, 피인용(이웃 → 올린
+// 논문)은 빨강 — dataviz 기준 팔레트의 다크 모드 발산 쌍(#3987e5·#e66767)으로, 지도
+// 바탕 #0e1319 위에서 검증기를 통과한다(CVD ΔE 19.2, 정상 시각 29.0, 대비 3:1 이상).
+// 굵기 2px는 같은 규격의 선 표식. 나머지 점은 절반으로 옅어진다(shadcn `opacity-50`).
+const LINK_OUT: [number, number, number] = [57, 135, 229],
+  LINK_IN: [number, number, number] = [230, 103, 103],
+  LINK_WIDTH = 2,
+  HOVER_DIM = 0.5;
+// 로컬 그래프에서 선택 노드에 닿지 않는 선(이웃끼리의 인용). `--ink-soft` #93a3b4, 1px, 옅게.
+const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
+  LINK_FAR_WIDTH = 1;
+// 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값(1초 → 0.5초).
+const HOVER_DELAY_MS = 500;
+// 선택 모드의 버튼 셋: 노드에서 36px 떨어진 원의 위쪽 호에 60° 간격. 아래쪽은 노드의
+// 제목이 차지한다(점 아래 9px). 버튼은 32px(desktop dense, `design-ops`
+// patterns/button.md 높이 분포).
+const MENU_RADIUS = 36,
+  MENU_ANGLES = [-150, -90, -30];
+// 선택 시 노드가 가장자리 이 안쪽이면 중앙으로 옮긴다 — 버튼이 화면 밖으로 안 나가게.
+const SELECT_MARGIN = 90;
+// 로컬 그래프를 화면에 맞출 때의 여백.
+const FIT_PADDING = 80;
+// 로컬 그래프의 홉 수. 2홉은 선이 너무 많았다(사용자 지시로 1홉).
+const LOCAL_HOPS = 1;
 // 논문 제목 상자. 본문 글꼴 11px, 220px 최대 폭(안쪽 여백 2px 4px를 뺀 212px에
 // 글자), 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의 줄
 // 간격이기도 하다. 글자는 점 아래 9px(위 여백 7 + 안쪽 2)에서 시작한다.
@@ -172,8 +228,21 @@ export interface MapBridge {
   project(x: number, y: number): [number, number] | null;
   /** 화면 픽셀 자리에 그려진 논문 id. */
   pick(x: number, y: number): string | null;
+  /** 이 run 안에서 그 논문과 인용으로 이어진 논문 수. 자료가 아직 없으면 -1. */
+  degree(id: string): number;
 }
 const EMPTY_TITLES: Title[] = [];
+// 활성 라벨(강조 노드와 인용 이웃의 제목). 지도 제목과 같은 모양이지만 자리는
+// 겹치지 않게 그때그때 고른다.
+interface ActiveTitle {
+  id: string;
+  i: number;
+  text: string;
+  position: [number, number];
+  dy: number;
+}
+const EMPTY_ACTIVE: ActiveTitle[] = [];
+const EMPTY_GRAPH: LocalGraph = { nodes: [], links: [] };
 // 영역 이름 하나. 켜진 동안만 자리를 옮기고, 꺼지면 마지막 자리에 그대로 두어 240ms
 // 페이드아웃만 한다 — 매 프레임 65개의 위치를 갱신하던 것이 스타일 재계산의 대부분이었다.
 // 한 번도 켜진 적 없는 이름은 만들지 않는다. 마지막 자리는 이전 렌더의 값을 state에
@@ -226,10 +295,131 @@ export default function MapView() {
     frame = useRef(0);
   const reduced = useReducedMotion();
   const [hover, setHover] = useState<PickingInfo<{ i: number }> | null>(null);
+  // run 안의 인용 관계 전부를 한 번 받아 인접 표로 둔다. 호버는 로컬에서 바로 그린다.
+  const edges = useQuery({
+    queryKey: ["edges", map.run_id],
+    queryFn: ({ signal }) => fetchEdges(map.run_id, signal),
+  });
+  const index = useMemo(() => {
+    const e = edges.data;
+    if (!e) return null;
+    const built =
+      e.n === map.n ? citationIndex(map.n, e.citing, e.cited) : null;
+    if (!built)
+      console.error(
+        "인용 관계 자료가 지도와 어긋난다 — 연결선을 그리지 않는다.",
+        {
+          edges: e.n,
+          map: map.n,
+        },
+      );
+    return built;
+  }, [edges.data, map.n]);
+  // 호버는 같은 점 위에 0.5초 머문 뒤에야 켜진다. 다른 점으로 옮기거나 떠나면 바로
+  // 꺼지고(렌더 중 state 조정) 새 점은 다시 0.5초를 기다린다.
+  const pointerIndex = hover?.object?.i ?? -1;
+  const [active, setActive] = useState(-1);
+  if (active >= 0 && active !== pointerIndex) setActive(-1);
+  useEffect(() => {
+    if (pointerIndex < 0) return;
+    const t = setTimeout(() => setActive(pointerIndex), HOVER_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [pointerIndex]);
   const deckRef = useRef<DeckGLRef<typeof view>>(null);
   useEffect(() => {
     if (reduced) cancelAnimationFrame(frame.current);
   }, [reduced]);
+  // 영역 이름은 deck 캔버스 위에 얹힌 형제 오버레이라, 켜진 이름 위에서 굴린 휠은
+  // deck의 이벤트 루트(.deck-events-root)에 닿지 않아 확대가 멈춘다. 휠만 캔버스로
+  // 되보낸다 — 클릭·호버는 이름이 그대로 갖는다. React의 onWheel은 passive라
+  // 원본의 스크롤을 못 막으므로 native 리스너를 쓴다. 되보낸 이벤트는 캔버스에서
+  // 컨테이너로 올라가고 오버레이는 그 경로에 없어 다시 여기로 오지 않는다.
+  const labels = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = labels.current;
+    if (!el) return;
+    const forward = (e: WheelEvent) => {
+      const canvas = deckRef.current?.deck?.getCanvas();
+      if (!canvas) return;
+      e.preventDefault();
+      canvas.dispatchEvent(new WheelEvent(e.type, e));
+    };
+    el.addEventListener("wheel", forward, { passive: false });
+    return () => el.removeEventListener("wheel", forward);
+  }, []);
+  // 영역 이름 위에서 누르고 끌면 지도가 따라온다. 포인터 이벤트는 deck에 되보내지
+  // 않는다 — mjolnir가 down/up으로 클릭을 다시 만들어 이름 뒤의 점을 집는다. 대신
+  // 한 걸음마다 지금 카메라의 뷰포트로 픽셀 차를 지도 좌표 차로 바꿔 target을 옮긴다
+  // (화살표 키와 같은 경로). 끄는 중에 휠로 배율이 바뀌어도 그 배율에서 이어진다.
+  // 4px 넘게 끌었으면 놓을 때 나오는 click은 onClickCapture에서 막는다.
+  const drag = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    x0: number;
+    y0: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClick = useRef(false);
+  const [dragging, setDragging] = useState(false);
+  const onLabelPointerDown = (e: React.PointerEvent) => {
+    const button = (e.target as Element).closest(".region-name");
+    if (!button || e.button !== 0) return;
+    button.setPointerCapture(e.pointerId);
+    drag.current = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      x0: e.clientX,
+      y0: e.clientY,
+      moved: false,
+    };
+  };
+  const onLabelPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    if (!d.moved) {
+      if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 4) return;
+      d.moved = true;
+      setDragging(true);
+    }
+    const current = useStore.getState().cameras[map.run_id] ?? home,
+      vp = new OrthographicViewport({ ...current, ...size }),
+      [x0, y0] = vp.unproject([d.x, d.y]),
+      [x1, y1] = vp.unproject([e.clientX, e.clientY]);
+    d.x = e.clientX;
+    d.y = e.clientY;
+    move(
+      {
+        ...current,
+        target: [
+          current.target[0] - (x1 - x0),
+          current.target[1] - (y1 - y0),
+          0,
+        ],
+      },
+      false,
+    );
+  };
+  const onLabelPointerEnd = (e: React.PointerEvent) => {
+    if (drag.current?.id !== e.pointerId) return;
+    const { moved } = drag.current;
+    drag.current = null;
+    setDragging(false);
+    // click은 pointerup 바로 뒤 같은 태스크에서 온다. 안 오면(터치 드래그·취소)
+    // 다음 틱에 풀어, 뒤에 오는 무관한 클릭을 삼키지 않는다.
+    if (moved && e.type === "pointerup") {
+      suppressClick.current = true;
+      setTimeout(() => {
+        suppressClick.current = false;
+      }, 0);
+    }
+  };
+  const onLabelClickCapture = (e: React.MouseEvent) => {
+    if (!suppressClick.current) return;
+    e.stopPropagation();
+    suppressClick.current = false;
+  };
   useEffect(() => {
     const o = new ResizeObserver(([entry]) => {
       if (entry.contentRect.width > 0 && entry.contentRect.height > 0)
@@ -303,10 +493,22 @@ export default function MapView() {
     const i = map.id.indexOf(state.selected);
     if (i < 0) return;
     const [x, y] = viewport.project([map.x[i], map.y[i], 0]);
-    if (x < 70 || y < 70 || x > size.width - 70 || y > size.height - 70)
+    if (
+      x < SELECT_MARGIN ||
+      y < SELECT_MARGIN ||
+      x > size.width - SELECT_MARGIN ||
+      y > size.height - SELECT_MARGIN
+    )
       move({ ...camera, target: [map.x[i], map.y[i], 0] });
   }, [state.selected, map, viewport, move, camera, size.width, size.height]);
   const selectedIndex = map.id.indexOf(state.selected ?? "");
+  // 강조 노드: 켜진 호버, 없으면 선택 노드. 강조의 진행도는 켜지면 0 → 1, 꺼지면
+  // 1 → 0이고, 옅어지는 동안은 마지막 강조 노드의 선·라벨을 그대로 둔다.
+  const focusIndex = active >= 0 ? active : selectedIndex;
+  const hoverT = useTween(focusIndex >= 0 ? 1 : 0, LABEL_FADE_MS, reduced);
+  const [lastFocus, setLastFocus] = useState(focusIndex);
+  if (focusIndex >= 0 && focusIndex !== lastFocus) setLastFocus(focusIndex);
+  const heldIndex = focusIndex >= 0 ? focusIndex : hoverT > 0 ? lastFocus : -1;
   const points = useMemo(
     () =>
       map.id.map((id, i) => ({
@@ -386,6 +588,42 @@ export default function MapView() {
   );
   const relativeZoom = camera.zoom - home.zoom;
   const level = labelLevel(relativeZoom);
+  // 점 반지름. 점마다의 기본값(피인용 색이면 피인용수에 따라 1.5~4.5px)에 배율 배수를
+  // 레이어 uniform으로 곱한다 — 확대해도 점별 속성은 다시 채우지 않는다.
+  const scale = dotScale(relativeZoom);
+  const baseRadius = (p: { i: number }) =>
+    state.color === "cited"
+      ? 1.5 + (3 * Math.log1p(map.cited[p.i])) / maxLog
+      : 1.5;
+  const radiusPx = (p: { i: number }) =>
+    Math.min(DOT_RADIUS_MAX, scale * baseRadius(p));
+  const haloRadius =
+    selectedIndex >= 0
+      ? Math.max(HALO_MIN, radiusPx(points[selectedIndex]) + HALO_GAP)
+      : HALO_MIN;
+  // 강조 노드의 인용 그래프. 보통은 그 노드에 닿는 선(1홉)만, 선택 노드의 로컬
+  // 그래프가 켜져 있으면 이웃끼리의 인용선까지(1홉 유도 부분 그래프). 이웃이 없으면 노드 하나.
+  const showLocal = state.local && heldIndex === selectedIndex;
+  const graph = useMemo<LocalGraph>(() => {
+    if (!index || heldIndex < 0) return EMPTY_GRAPH;
+    if (showLocal) return localGraph(index, heldIndex, LOCAL_HOPS);
+    const links: GraphLink[] = linksOf(index, heldIndex).map((l) =>
+      l.incoming
+        ? { a: l.j, b: heldIndex, seed: true }
+        : { a: heldIndex, b: l.j, seed: true },
+    );
+    return {
+      nodes: [
+        heldIndex,
+        ...new Set(links.map((l) => (l.a === heldIndex ? l.b : l.a))),
+      ],
+      links,
+    };
+  }, [index, heldIndex, showLocal]);
+  const hoverNodes = useMemo(
+    () => graph.nodes.map((i) => points[i]),
+    [points, graph],
+  );
   // 에이전트의 시스템 프롬프트가 읽는 확대 단계.
   const setMapLevel = useStore((s) => s.setMapLevel);
   useEffect(() => setMapLevel(level), [level, setMapLevel]);
@@ -607,6 +845,56 @@ export default function MapView() {
   // 가려지지 않는다.
   const titleOpacity = (t: Title) =>
     t.selected ? paperOpacity : opacityAt(reveals.zoom[t.k]);
+  // 활성 노드(강조 노드와 그래프의 이웃). 지도 제목에서는 강조가 켜지는 만큼 옅어져
+  // 활성 라벨 레이어와 교차 페이드한다(배열은 그대로 — 다시 만들면 글자를 전부 다시
+  // 놓는다). 켜지는 순간 알파 0으로 두면 이미 켜져 있던 제목이 한 번 꺼졌다 켜진다.
+  const activeSet = useMemo(() => new Set(graph.nodes), [graph]);
+  const activeKey = heldIndex + ":" + graph.nodes.length;
+  // 활성 라벨의 자리. 강조 노드는 항상, 나머지는 피인용수 순으로 앞서 놓인 활성
+  // 라벨·지도 제목(이 칸에서 켜질 수 있는 것 전부)과 겹치지 않을 때만. 반 단계 배율의
+  // 내림값으로 재므로 같은 단계 안에서 더 확대돼도 겹치지 않고, 단계가 오르면 다시
+  // 재서 더 놓인다.
+  const activeTitles = useMemo<ActiveTitle[]>(() => {
+    if (heldIndex < 0) return EMPTY_ACTIVE;
+    const s = 2 ** (zoomStep * TITLE_ZOOM_STEP);
+    const boxOf = (i: number, dy: number): LabelBox => ({
+      x: map.x[i] * s - widths[i] / 2,
+      y: map.y[i] * s + dy,
+      w: widths[i],
+      h: TITLE_HEIGHT,
+    });
+    // 지도 제목이 있는 노드는 그 자리(쌓인 줄 포함)를 그대로 쓴다 — 지도 제목끼리는
+    // 이미 겹치지 않으니 앞선 활성 라벨과만 다투면 된다.
+    const baseDy = new Map(titles.map((t) => [t.i, t.dy]));
+    const order = graph.nodes
+      .filter(
+        (i) =>
+          i !== heldIndex &&
+          Number.isFinite(map.x[i]) &&
+          Number.isFinite(map.y[i]),
+      )
+      .sort((p, q) => map.cited[q] - map.cited[p]);
+    const candidates = [heldIndex, ...order].map((i) => ({
+      i,
+      dy: baseDy.get(i) ?? TITLE_OFFSET_Y,
+    }));
+    const obstacles = titles
+      .filter((t) => !activeSet.has(t.i))
+      .map((t) => boxOf(t.i, t.dy));
+    return placeLabels(
+      candidates.map((c) => boxOf(c.i, c.dy)),
+      obstacles,
+    ).map((k) => {
+      const { i, dy } = candidates[k];
+      return {
+        id: map.id[i],
+        i,
+        text: displays[i],
+        position: [map.x[i], map.y[i]] as [number, number],
+        dy,
+      };
+    });
+  }, [heldIndex, graph, activeSet, zoomStep, map, widths, displays, titles]);
   useEffect(() => {
     const el = container.current as
       (HTMLDivElement & { __map?: MapBridge }) | null;
@@ -633,8 +921,85 @@ export default function MapView() {
           deckRef.current?.pickObject({ x, y, radius: 6 })?.object as
             { id?: string } | undefined
         )?.id ?? null,
+      degree: (id) => {
+        const i = map.id.indexOf(id);
+        return !index ? -1 : i < 0 ? 0 : degreeOf(index, i);
+      },
     };
   });
+  // 선택 모드의 버튼 셋. 노드가 화면 안에 있을 때만.
+  const setDetailOpen = useStore((s) => s.setDetailOpen),
+    requestChat = useStore((s) => s.requestChat);
+  const menuAt = useMemo(() => {
+    if (selectedIndex < 0) return null;
+    const [x, y] = viewport.project([
+      map.x[selectedIndex],
+      map.y[selectedIndex],
+      0,
+    ]);
+    return x >= 0 && y >= 0 && x <= size.width && y <= size.height
+      ? ([x, y] as [number, number])
+      : null;
+  }, [selectedIndex, viewport, map, size]);
+  const menu = [
+    {
+      label: "노드 상세정보",
+      icon: <Info />,
+      pressed: undefined,
+      onClick: () => setDetailOpen(true),
+    },
+    {
+      label: "AI에게 질문하기",
+      icon: <MessageSquareText />,
+      pressed: undefined,
+      onClick: () => requestChat(),
+    },
+    {
+      label: "로컬 그래프 보기",
+      icon: <Waypoints />,
+      pressed: !!state.local,
+      onClick: () => update({ local: !state.local }),
+    },
+  ];
+  // 로컬 그래프를 켜면 이웃이 여백을 두고 화면에 들어오도록 카메라를 옮기고, 끄면
+  // 켜기 전 카메라로 돌아간다(선택이 바뀌어 꺼진 경우는 그대로).
+  const fitted = useRef<{ key: string; before: Camera } | null>(null);
+  useEffect(() => {
+    const key = state.local && selectedIndex >= 0 ? state.selected! : null;
+    const last = fitted.current;
+    if ((last?.key ?? null) === key) return;
+    if (!key) {
+      fitted.current = null;
+      if (last && state.selected === last.key) move(last.before);
+      return;
+    }
+    if (!index) return;
+    fitted.current = {
+      key,
+      before: useStore.getState().cameras[map.run_id] ?? home,
+    };
+    const g = localGraph(index, selectedIndex, LOCAL_HOPS);
+    move(
+      fitCamera(
+        g.nodes.map((i) => map.x[i]).filter(Number.isFinite),
+        g.nodes.map((i) => map.y[i]).filter(Number.isFinite),
+        size.width,
+        size.height,
+        FIT_PADDING,
+        home.zoom - 2,
+        home.zoom + ZOOM_RANGE,
+      ),
+    );
+  }, [
+    state.local,
+    state.selected,
+    selectedIndex,
+    index,
+    map,
+    size,
+    home,
+    move,
+  ]);
   const layers = [
     // 영역 배경. 영역마다 옅어지는 원 하나를 GPU에서 픽셀마다 계산한다 — 어떤
     // 배율에서도 매끈하다.
@@ -655,12 +1020,13 @@ export default function MapView() {
       data: points,
       getPosition: (p) => p.position,
       getFillColor: (p) => colors[p.i],
-      getRadius: (p) =>
-        state.color === "cited"
-          ? 1.5 + (3 * Math.log1p(map.cited[p.i])) / maxLog
-          : 1.5,
+      getRadius: baseRadius,
       radiusUnits: "pixels",
+      radiusScale: scale,
       radiusMinPixels: 1.3,
+      radiusMaxPixels: DOT_RADIUS_MAX,
+      // 마우스를 올린 동안 올린 점과 이웃 말고는 절반으로 옅어진다.
+      opacity: 1 - HOVER_DIM * hoverT,
       pickable: true,
       autoHighlight: true,
       highlightColor: [255, 255, 255, 255],
@@ -670,11 +1036,49 @@ export default function MapView() {
         if (info.object) update({ selected: info.object.id });
       },
     }),
+    // 올린 논문의 인용 관계. 참조는 파랑, 피인용은 빨강. 올린 점은 흰색, 이웃은 제 색
+    // 그대로 위에 다시 그린다. 픽킹은 기본 점·제목 레이어가 맡는다. 올린 것이 없으면
+    // 레이어 자체를 두지 않는다(deck은 falsy 항목을 거른다).
+    heldIndex >= 0 &&
+      new LineLayer<GraphLink>({
+        id: "hover-links",
+        data: graph.links,
+        getSourcePosition: (l) => points[l.a].position,
+        getTargetPosition: (l) => points[l.b].position,
+        // 강조 노드에 닿는 선은 방향 색(강조 노드가 인용 → 파랑, 강조 노드를 인용 →
+        // 빨강), 로컬 그래프의 나머지 선은 옅은 한 색.
+        getColor: (l) =>
+          !l.seed ? LINK_FAR : l.a === heldIndex ? LINK_OUT : LINK_IN,
+        getWidth: (l) => (l.seed ? LINK_WIDTH : LINK_FAR_WIDTH),
+        widthUnits: "pixels",
+        opacity: hoverT,
+        pickable: false,
+        updateTriggers: { getColor: [heldIndex] },
+      }),
+    heldIndex >= 0 &&
+      new ScatterplotLayer({
+        id: "hover-nodes",
+        data: hoverNodes,
+        getPosition: (p) => p.position,
+        getFillColor: (p) =>
+          p.i === heldIndex ? [255, 255, 255, 255] : colors[p.i],
+        getRadius: baseRadius,
+        radiusUnits: "pixels",
+        radiusScale: scale,
+        radiusMinPixels: 1.3,
+        radiusMaxPixels: DOT_RADIUS_MAX,
+        opacity: hoverT,
+        pickable: false,
+        updateTriggers: {
+          getFillColor: [colors, heldIndex],
+          getRadius: [state.color],
+        },
+      }),
     new ScatterplotLayer({
       id: "selected-halo",
       data: selectedIndex >= 0 ? [points[selectedIndex]] : [],
       getPosition: (p) => p.position,
-      getRadius: 10,
+      getRadius: haloRadius,
       radiusUnits: "pixels",
       filled: false,
       stroked: true,
@@ -699,14 +1103,45 @@ export default function MapView() {
       getPixelOffset: (t) => [0, t.dy],
       getTextAnchor: "middle",
       getAlignmentBaseline: "top",
-      getColor: (t) => [...typo.color, Math.round(255 * titleOpacity(t))],
-      updateTriggers: { getColor: [camera.zoom, paperFloor, regionless] },
+      getColor: (t) => [
+        ...typo.color,
+        Math.round(
+          255 * titleOpacity(t) * (activeSet.has(t.i) ? 1 - hoverT : 1),
+        ),
+      ],
+      updateTriggers: {
+        getColor: [camera.zoom, paperFloor, regionless, activeKey, hoverT],
+      },
       pickable: true,
       onHover: (info) => setHover(info.object ? info : null),
       onClick: (info) => {
         if (info.object) update({ selected: info.object.id });
       },
     }),
+    // 활성 라벨. 강조가 켜지는 동안 지도 제목과 같은 모양으로 나타난다.
+    heldIndex >= 0 &&
+      new TextLayer<ActiveTitle>({
+        id: "active-titles",
+        data: activeTitles,
+        characterSet,
+        fontFamily: typo.fontFamily,
+        fontSettings,
+        _getFontRenderer: getFontRenderer,
+        extensions: [snapText],
+        sizeUnits: "pixels",
+        getSize: TITLE_FONT_SIZE,
+        getPosition: (t) => t.position,
+        getPixelOffset: (t) => [0, t.dy],
+        getTextAnchor: "middle",
+        getAlignmentBaseline: "top",
+        getColor: [...typo.color, 255],
+        opacity: hoverT,
+        pickable: true,
+        onHover: (info) => setHover(info.object ? info : null),
+        onClick: (info) => {
+          if (info.object) update({ selected: info.object.id });
+        },
+      }),
   ];
   const renderRegions = (items: typeof top, active: boolean, prefix: string) =>
     items.map((n) => (
@@ -740,11 +1175,25 @@ export default function MapView() {
       data-paper-labels={paperLabelsOn}
       data-paper-opacity={paperOpacity.toFixed(2)}
       data-title-count={titles.length}
+      data-hover-id={heldIndex >= 0 ? points[heldIndex].id : undefined}
+      data-hover-links={graph.links.length}
+      data-active-labels={activeTitles.length}
+      data-local={showLocal || undefined}
       data-reveal-floor={settledHome.toFixed(4)}
       data-camera={`${camera.zoom.toFixed(4)}:${camera.target.slice(0, 2).join(",")}`}
       tabIndex={0}
       aria-label="연구 지도. 방향키 이동, 더하기와 빼기로 확대 축소"
+      // deck은 캔버스 안에서 빈 곳으로 옮겨야 호버를 거둔다. 지도 밖(사이드바·도구 막대)으로
+      // 바로 나가면 툴팁과 인용 선이 남으므로 여기서 거둔다.
+      onPointerLeave={() => setHover(null)}
       onKeyDown={(e) => {
+        // Escape는 버튼 셋에 포커스가 있어도 선택을 지운다. 상세 Dialog는 포털 밖이라
+        // 여기로 오지 않는다.
+        if (e.key === "Escape" && state.selected) {
+          e.preventDefault();
+          update({ selected: undefined });
+          return;
+        }
         if (e.target !== e.currentTarget) return;
         if (["+", "=", "-"].includes(e.key)) {
           e.preventDefault();
@@ -802,11 +1251,25 @@ export default function MapView() {
           });
         }}
         layers={layers}
+        // 빈 곳 클릭은 선택 해제. 점·제목 클릭은 레이어가 먼저 받아 선택을 바꾼다.
+        onClick={(info) => {
+          if (!info.object && state.selected) update({ selected: undefined });
+        }}
         getCursor={({ isDragging }) =>
           isDragging ? "grabbing" : hover ? "pointer" : "grab"
         }
       />
-      <div className="map-labels" aria-label="지도 라벨">
+      <div
+        ref={labels}
+        className="map-labels"
+        aria-label="지도 라벨"
+        data-dragging={dragging || undefined}
+        onPointerDown={onLabelPointerDown}
+        onPointerMove={onLabelPointerMove}
+        onPointerUp={onLabelPointerEnd}
+        onPointerCancel={onLabelPointerEnd}
+        onClickCapture={onLabelClickCapture}
+      >
         {renderRegions(top, level === "field", "top")}
         {renderRegions(
           sub,
@@ -817,6 +1280,40 @@ export default function MapView() {
           leaves,
           relativeZoom >= 2 && relativeZoom < PAPER_LABEL_ZOOM + 0.5,
           "leaf",
+        )}
+        {menuAt && (
+          <div
+            className="node-menu"
+            data-testid="node-menu"
+            style={{ left: menuAt[0], top: menuAt[1] }}
+          >
+            {menu.map((item, k) => {
+              const a = (MENU_ANGLES[k] * Math.PI) / 180;
+              return (
+                <Tooltip key={item.label}>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="node-menu-btn"
+                        aria-label={item.label}
+                        aria-pressed={item.pressed}
+                        style={{
+                          left: MENU_RADIUS * Math.cos(a),
+                          top: MENU_RADIUS * Math.sin(a),
+                        }}
+                        onClick={item.onClick}
+                      />
+                    }
+                  >
+                    {item.icon}
+                  </TooltipTrigger>
+                  <TooltipContent>{item.label}</TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
         )}
       </div>
       {annotations.length > 0 && (
@@ -915,21 +1412,6 @@ export default function MapView() {
         <br />
         지도 거리는 차원 축소 결과입니다. 인용 관계와 함께 확인하세요.
       </div>
-      {hover && (
-        <div
-          className="tooltip"
-          style={{
-            left: Math.min(hover.x + 14, size.width - 290),
-            top: Math.min(hover.y + 12, size.height - 100),
-          }}
-        >
-          <strong>{map.title[hover.object!.i]}</strong>
-          <div>
-            {map.year[hover.object!.i] ?? "연도 미상"} · 피인용{" "}
-            {map.cited[hover.object!.i].toLocaleString()}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

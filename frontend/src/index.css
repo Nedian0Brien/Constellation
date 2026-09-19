@@ -950,6 +950,16 @@ input:focus-visible,
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
 }
+.product-shell[data-desktop] .product-header {
+  /* 창 끌기 영역이라 텍스트 선택 커서를 내지 않는다. */
+  user-select: none;
+  /* macOS 신호등이 헤더 위에 겹친다(tauri.conf.json titleBarStyle: Overlay).
+     신호등 끝 = 닫기 버튼 x 20 + 버튼 중심 간격 23×2 + 버튼 지름 13 ≈ 80px.
+     디자인 토큰이 아니라 macOS 27 창 버튼 기하를 실행 중인 앱 스크린샷에서
+     측정한 값이다(2026-09-18). */
+  --traffic-lights-end: 80px;
+  padding-left: calc(var(--traffic-lights-end) + 18px);
+}
 .product-brand {
   display: flex;
   align-items: center;
@@ -1128,6 +1138,20 @@ input:focus-visible,
   overflow: hidden;
   pointer-events: none;
 }
+/* 선택 모드의 버튼 셋. 노드 중심에 0×0 상자를 두고 버튼을 원 위에 놓는다. */
+.node-menu {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.node-menu-btn {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  pointer-events: auto;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+}
 .region-name {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -1155,6 +1179,12 @@ input:focus-visible,
 }
 .region-name[data-active="true"] {
   pointer-events: auto;
+  /* 이름 위에서도 지도처럼 끌 수 있다. 터치는 브라우저 스크롤에 넘기지 않는다. */
+  cursor: grab;
+  touch-action: none;
+}
+.map-labels[data-dragging] .region-name {
+  cursor: grabbing;
 }
 /* 에이전트가 얹는 주석. 라벨 색·그림자는 .paper-name 과 같은 계열이다. */
 .map-annotations {

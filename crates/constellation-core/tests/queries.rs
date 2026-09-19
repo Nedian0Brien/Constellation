@@ -31,7 +31,7 @@ fn populate() -> Fixture {
          INSERT INTO clusters(run_id,work_id,cluster_id) VALUES ('a','1',0),('a','2',0),('a','3',1);\
          INSERT INTO cluster_meta(run_id,cluster_id,label,keywords,size,year_median) VALUES \
            ('a',0,'retrieval','alpha, beta',2,2020),('a',1,'gamma',NULL,1,2022);\
-         INSERT INTO citations(citing_id,cited_id) VALUES ('3','1'),('2','1'),('1','x-outside');\
+         INSERT INTO citations(citing_id,cited_id) VALUES ('3','1'),('2','1'),('1','x-outside'),('5','5');\
          INSERT INTO citation_spc(run_id,cited_id,citing_id,log_spc,on_main) VALUES \
            ('a','1','2',2.0,true),('a','1','3',1.0,false);",
     )
@@ -236,6 +236,18 @@ fn citations_lists_both_directions_in_corpus() {
             .status,
         422
     );
+}
+
+#[test]
+fn edges_are_map_indices_without_self_or_outside_links() {
+    let f = populate();
+    let e = queries::edges(&f.db, "a").unwrap();
+    // map 순서 1·2·3·5 → 인덱스 0·1·2·3. 2→1, 3→1만 남는다: 1→x-outside는 run 밖,
+    // 5→5는 자기 인용.
+    assert_eq!(e.n, 4);
+    assert_eq!(e.citing, [1, 2]);
+    assert_eq!(e.cited, [0, 0]);
+    assert_eq!(queries::edges(&f.db, "nope").unwrap_err().status, 404);
 }
 
 #[test]

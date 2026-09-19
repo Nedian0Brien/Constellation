@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import { X, MessageSquarePlus, PlugZap } from "lucide-react";
 import { Sidebar, SidebarHeader, SidebarContent } from "./ui/sidebar";
 import { Button } from "./ui/button";
@@ -7,6 +7,7 @@ import { Thread } from "./assistant-ui/elements/thread.aui";
 import { AgentModelSelector } from "../agent/AgentModelSelector";
 import { useAgentHealth } from "../agent/use-agent-health";
 import { cn } from "../lib/utils";
+import { useStore } from "../store";
 
 const THREAD_COMPONENTS = { ComposerLeading: AgentModelSelector };
 
@@ -49,8 +50,19 @@ export function AgentSidebar({
   onNewThread: () => void;
 }) {
   const { health, retry } = useAgentHealth();
+  // "AI에게 질문하기": 채팅이 이미 열려 있으면 입력창에 포커스만 둔다. 이 요청으로
+  // 막 열린 경우는 Thread의 autoFocus가 맡는다.
+  const root = useRef<HTMLDivElement>(null);
+  const chatRequest = useStore((s) => s.chatRequest);
+  const seen = useRef(chatRequest);
+  useEffect(() => {
+    if (chatRequest === seen.current) return;
+    seen.current = chatRequest;
+    root.current?.querySelector("textarea")?.focus();
+  }, [chatRequest]);
   return (
     <Sidebar
+      ref={root}
       side="right"
       collapsible="none"
       data-testid="agent-chat"
