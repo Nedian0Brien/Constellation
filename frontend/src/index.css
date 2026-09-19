@@ -1351,22 +1351,155 @@ input:focus-visible,
   white-space: nowrap;
   text-shadow: 0 0 4px var(--map-ground);
 }
-/* 발행연도 범위: 스테이지 아래쪽에 가로로 꽉 차게(크롭 마크 안쪽). 슬라이더가 두 입력
-   사이의 남는 폭을 다 쓴다. 확대 컨트롤은 오른쪽 가운데로 옮기고 각주는 없애 아래 줄을
-   비웠다. */
+/* 발행연도 범위: 스테이지 아래쪽에 가로로 꽉 차게(크롭 마크 안쪽). 히스토그램 위에
+   손잡이 둘. 확대 컨트롤은 오른쪽 가운데로 옮기고 각주는 없애 아래 줄을 비웠다. */
 .year-range {
   position: absolute;
-  bottom: 18px;
+  bottom: 14px;
   left: 34px;
   right: 34px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
   z-index: 5;
+  --bar-max: 22px;
 }
-.year-range [data-slot="slider"] {
-  flex: 1 1 auto;
-  width: auto;
+.year-track {
+  position: relative;
+  /* 라벨 12 + 막대 22 + 트랙 2 + 눈금 14 */
+  height: 50px;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.year-bars {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  height: var(--bar-max);
+}
+.year-bar {
+  position: absolute;
+  bottom: 0;
+  background: var(--muted-foreground);
+  opacity: 0.3;
+  border-radius: 1px 1px 0 0;
+}
+.year-bar[data-in] {
+  background: var(--foreground);
+  opacity: 0.55;
+}
+.year-bar i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: block;
+}
+.year-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  height: 1px;
+  background: var(--muted-foreground);
+  opacity: 0.5;
+}
+.year-line-in {
+  position: absolute;
+  bottom: 13px;
+  height: 2px;
+  background: var(--foreground);
+}
+.year-window {
+  position: absolute;
+  bottom: 14px;
+  height: calc(var(--bar-max) + 12px);
+  cursor: grab;
+}
+.year-range[data-dragging="window"] .year-window {
+  cursor: grabbing;
+}
+.year-thumb {
+  position: absolute;
+  bottom: 10px;
+  width: 2px;
+  height: calc(var(--bar-max) + 8px);
+  background: var(--foreground);
+  transform: translateX(-1px);
+  cursor: ew-resize;
+  outline: none;
+}
+.year-thumb::before {
+  /* 잡기 쉬운 넓은 영역 */
+  content: "";
+  position: absolute;
+  inset: -4px -8px;
+}
+.year-thumb:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+.year-label {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: 2px;
+  font: 10px var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  padding: 0 2px;
+  cursor: text;
+  text-shadow: 0 0 4px var(--map-ground, #0c1118);
+}
+.year-thumb[data-kind="from"] .year-label {
+  right: 3px;
+}
+.year-thumb[data-kind="to"] .year-label {
+  left: 3px;
+}
+.year-range[data-dragging] .year-label {
+  color: var(--warn);
+}
+.year-input {
+  width: 48px;
+  text-align: center;
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--foreground);
+  outline: none;
+  -moz-appearance: textfield;
+}
+.year-input::-webkit-inner-spin-button,
+.year-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
+.year-ticks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+}
+.year-tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 3px;
+  background: var(--muted-foreground);
+  opacity: 0.6;
+}
+.year-tick[data-major] {
+  height: 5px;
+}
+.year-tick span {
+  position: absolute;
+  top: 5px;
+  left: 0;
+  transform: translateX(-50%);
+  font: 9px var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+  white-space: nowrap;
 }
 .tooltip {
   max-width: 280px;

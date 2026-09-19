@@ -623,6 +623,26 @@ export default function MapView() {
       })),
     [map],
   );
+  // 발행연도 범위 밖의 논문은 그리지 않는다(옅게가 아니라 아예). 연도가 없는 논문은
+  // 서버 필터와 같이 통과시킨다. 인용 그래프의 이웃도 같은 규칙.
+  const inYears = useCallback(
+    (i: number) => {
+      const y = map.year[i];
+      return (
+        y === null ||
+        ((state.from === undefined || y >= state.from) &&
+          (state.to === undefined || y <= state.to))
+      );
+    },
+    [map, state.from, state.to],
+  );
+  const shownPoints = useMemo(
+    () =>
+      state.from === undefined && state.to === undefined
+        ? points
+        : points.filter((p) => inYears(p.i)),
+    [points, inYears, state.from, state.to],
+  );
   const nodeClusters = useMemo(
     () =>
       state.node !== undefined && a.tree.data
@@ -709,20 +729,28 @@ export default function MapView() {
   const showLocal = state.local && heldIndex === selectedIndex;
   const graph = useMemo<LocalGraph>(() => {
     if (!index || heldIndex < 0) return EMPTY_GRAPH;
-    if (showLocal) return localGraph(index, heldIndex, LOCAL_HOPS);
-    const links: GraphLink[] = linksOf(index, heldIndex).map((l) =>
-      l.incoming
-        ? { a: l.j, b: heldIndex, seed: true }
-        : { a: heldIndex, b: l.j, seed: true },
-    );
+    const g = showLocal
+      ? localGraph(index, heldIndex, LOCAL_HOPS)
+      : (() => {
+          const links: GraphLink[] = linksOf(index, heldIndex).map((l) =>
+            l.incoming
+              ? { a: l.j, b: heldIndex, seed: true }
+              : { a: heldIndex, b: l.j, seed: true },
+          );
+          return {
+            nodes: [
+              heldIndex,
+              ...new Set(links.map((l) => (l.a === heldIndex ? l.b : l.a))),
+            ],
+            links,
+          };
+        })();
+    // 연도 범위 밖의 이웃은 그래프에서도 뺀다.
     return {
-      nodes: [
-        heldIndex,
-        ...new Set(links.map((l) => (l.a === heldIndex ? l.b : l.a))),
-      ],
-      links,
+      nodes: g.nodes.filter((i) => i === heldIndex || inYears(i)),
+      links: g.links.filter((l) => inYears(l.a) && inYears(l.b)),
     };
-  }, [index, heldIndex, showLocal]);
+  }, [index, heldIndex, showLocal, inYears]);
   const hoverNodes = useMemo(
     () => graph.nodes.map((i) => points[i]),
     [points, graph],
@@ -1346,7 +1374,7 @@ export default function MapView() {
       }),
     new ScatterplotLayer({
       id: "papers",
-      data: points,
+      data: shownPoints,
       getPosition: (p) => p.position,
       getFillColor: (p) => colors[p.i],
       getRadius: baseRadius,
