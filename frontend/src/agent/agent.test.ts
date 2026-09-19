@@ -3,6 +3,7 @@ import { buildInstructions } from "./context";
 import { resolveAnnotations, paperPosition, truncate } from "./resolve";
 import { createToolExecutors, paperId, toolDefinitions, type ToolDeps } from "./tools";
 import { newThread, readThread, writeThread, createHistoryAdapter } from "./history";
+import { providerOf, readModelSelection, writeModelSelection } from "./settings";
 import { parseSearch } from "../app/navigation";
 import type { ClusterInfo, MapData } from "../api";
 import type { ExportedMessageRepositoryItem } from "@assistant-ui/react";
@@ -269,22 +270,56 @@ describe("history", () => {
     clear: () => store.clear(),
   });
   beforeEach(() => store.clear());
-  it("run 별로 저장하고, 날짜와 끊긴 상태를 되살린다", async () => {
-    const thread = newThread();
+  it("run·프로바이더 별로 저장하고, 날짜와 끊긴 상태를 되살린다", async () => {
+    const thread = newThread("claude");
     const adapter = createHistoryAdapter("r1", thread);
     const createdAt = new Date("2026-09-18T00:00:00Z");
     await adapter.append(item(null, { id: "u1", role: "user", createdAt, content: [{ type: "text", text: "안녕" }] }));
     await adapter.append(item("u1", { id: "a1", role: "assistant", createdAt, content: [{ type: "text", text: "…" }], status: { type: "running" } }));
     await adapter.update!(item("u1", { id: "a1", role: "assistant", createdAt, content: [{ type: "text", text: "완성" }], status: { type: "running" } }));
-    const restored = readThread("r1")!;
+    const restored = readThread("r1", "claude")!;
     expect(restored.sessionId).toBe(thread.sessionId);
+    expect(restored.provider).toBe("claude");
     expect(restored.repository.headId).toBe("a1");
     expect(restored.repository.messages).toHaveLength(2);
     const a1 = restored.repository.messages[1]!.message;
     expect(a1.createdAt).toBeInstanceOf(Date);
     expect(a1.status).toEqual({ type: "incomplete", reason: "unknown" });
-    expect(readThread("r2")).toBeNull();
-    writeThread("r2", newThread());
-    expect(readThread("r2")!.repository.messages).toEqual([]);
+    expect(readThread("r2", "claude")).toBeNull();
+    writeThread("r2", newThread("claude"));
+    expect(readThread("r2", "claude")!.repository.messages).toEqual([]);
+    // 프로바이더가 다르면 다른 대화다.
+    expect(readThread("r1", "codex")).toBeNull();
+  });
+  it("Codex 스레드 id 를 저장본에 덧쓰고 요청 본문이 읽는다", () => {
+    const thread = newThread("codex");
+    const adapter = createHistoryAdapter("r1", thread);
+    expect(adapter.current().codexThreadId).toBeUndefined();
+    adapter.patch({ codexThreadId: "01a0b822-7b72-7991-8485-eb5e26d02549" });
+    expect(readThread("r1", "codex")!.codexThreadId).toBe(
+      "01a0b822-7b72-7991-8485-eb5e26d02549",
+    );
+    expect(adapter.current().sessionId).toBe(thread.sessionId);
+  });
+  it("v1 저장본은 Claude 대화로 읽는다", () => {
+    store.set(
+      "constellation.agent.v1:r1",
+      JSON.stringify({ version: 1, sessionId: "old", repository: { headId: null, messages: [] } }),
+    );
+    expect(readThread("r1", "claude")).toMatchObject({ version: 2, provider: "claude", sessionId: "old" });
+    expect(readThread("r1", "codex")).toBeNull();
+  });
+});
+
+describe("settings", () => {
+  // history 블록이 세운 localStorage 스텁을 그대로 쓴다.
+  beforeEach(() => localStorage.clear());
+  it("모델·effort·speed 를 저장하고 프로바이더를 접두사로 가른다", () => {
+    expect(readModelSelection()).toEqual({ modelName: undefined, effort: undefined, speed: undefined });
+    writeModelSelection({ modelName: "codex/gpt-5.5", effort: "low", speed: undefined });
+    expect(readModelSelection()).toEqual({ modelName: "codex/gpt-5.5", effort: "low", speed: undefined });
+    expect(providerOf("codex/gpt-5.5")).toBe("codex");
+    expect(providerOf("claude/opus[1m]")).toBe("claude");
+    expect(providerOf(undefined)).toBe("claude");
   });
 });

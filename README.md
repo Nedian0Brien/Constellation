@@ -37,7 +37,9 @@ npm --prefix frontend run dev                                        # http://lo
 
 ## 에이전트 채팅
 
-우측 패널의 채팅은 [agent-chat-framework](../framework/agent-chat-framework) 위에 있다. 화면은 그 레지스트리(`@acf/thread-aui` 계열)로 그리고, 백엔드는 `agent/`의 Node 서버가 Claude Agent SDK로 `claude` CLI를 띄운다. 기계에 Claude 로그인(`claude login`) 또는 `ANTHROPIC_API_KEY`가 있어야 한다.
+우측 패널의 채팅은 [agent-chat-framework](../framework/agent-chat-framework) 위에 있다. 화면은 그 레지스트리(`@acf/thread-aui` 계열)로 그리고, 백엔드는 `agent/`의 Node 서버다. 작성창 왼쪽 아래 선택기에서 Claude(Claude Agent SDK → `claude` CLI)와 Codex(`codex app-server`) 모델, 추론 강도(effort), 속도(Fast)를 고른다. Claude는 기계에 Claude 로그인(`claude login`) 또는 `ANTHROPIC_API_KEY`가, Codex는 `codex login`(`~/.codex/auth.json`)이 있어야 한다. 없는 쪽은 선택기에 "사용 불가"로 보인다.
+
+프로바이더는 대화 단위다. Claude 대화와 Codex 대화는 run마다 따로 저장되고, 선택기에서 프로바이더를 바꾸면 그 대화로 갈아탄다. 모델·effort·속도는 같은 대화 안에서 턴마다 바꿀 수 있다.
 
 ```sh
 npm --prefix agent ci
@@ -46,7 +48,9 @@ npm --prefix agent start        # 127.0.0.1:8787. Vite가 /api/agent 를 여기�
 
 `frontend/components.json`의 `@acf` 레지스트리는 `http://127.0.0.1:3100`을 가리킨다. 설치본을 갱신하려면 프레임워크의 `public/`을 그 포트로 띄우고(`python3 -m http.server 3100`) `npx shadcn@latest add @acf/thread-aui`를 돌린다. 평소 실행에는 필요 없다.
 
-에이전트의 도구는 전부 웹뷰 안에서 실행된다. 서버는 도구 이름과 스키마만 알고 호출을 웹뷰에 중계한 뒤 결과를 모델에 돌려준다. 그래서 브라우저(`/api`)와 데스크톱(`invoke`) 어느 쪽에서도 같은 코드가 돈다. 브라우저는 Vite 프록시로, 데스크톱 앱(설치본과 `tauri dev`)은 웹뷰가 `http://127.0.0.1:8787`을 직접 불러 서버에 닿는다. 어느 쪽이든 서버를 띄워 두면 된다. `.app`에 서버를 사이드카로 묶는 일은 아직 하지 않았다.
+에이전트의 도구는 전부 웹뷰 안에서 실행된다. 서버는 도구 이름과 스키마만 알고 호출을 웹뷰에 중계한 뒤 결과를 모델에 돌려준다 — Claude에는 SDK 안의 MCP 서버로, Codex에는 `/mcp/<sessionId>` HTTP MCP 엔드포인트로. 그래서 브라우저(`/api`)와 데스크톱(`invoke`) 어느 쪽에서도 같은 코드가 돈다. 브라우저는 Vite 프록시로, 데스크톱 앱(설치본과 `tauri dev`)은 웹뷰가 `http://127.0.0.1:8787`을 직접 불러 서버에 닿는다. 서버가 꺼져 있으면 채팅 자리에 "에이전트 서버가 꺼져 있습니다"와 다시 시도 버튼이 보인다. `.app`에 서버를 사이드카로 묶는 일은 다음 변경(`.intent/intent_agent-sidecar.md`)이다.
+
+Codex는 사용자의 `~/.codex/config.toml`(MCP 서버·플러그인)을 읽지 않도록 전용 `CODEX_HOME`(`agent/.codex-home/`, `CODEX_ISOLATED_HOME`으로 바꿀 수 있음)에서 돌고, 로그인은 `~/.codex/auth.json`을 읽기만 해서 토큰으로 넘긴다. 토큰 갱신은 사용자의 codex가 한다.
 
 에이전트가 할 수 있는 일:
 

@@ -220,6 +220,28 @@ frontend/src/components/assistant-ui/  # @acf 레지스트리 설치본 (NOTE(co
 - `MapView`는 `cameraRequest`(run·nonce)를 한 번만 소비하고, 주석은 SVG 오버레이로 점→라벨 지시선을 그린다. 주석은 세션 안에서만 산다.
 - 에이전트 실응답은 Claude 로그인이 필요해 E2E에서는 `/api/agent`를 데이터 스트림으로 흉내 내어 프론트 도구 파이프라인(zoom → tool-result → 카메라 변화 → 복원)만 검사한다.
 
+### 모델 선택기·Codex 백엔드 — 2026-09-19
+
+작성창 왼쪽 아래에 레지스트리 `model-selector`(`@acf/model-selector-aui` + `logos`)가 있다. 요청 본문의 `modelName` 접두사(`claude/…` | `codex/…`)로 서버가 백엔드를 고른다.
+
+```
+agent/src/
+  models.ts                        #   GET /api/agent/models — Claude supportedModels() + Codex model/list (프로세스 수명 캐시), parseModelId
+  codex/app-server.ts              #   codex app-server 프로세스 하나(JSON-RPC over stdio). 전용 CODEX_HOME, auth.json 읽기 전용 토큰 로그인
+  codex/bridge.ts                  #   item/* 알림 → assistant-stream. ui 서버의 mcpToolCall 은 중계 도구(결과를 서버가 붙이지 않는다)
+  codex/protocol.ts                #   generate-ts 출력에서 쓰는 타입만
+  mcp-endpoint.ts                  #   /mcp/:sessionId — streamable HTTP MCP. 세션 manifest 로 도구를 만들고 Relay.waitFor 로 답한다
+frontend/src/agent/
+  settings.ts                      #   모델 선택 저장(constellation.agent.model.v1, useSyncExternalStore)
+  AgentModelSelector.tsx           #   프로바이더 그룹(로고)·effort·speed. thread.aui 의 ComposerLeading 슬롯에 들어간다
+  use-agent-health.ts              #   health 검사·네트워크 오류 → "서버가 꺼져 있습니다" 안내
+```
+
+- `sessionId`는 두 프로바이더 모두 클라이언트 UUID이고 도구 중계 키다. Codex 스레드 id는 app-server가 정하므로 응답 `data-session.codexThreadId`를 히스토리 어댑터가 저장본에 덧쓰고(`patch`) 다음 턴부터 `codexThreadId`로 보낸다. 대화 저장 키는 `constellation.agent.v2:<run>:<provider>`(v1은 Claude 대화로 읽는다).
+- Codex 도구 중계: `thread/start.config.mcp_servers.ui.url`로 `/mcp/<sessionId>`를 넘긴다. `approvalPolicy: never`에서 codex는 `readOnlyHint` 없는 MCP 도구를 승인 대상으로 보고 거부하므로 도구에 `annotations.readOnlyHint`를 단다(실측). `arguments`는 `item/started`에 온다.
+- speed: Claude는 `settings.fastMode`, Codex는 턴 단위 `serviceTierForTurn`(`priority`). 모델을 바꾸면 그 모델이 받는 effort·speed만 남긴다.
+- Codex 격리: `thread/start.config`·`-c`로는 사용자 config.toml의 MCP 서버·플러그인이 빠지지 않아(병합) `CODEX_HOME`을 바꿨다. 근거와 실측은 프레임워크 `DECISIONS.md` 6.
+
 ### 인용 추적·논문 비교·웹 접근 — 2026-09-18
 
 - `GET /api/citations?run=&id=&direction=&limit=` / Tauri `citations` — `queries::citations`. `citations` 테이블에서 코퍼스 안 논문만 피인용 순으로 `limit`개(1–500, 기본 20). 총계는 limit·방향과 무관하다. 논문 id에 `/`가 올 수 있어 `/works/{*work_id}` 아래가 아니라 쿼리로 받는다.

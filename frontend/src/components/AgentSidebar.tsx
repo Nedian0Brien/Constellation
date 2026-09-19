@@ -1,11 +1,39 @@
 import { useEffect, useRef, type CSSProperties } from "react";
-import { X, MessageSquarePlus } from "lucide-react";
+import { X, MessageSquarePlus, PlugZap } from "lucide-react";
 import { Sidebar, SidebarHeader, SidebarContent } from "./ui/sidebar";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 import { Thread } from "./assistant-ui/elements/thread.aui";
+import { AgentModelSelector } from "../agent/AgentModelSelector";
+import { useAgentHealth } from "../agent/use-agent-health";
 import { cn } from "../lib/utils";
 import { useStore } from "../store";
+
+const THREAD_COMPONENTS = { ComposerLeading: AgentModelSelector };
+
+/**
+ * 에이전트 서버가 꺼져 있을 때 채팅 자리에 보이는 안내. "Load failed" 대신
+ * 무엇이 없는지와 켜는 방법을 말한다. 다시 시도가 성공하면 대화가 그대로
+ * 돌아온다(런타임은 그대로이고 이 컴포넌트만 바뀐다).
+ */
+function AgentOffline({ retry }: { retry: () => void }) {
+  return (
+    <div
+      data-testid="agent-offline"
+      className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
+    >
+      <PlugZap className="text-muted-foreground size-6" aria-hidden />
+      <p className="text-sm font-medium">에이전트 서버가 꺼져 있습니다</p>
+      <p className="text-muted-foreground text-xs leading-5">
+        저장소에서 <code className="font-mono">npm --prefix agent start</code>
+        로 서버를 띄운 뒤 다시 시도하세요.
+      </p>
+      <Button variant="outline" size="sm" onClick={retry}>
+        다시 시도
+      </Button>
+    </div>
+  );
+}
 
 // 우측 에이전트 채팅. 인스펙터가 쓰던 자리·골격(collapsible="none", 헤더 한
 // 번)을 그대로 이어받고 내용만 agent-chat-framework 의 Thread 로 바꿨다.
@@ -21,6 +49,7 @@ export function AgentSidebar({
   onClose: () => void;
   onNewThread: () => void;
 }) {
+  const { health, retry } = useAgentHealth();
   // "AI에게 질문하기": 채팅이 이미 열려 있으면 입력창에 포커스만 둔다. 이 요청으로
   // 막 열린 경우는 Thread의 autoFocus가 맡는다.
   const root = useRef<HTMLDivElement>(null);
@@ -69,7 +98,11 @@ export function AgentSidebar({
         </div>
       </SidebarHeader>
       <SidebarContent className="min-h-0 flex-1 overflow-hidden">
-        <Thread />
+        {health === "offline" ? (
+          <AgentOffline retry={retry} />
+        ) : (
+          <Thread components={THREAD_COMPONENTS} />
+        )}
       </SidebarContent>
     </Sidebar>
   );

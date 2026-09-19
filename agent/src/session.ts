@@ -17,6 +17,17 @@ export type ChatRequest = {
    * 없다 — 스트림 프로토콜에 기대지 않고 세션을 이어갈 수 있다.
    */
   sessionId?: string;
+  /**
+   * Codex 스레드 id. app-server 가 정하므로 첫 턴에는 없고, 응답
+   * `data-session.codexThreadId` 를 클라이언트가 저장해 다음 턴부터 보낸다.
+   * `sessionId` 는 중계 키로 두 프로바이더 모두 클라이언트 UUID 다.
+   */
+  codexThreadId?: string;
+  /** `.aui` 모델 선택기가 ModelContext 에 등록한 값. `claude/…` | `codex/…` */
+  modelName?: string;
+  reasoningEffort?: string;
+  /** speed 티어 id. Claude 는 `fast`, Codex 는 `priority`. 런타임 `body()` 가 싣는다 */
+  speed?: string;
 };
 
 export type ToolResultRequest = {

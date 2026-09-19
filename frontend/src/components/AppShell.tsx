@@ -23,6 +23,7 @@ import { AgentSidebar } from "./AgentSidebar";
 import { InspectorDialog } from "./InspectorDialog";
 import { AgentProvider } from "../agent/AgentProvider";
 import { useAgentThread } from "../agent/use-agent-thread";
+import { providerOf, useModelSelection } from "../agent/settings";
 import { ExploreToolbar } from "./ExploreToolbar";
 import { PaperListOverlay } from "./PaperListOverlay";
 import { DataState } from "./DataState";
@@ -88,7 +89,8 @@ export function AppShell() {
     { state, update } = useExploration();
   const { prefs, save } = usePersistentLayout();
   const isMobile = useIsMobile();
-  const agent = useAgentThread(a.run);
+  // 대화는 run·프로바이더 단위다. 선택기에서 프로바이더를 바꾸면 그 대화로 갈아탄다.
+  const agent = useAgentThread(a.run, providerOf(useModelSelection().modelName));
   useEffect(() => {
     if (a.run && !state.run) update({ run: a.run }, true);
   }, [a.run, state.run, update]);
