@@ -34,6 +34,7 @@ Python 서빙 계층(FastAPI)을 Rust 질의 계층(`constellation-core`)으로 
 ## 구현 중 고친 것
 
 - `[profile.release] strip = true, lto = "thin"`이 proc-macro 크레이트(`ctor`, `tauri-macros`)의 dylib를 깨뜨려 `E0463: can't find crate`가 났다. 프로필을 지우고 `target/release`를 비운 뒤 빌드했다.
+- 2026-09-19: 프로필이 없어도 cargo 기본 release의 `strip = "debuginfo"`로 같은 E0463(`ctor-proc-macro`)이 났다. 워크스페이스 `Cargo.toml`에 `[profile.release] strip = "none"`을 두어 고쳤다. `target/release`를 비운 뒤 다시 빌드했다.
 - Tauri CLI는 현재 폴더 아래에서 `src-tauri`를 찾는다. `src-tauri`가 루트에 있으므로 `npx --prefix frontend tauri …`를 루트에서 부른다. `beforeDevCommand`는 `frontend/`에서 도는 `npm run dev`다.
 - Tauri의 `setup`은 `run()`에서야 돌아 테스트에서 상태가 없었다. 경로를 아는 경우 빌드 시점에 `manage`한다.
 - 실행 중인 `.workspace-stage`가 `width: 100%`라 인스펙터를 밀어내던 문제와 같은 이유로, 오류 안내(`.stage-notice`)는 CSS 클래스로 가운데 둔다.

@@ -15,3 +15,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
+
+# cargo 기본 release 프로필의 strip = "debuginfo"가 이 Mac(macOS 27, rustc 1.97)에서
+# proc-macro dylib(ctor-proc-macro 0.0.7)의 rustc 메타데이터를 지워 `ctor`가
+# E0463 "can't find crate"로 실패한다(2026-09-19 `tauri build`에서 확인). 릴리스 빌드는
+# strip 없이 한다. 앱 크기는 53MB로 strip한 것과 1MB 차이다.
+[profile.release]
+strip = "none"
