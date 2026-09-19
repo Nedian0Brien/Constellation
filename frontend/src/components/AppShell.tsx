@@ -24,6 +24,7 @@ import { InspectorDialog } from "./InspectorDialog";
 import { AgentProvider } from "../agent/AgentProvider";
 import { useAgentThread } from "../agent/use-agent-thread";
 import { ExploreToolbar } from "./ExploreToolbar";
+import { YearRange } from "./YearRange";
 import { PaperListOverlay } from "./PaperListOverlay";
 import { DataState } from "./DataState";
 import { chooseDatabase, desktop, fetchDbStatus } from "../api";
@@ -148,6 +149,7 @@ export function AppShell() {
             {state.view === "flow" && <FlowView key={map.run_id} />}
             {state.view === "lineage" && <LineageView key={map.run_id} />}
             {state.view === "sky" && <SkyView key={map.run_id} />}
+            <YearRange />
             {state.list && <PaperListOverlay />}
             {(invalidRegion || invalidPaper) && (
               <div className="invalid-region" role="status">

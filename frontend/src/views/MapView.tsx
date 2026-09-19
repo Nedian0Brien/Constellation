@@ -1864,22 +1864,6 @@ export default function MapView() {
         <Button
           variant="ghost"
           size="icon"
-          aria-label="지도 축소"
-          onClick={() =>
-            move({
-              ...camera,
-              zoom: Math.max(home.zoom - 2, camera.zoom - 0.6),
-            })
-          }
-        >
-          <Minus />
-        </Button>
-        <span className="mono">
-          {Math.round(100 * 2 ** (camera.zoom - home.zoom))}%
-        </span>
-        <Button
-          variant="ghost"
-          size="icon"
           aria-label="지도 확대"
           onClick={() =>
             move({
@@ -1889,6 +1873,22 @@ export default function MapView() {
           }
         >
           <Plus />
+        </Button>
+        <span className="mono">
+          {Math.round(100 * 2 ** (camera.zoom - home.zoom))}%
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="지도 축소"
+          onClick={() =>
+            move({
+              ...camera,
+              zoom: Math.max(home.zoom - 2, camera.zoom - 0.6),
+            })
+          }
+        >
+          <Minus />
         </Button>
         <Button
           variant="ghost"
@@ -1901,17 +1901,6 @@ export default function MapView() {
         >
           <RotateCcw />
         </Button>
-      </div>
-      <div className="map-footnote">
-        {state.color === "year"
-          ? "발행연도 · 밝을수록 최근 · 연도 미상은 회색"
-          : state.color === "cited"
-            ? "피인용수 · 색·크기 로그 척도"
-            : state.color === "abstract"
-              ? "초록 있음: 녹색 / 없음: 분홍"
-              : "색상: 연구 주제 · 미분류: 회색"}
-        <br />
-        지도 거리는 차원 축소 결과입니다. 인용 관계와 함께 확인하세요.
       </div>
     </div>
   );

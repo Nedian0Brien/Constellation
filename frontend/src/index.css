@@ -1268,29 +1268,42 @@ input:focus-visible,
   text-transform: uppercase;
   color: var(--muted-foreground);
 }
+/* 확대 컨트롤: 오른쪽 가운데 세로 배열(확대 · 배율 · 축소 · 전체 보기). */
 .map-controls {
   position: absolute;
-  bottom: 18px;
+  top: 50%;
   right: 18px;
+  transform: translateY(-50%);
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 4px;
+  padding: 4px 0;
+  border-radius: 8px;
   background: #101113dd;
 }
 .map-controls .mono {
   font: 10px var(--font-mono);
-  min-width: 45px;
+  width: 32px;
+  padding: 4px 0;
   text-align: center;
 }
-.map-footnote {
+/* 발행연도 범위: 스테이지 아래쪽에 가로로 꽉 차게(크롭 마크 안쪽). 슬라이더가 두 입력
+   사이의 남는 폭을 다 쓴다. 확대 컨트롤은 오른쪽 가운데로 옮기고 각주는 없애 아래 줄을
+   비웠다. */
+.year-range {
   position: absolute;
   bottom: 18px;
-  left: 20px;
-  max-width: 380px;
-  font-size: 10px;
-  line-height: 1.7;
-  color: var(--muted-foreground);
-  pointer-events: none;
+  left: 34px;
+  right: 34px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 5;
+}
+.year-range [data-slot="slider"] {
+  flex: 1 1 auto;
+  width: auto;
 }
 .tooltip {
   max-width: 280px;
@@ -1371,13 +1384,7 @@ input:focus-visible,
   .filter-result {
     font-size: 9px;
   }
-  .map-footnote {
-    max-width: 210px;
-    font-size: 9px;
-    left: 12px;
-    bottom: 12px;
-  }
-  .map-controls {
+    .map-controls {
     right: 8px;
     bottom: 12px;
     gap: 0;

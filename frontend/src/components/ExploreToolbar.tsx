@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
-import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { Field, FieldLabel } from "./ui/field";
 import {
@@ -19,7 +18,6 @@ import {
   SelectItem,
   SelectGroup,
 } from "./ui/select";
-import { Slider } from "./ui/slider";
 import type { ColorBy } from "../app/navigation";
 export function ExploreToolbar() {
   const a = useAnalysis(),
@@ -32,9 +30,6 @@ export function ExploreToolbar() {
     const timer = setTimeout(() => update({ q: draft.trim() }, true), 250);
     return () => clearTimeout(timer);
   }, [draft, composing, state.q, update]);
-  const years = a.map.data?.year.filter((y): y is number => y !== null) ?? [];
-  const lo = years.length ? Math.min(...years) : 1945,
-    hi = years.length ? Math.max(...years) : 2026;
   return (
     <div className="explore-toolbar">
       <Field
@@ -108,56 +103,6 @@ export function ExploreToolbar() {
           </SelectGroup>
         </SelectContent>
       </Select>
-      <div className="flex shrink-0 items-center gap-2">
-        <Field className="w-16">
-          <FieldLabel className="sr-only" htmlFor="year-from">
-            시작 연도
-          </FieldLabel>
-          <Input
-            id="year-from"
-            type="number"
-            className="text-center tabular-nums"
-            min={lo}
-            max={hi}
-            value={state.from ?? lo}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              if (e.target.value && n >= lo && n <= hi)
-                update({ from: Math.min(n, state.to ?? hi) }, true);
-            }}
-          />
-        </Field>
-        <Slider
-          className="data-horizontal:w-28 max-[960px]:data-horizontal:w-20"
-          thumbLabels={["시작 연도 범위", "종료 연도 범위"]}
-          min={lo}
-          max={Math.max(lo + 1, hi)}
-          value={[state.from ?? lo, state.to ?? hi]}
-          aria-label="발행연도 범위"
-          onValueChange={(value) => {
-            if (Array.isArray(value))
-              update({ from: value[0], to: value[1] }, true);
-          }}
-        />
-        <Field className="w-16">
-          <FieldLabel className="sr-only" htmlFor="year-to">
-            종료 연도
-          </FieldLabel>
-          <Input
-            id="year-to"
-            type="number"
-            className="text-center tabular-nums"
-            min={lo}
-            max={hi}
-            value={state.to ?? hi}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              if (e.target.value && n >= lo && n <= hi)
-                update({ to: Math.max(n, state.from ?? lo) }, true);
-            }}
-          />
-        </Field>
-      </div>
       <span id="search-hint" className="filter-result" role="status">
         {draft.trim().length === 1
           ? "두 글자 이상 입력"
