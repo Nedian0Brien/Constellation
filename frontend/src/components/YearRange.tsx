@@ -19,19 +19,22 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 // - 표식: 중요한 논문의 발행연도 자리에 큰 눈금. 아무것도 선택하지 않았으면 피인용
 //   상위 60편(해마다 최대 3편, 주제마다 최소 1편)을 주제 색으로; 영역을 선택하면 그
 //   영역 안의 상위 60편; 논문을 선택하면 그 논문이 인용한(파랑)·그 논문을 인용한(빨강)
-//   논문. 높이는 피인용수(log)에 비례. 같은 해에 여럿이면 칸 안에 고르게 나누고,
-//   겹치면 최대 4줄로 쌓는다. 호버하면 제목, 클릭하면 그 논문을 선택. 범위 밖이면 옅다.
+//   논문. 높이는 피인용수(log)에 비례. 같은 해에 여럿이면 칸 안에 고르게 나눈다.
+//   호버하면 제목, 클릭하면 그 논문을 선택. 범위 밖이면 옅다.
+// - 돋보기: 트랙 위에 마우스가 있으면 그 자리를 중심으로 반지름 R 안이 어안(fisheye)
+//   렌즈처럼 늘어나(Sarkar–Brown 1차원 식, 중심 배율 d+1, 가장자리에서 1/(d+1)로 압축,
+//   렌즈 밖은 그대로) 좁은 시대의 눈금·표식이 벌어진다. 끄는 동안은 끈다.
 // - 재생: 창을 초당 1년씩 앞으로 민다. 범위가 전체면 처음 5년 창으로 시작한다. 끝에
 //   닿거나 손잡이를 잡으면 멈춘다. 선택 노드의 인용선도 그 시점까지만 그려진다.
 // 범위가 전체와 같으면 URL에서 from·to를 뺀다. 끄는 동안의 갱신은 프레임마다 한 번.
 const MIN_CELL_PX = 2,
   MARKER_MAX = 60,
   MARKER_PER_YEAR = 3,
-  MARKER_ROWS = 4,
+  MARKER_MIN_H = 6,
+  MARKER_MAX_H = 14,
+  FISHEYE_D = 8,
+  FISHEYE_R = 180,
   MARKER_GAP = 3,
-  MARKER_ROW_PX = 10,
-  MARKER_MIN_H = 4,
-  MARKER_MAX_H = 9,
   LINK_OUT = "rgb(57 135 229)",
   LINK_IN = "rgb(230 103 103)",
   LABEL_MIN_PX = 24,
@@ -185,34 +188,59 @@ export function YearRange() {
   }, [counts, width]);
   const xOf = (y: number) =>
     edges[Math.min(Math.max(y - lo, 0), counts.length)];
-  const cellWidth = (y: number) => edges[y - lo + 1] - edges[y - lo];
-  // 같은 해의 표식은 칸 안에 고르게 나누고, 앞 표식과 3px 안이면 윗줄로 올린다(최대
-  // 4줄, 다 차면 맨 윗줄에 겹친다). 표식은 수십 개라 매 렌더 계산해도 싸다.
-  const layout = (() => {
+  // 돋보기 초점(트랙 안 x). 끄는 동안은 없다.
+  const [focus, setFocus] = useState<number | null>(null);
+  // 렌즈 변환과 역변환. 초점 a에서 |x−a| = t·R (0 ≤ t ≤ 1)이면
+  // t' = (d+1)·t / (d·t + 1). t=1에서 t'=1이라 렌즈 가장자리는 이어진다.
+  // 렌즈 반지름은 트랙 끝을 넘지 않게 좌우 따로 줄인다 — 끝의 손잡이·라벨이 밀려나지 않는다.
+  const lensR = (dx: number) =>
+    Math.max(1, Math.min(FISHEYE_R, dx < 0 ? focus! : width - focus!));
+  const warp = (x: number) => {
+    if (focus === null) return x;
+    const dx = x - focus,
+      R = lensR(dx),
+      t = Math.abs(dx) / R;
+    if (t >= 1 || t === 0) return x;
+    const tw = ((FISHEYE_D + 1) * t) / (FISHEYE_D * t + 1);
+    return focus + Math.sign(dx) * tw * R;
+  };
+  const unwarp = (x: number) => {
+    if (focus === null) return x;
+    const dx = x - focus,
+      R = lensR(dx),
+      tw = Math.abs(dx) / R;
+    if (tw >= 1 || tw === 0) return x;
+    // t' = (d+1)t/(dt+1)  ⇒  t = t' / (d+1 − d·t')
+    const t = tw / (FISHEYE_D + 1 - FISHEYE_D * tw);
+    return focus + Math.sign(dx) * t * R;
+  };
+  const vx = (y: number) => warp(xOf(y));
+  const cellWidth = (y: number) => vx(y + 1) - vx(y);
+  // 같은 해의 표식은 칸 안에 고르게 나눈다(돋보기 뒤 좌표). 표식은 수십 개라 매 렌더
+  // 계산해도 싸다.
+  const markerX = (() => {
     const byYear = new Map<number, number[]>();
     markers.forEach((m, k) => {
       const list = byYear.get(m.year) ?? [];
       list.push(k);
       byYear.set(m.year, list);
     });
-    const xs = new Array<number>(markers.length),
-      rows = new Array<number>(markers.length).fill(0);
+    const xs = new Array<number>(markers.length);
     for (const [y, ks] of byYear) {
-      const x0 = xOf(y),
+      const x0 = vx(y),
         w = cellWidth(y);
       ks.forEach((k, j) => {
         xs[k] = x0 + ((j + 0.5) / ks.length) * w;
       });
     }
+    // 그래도 3px 안이면 오른쪽으로 민다(돋보기 안에서는 벌어져 밀림이 줄어든다).
     const order = xs.map((x, k) => [x, k] as const).sort((p, q) => p[0] - q[0]);
-    const last = new Array<number>(MARKER_ROWS).fill(-Infinity);
+    let prev = -Infinity;
     for (const [x, k] of order) {
-      let r = last.findIndex((lx) => x - lx >= MARKER_GAP);
-      if (r < 0) r = MARKER_ROWS - 1;
-      rows[k] = r;
-      last[r] = x;
+      xs[k] = Math.max(x, prev + MARKER_GAP);
+      prev = xs[k];
     }
-    return { xs, rows };
+    return xs;
   })();
   // 범위 갱신. 전체 범위면 URL에서 뺀다. 끄는 동안은 프레임마다 한 번만 보낸다.
   const pending = useRef<{ from: number; to: number } | null>(null),
@@ -295,10 +323,16 @@ export function YearRange() {
     drag.current = { id: e.pointerId, kind, x0: e.clientX, from, to };
     setDragging(kind);
     setPlaying(false);
+    setFocus(null);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
-    if (!d || d.id !== e.pointerId) return;
+    if (!d || d.id !== e.pointerId) {
+      // 끌지 않는 동안은 돋보기 초점만 따라간다.
+      if (!d && e.pointerType === "mouse")
+        setFocus(e.clientX - track.current!.getBoundingClientRect().left);
+      return;
+    }
     if (d.kind === "window") {
       // 창의 왼쪽 가장자리를 픽셀만큼 옮긴 자리의 연도로. 폭(연도 수)은 그대로.
       const span = d.to - d.from,
@@ -319,7 +353,7 @@ export function YearRange() {
   // 트랙의 빈 곳을 누르면 가까운 손잡이가 그리로 온다.
   const onTrackPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    const x = e.clientX - track.current!.getBoundingClientRect().left,
+    const x = unwarp(e.clientX - track.current!.getBoundingClientRect().left),
       y = Math.floor(yearAtX(x));
     if (Math.abs(x - xOf(from)) <= Math.abs(x - xOf(to + 1))) commit(y, to);
     else commit(from, y);
@@ -352,7 +386,7 @@ export function YearRange() {
   let lastLabelRight = -Infinity,
     lastTickX = -Infinity;
   for (let y = lo; y <= hi + 1; y++) {
-    const x = xOf(y),
+    const x = vx(y),
       wide = y <= hi && cellWidth(y) >= LABEL_MIN_PX,
       decade = y % 10 === 0;
     if (x - lastTickX < 3 && !decade) continue;
@@ -390,22 +424,24 @@ export function YearRange() {
           commit(lo, hi);
         }}
         className="year-track"
+        data-focus={focus !== null || undefined}
         onPointerDown={onTrackPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        onPointerLeave={() => setFocus(null)}
       >
         <div className="year-line" aria-hidden="true" />
         <div
           className="year-line-in"
           aria-hidden="true"
-          style={{ left: xOf(from), width: xOf(to + 1) - xOf(from) }}
+          style={{ left: vx(from), width: vx(to + 1) - vx(from) }}
         />
         {/* 가운데 구간: 폭을 유지한 채 이동. */}
         {to > from && (
           <div
             className="year-window"
-            style={{ left: xOf(from), width: xOf(to + 1) - xOf(from) }}
+            style={{ left: vx(from), width: vx(to + 1) - vx(from) }}
             onPointerDown={(e) => startDrag(e, "window")}
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
@@ -425,8 +461,7 @@ export function YearRange() {
                     data-selected={state.selected === m.id || undefined}
                     aria-label={`${m.kind}: ${m.title} (${m.year})`}
                     style={{
-                      left: layout.xs[k],
-                      bottom: 14 + layout.rows[k] * MARKER_ROW_PX,
+                      left: markerX[k],
                       height: m.height,
                       background: m.color,
                     }}
@@ -465,7 +500,7 @@ export function YearRange() {
               aria-valuemin={kind === "from" ? lo : from}
               aria-valuemax={kind === "from" ? to : hi}
               aria-valuenow={y}
-              style={{ left: kind === "from" ? xOf(y) : xOf(y + 1) }}
+              style={{ left: kind === "from" ? vx(y) : vx(y + 1) }}
               onPointerDown={(e) => startDrag(e, kind)}
               onPointerMove={onPointerMove}
               onPointerUp={endDrag}
