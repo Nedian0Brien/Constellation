@@ -1268,7 +1268,8 @@ input:focus-visible,
   text-transform: uppercase;
   color: var(--muted-foreground);
 }
-/* 확대 컨트롤: 오른쪽 가운데 세로 배열(확대 · 배율 · 축소 · 전체 보기). */
+/* 확대 컨트롤: 오른쪽 가운데 세로 배열(확대 · 다이얼 · 축소). 위아래가 대칭이라
+   다이얼 바늘이 화면 세로 정가운데에 온다. 전체 보기 버튼은 그 아래 따로. */
 .map-controls {
   position: absolute;
   top: 50%;
@@ -1278,15 +1279,77 @@ input:focus-visible,
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 4px 0;
-  border-radius: 8px;
-  background: #101113dd;
 }
-.map-controls .mono {
+.map-reset {
+  position: absolute;
+  right: 26px;
+  /* 다이얼 반높이 84 + 간격 4 + 축소 버튼 32 + 간격 12 */
+  top: calc(50% + 132px);
+}
+/* 확대 다이얼: 눈금자가 흐르고 가운데 바늘은 고정. 위아래는 마스크로 옅어진다. */
+.zoom-dial-wrap {
+  position: relative;
+  width: 48px;
+}
+.zoom-dial {
+  position: relative;
+  width: 48px;
+  height: 100%;
+  overflow: hidden;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
+  outline: none;
+}
+.zoom-dial:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+.zoom-dial-ticks {
+  position: absolute;
+  inset: 0;
+}
+.zoom-tick {
+  position: absolute;
+  right: 6px;
+  width: 8px;
+  height: 1px;
+  background: var(--muted-foreground);
+  transform: translateY(-0.5px);
+}
+.zoom-tick[data-major] {
+  width: 14px;
+  background: var(--foreground);
+}
+.zoom-tick span {
+  position: absolute;
+  right: 18px;
+  top: -6px;
+  font: 9px var(--font-mono);
+  color: var(--muted-foreground);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  text-shadow: 0 0 4px var(--map-ground);
+}
+.zoom-dial-needle {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: 2px;
+  background: var(--warn);
+  transform: translateY(-1px);
+  pointer-events: none;
+}
+.zoom-dial-needle span {
+  position: absolute;
+  right: calc(100% + 6px);
+  top: -6px;
   font: 10px var(--font-mono);
-  width: 32px;
-  padding: 4px 0;
-  text-align: center;
+  color: var(--warn);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  text-shadow: 0 0 4px var(--map-ground);
 }
 /* 발행연도 범위: 스테이지 아래쪽에 가로로 꽉 차게(크롭 마크 안쪽). 슬라이더가 두 입력
    사이의 남는 폭을 다 쓴다. 확대 컨트롤은 오른쪽 가운데로 옮기고 각주는 없애 아래 줄을
@@ -1386,8 +1449,10 @@ input:focus-visible,
   }
     .map-controls {
     right: 8px;
-    bottom: 12px;
     gap: 0;
+  }
+  .map-reset {
+    right: 16px;
   }
   .region-name {
     font-size: 18px;

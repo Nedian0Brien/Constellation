@@ -66,6 +66,7 @@ import {
 } from "./map/edges";
 import { SnapTextExtension } from "./map/text-snap";
 import { RegionGradientExtension } from "./map/region-gradient";
+import { ZoomDial } from "./map/ZoomDial";
 const view = new OrthographicView({ id: "research-map" });
 const snapText = new SnapTextExtension(),
   regionGradient = new RegionGradientExtension();
@@ -1874,9 +1875,13 @@ export default function MapView() {
         >
           <Plus />
         </Button>
-        <span className="mono">
-          {Math.round(100 * 2 ** (camera.zoom - home.zoom))}%
-        </span>
+        <ZoomDial
+          zoom={camera.zoom}
+          home={home.zoom}
+          min={home.zoom - 2}
+          max={home.zoom + ZOOM_RANGE}
+          onChange={(zoom) => move({ ...camera, zoom }, false)}
+        />
         <Button
           variant="ghost"
           size="icon"
@@ -1890,18 +1895,20 @@ export default function MapView() {
         >
           <Minus />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="지도 전체 보기"
-          onClick={() => {
-            update({ cluster: undefined, node: undefined });
-            move(home);
-          }}
-        >
-          <RotateCcw />
-        </Button>
       </div>
+      {/* 전체 보기는 다이얼 묶음 밖에 따로 둔다 — 다이얼이 화면 세로 정가운데에 오도록. */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="map-reset"
+        aria-label="지도 전체 보기"
+        onClick={() => {
+          update({ cluster: undefined, node: undefined });
+          move(home);
+        }}
+      >
+        <RotateCcw />
+      </Button>
     </div>
   );
 }
