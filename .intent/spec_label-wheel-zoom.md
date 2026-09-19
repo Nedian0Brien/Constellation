@@ -57,6 +57,8 @@ handler:
 
 - 포인터 캡처는 `pointerdown` 대상 요소에 걸어야 한다. 캡처 뒤 `pointermove`·`pointerup`은 그 요소에서 나와 컨테이너로 올라온다.
 - 끈 뒤 `pointerup` 다음에 `click`이 버튼에서 나온다. React 합성 이벤트에서 부모의 `onClickCapture`가 자식 `onClick`보다 먼저 돌므로 거기서 막는다.
+- 끈 뒤 click이 안 따라오는 경우가 있다(터치 드래그, `pointercancel`). 막기 플래그를 click까지 들고 있으면 뒤에 오는 무관한 클릭(키보드 Enter, 병합 뒤 선택 모드 버튼)을 삼킨다. `pointerup` 직후 같은 태스크에서 오는 click만 막고 다음 틱에 푼다.
+- 끄는 중에 휠로 배율이 바뀔 수 있다. 시작 카메라 기준으로 target을 계산하면 배율이 시작값으로 튀므로, 한 걸음마다 지금 카메라의 뷰포트로 계산한다(deck의 pan과 같은 방식).
 - `RegionName`은 켜진 동안만 자리를 옮긴다. 끄는 동안 카메라가 바뀌면 라벨 자리도 바뀌지만 캡처가 걸려 있어 이벤트는 계속 온다.
 
 ## 완료 기준

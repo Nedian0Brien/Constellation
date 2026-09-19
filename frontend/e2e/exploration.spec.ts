@@ -368,14 +368,15 @@ test("drag over a region name pans the map without opening the region", async ({
   await page.waitForTimeout(300);
   const q = new URL(page.url()).searchParams;
   expect(q.has("node") || q.has("cluster")).toBe(false);
-  // 끈 뒤 같은 이름을 그냥 클릭하면 들어간다.
-  await name.click();
-  await expect
-    .poll(() => {
-      const q = new URL(page.url()).searchParams;
-      return q.has("node") || q.has("cluster");
-    })
-    .toBe(true);
+  // 끈 뒤에도 키보드 활성화(초점 + Enter)는 먹히지 않고 그 영역으로 들어간다.
+  // 그냥 클릭으로 들어가는 것은 휠 시나리오가 본다.
+  await name.focus();
+  await page.keyboard.press("Enter");
+  const entered = () => {
+    const q = new URL(page.url()).searchParams;
+    return q.has("node") || q.has("cluster");
+  };
+  await expect.poll(entered).toBe(true);
 });
 test("explicit region selection replaces paper detail with the real cluster", async ({
   page,
