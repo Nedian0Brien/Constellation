@@ -1443,6 +1443,60 @@ input:focus-visible,
 .year-range[data-playing] .year-label {
   color: var(--warn);
 }
+/* 주제 표식: 축 선 위에 선 주제 색 눈금. 범위 밖은 옅고, 호버·선택은 길어진다. */
+.year-markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.year-marker {
+  position: absolute;
+  bottom: 14px;
+  width: 3px;
+  height: 12px;
+  transform: translateX(-1.5px);
+  border: 0;
+  padding: 0;
+  border-radius: 1px 1px 0 0;
+  opacity: 0.35;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    height var(--duration-label) var(--ease),
+    opacity var(--duration-label) var(--ease);
+}
+.year-marker::before {
+  content: "";
+  position: absolute;
+  inset: -4px -4px -6px;
+}
+.year-marker[data-in] {
+  opacity: 1;
+}
+.year-marker:hover,
+.year-marker:focus-visible,
+.year-marker[data-selected] {
+  height: 20px;
+  opacity: 1;
+  outline: none;
+}
+.year-marker[data-selected] {
+  box-shadow: 0 0 0 1px var(--foreground);
+}
+.year-marker-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 320px;
+}
+.year-marker-title {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.year-marker-meta {
+  font: 10px var(--font-mono);
+  letter-spacing: 0.04em;
+}
 .year-input {
   width: 48px;
   text-align: center;
