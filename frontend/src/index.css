@@ -1391,12 +1391,16 @@ input:focus-visible,
   position: absolute;
   bottom: 0;
   background: var(--muted-foreground);
-  opacity: 0.3;
-  border-radius: 1px 1px 0 0;
+  opacity: 0.22;
+  box-sizing: border-box;
+}
+.year-bar[data-wide] {
+  /* 칸 경계. 좁은 칸(6px 미만)은 선을 그리면 칸이 사라져 뺀다. */
+  border-right: 1px solid var(--map-ground, #0c1118);
 }
 .year-bar[data-in] {
   background: var(--foreground);
-  opacity: 0.55;
+  opacity: 0.45;
 }
 .year-bar i {
   position: absolute;
