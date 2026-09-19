@@ -89,6 +89,10 @@ export type ThreadComponents = {
   ReasoningGroup?:
     | ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
     | undefined;
+  // NOTE(constellation): 프레임워크(agent-chat-framework)와 같은 슬롯. 작성창
+  // 왼쪽 아래에 그릴 것 — 모델 선택기가 들어간다. 첨부 버튼은 뺐으므로
+  // 없으면 자리가 빈다.
+  ComposerLeading?: ComponentType | undefined;
 };
 
 export type ThreadProps = {
@@ -272,9 +276,12 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
 };
 
 const ComposerAction: FC = () => {
+  const { ComposerLeading } = useContext(ThreadComponentsContext);
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      <span />
+      <div className="flex min-w-0 items-center gap-1.5">
+        {ComposerLeading && <ComposerLeading />}
+      </div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>

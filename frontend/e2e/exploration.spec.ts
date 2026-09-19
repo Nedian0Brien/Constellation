@@ -351,6 +351,33 @@ test("agent chat: canned stream renders, runs a frontend tool, and survives relo
     results.push(route.request().postDataJSON());
     await route.fulfill({ json: { ok: true, delivered: true } });
   });
+  // 서버 없이 돈다. 건강 검사와 모델 카탈로그도 목으로 답해야 채팅 자리에
+  // "서버가 꺼져 있습니다" 대신 작성창이 보인다.
+  await page.route("**/api/agent/health", (route) =>
+    route.fulfill({ json: { ok: true } }),
+  );
+  await page.route("**/api/agent/models", (route) =>
+    route.fulfill({
+      json: {
+        providers: [
+          {
+            id: "claude",
+            name: "Claude",
+            models: [
+              {
+                id: "claude/sonnet",
+                name: "Sonnet",
+                description: "e2e",
+                efforts: [{ id: "low", name: "Low" }],
+                speeds: [],
+                isDefault: true,
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  );
   await page.route("**/api/agent", (route) =>
     route.fulfill({
       status: 200,
@@ -389,7 +416,34 @@ test("agent chat: canned stream renders, runs a frontend tool, and survives relo
   await expect(map).not.toHaveAttribute("data-camera", before!);
   await page.reload();
   await expect(page.getByTestId("agent-chat")).toContainText("확대했습니다.");
+  // 작성창의 모델 선택기는 카탈로그의 기본 모델을 보인다.
+  await expect(
+    page.getByTestId("agent-chat").getByRole("combobox", { name: "모델 선택" }),
+  ).toContainText("Sonnet");
   await page.getByRole("button", { name: "새 대화", exact: true }).click();
   await expect(page.getByTestId("agent-chat")).toContainText("무엇을 찾아볼까요?");
   await expect(page.getByTestId("agent-chat")).not.toContainText("확대했습니다.");
+});
+
+test("agent chat: server offline shows a retry panel instead of Load failed", async ({
+  page,
+}) => {
+  let up = false;
+  await page.route("**/api/agent/health", (route) =>
+    up ? route.fulfill({ json: { ok: true } }) : route.abort("connectionrefused"),
+  );
+  await page.route("**/api/agent/models", (route) =>
+    route.fulfill({ json: { providers: [] } }),
+  );
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "에이전트 패널 전환", exact: true })
+    .click();
+  const chat = page.getByTestId("agent-chat");
+  await expect(chat.getByTestId("agent-offline")).toBeVisible();
+  await expect(chat).toContainText("에이전트 서버가 꺼져 있습니다");
+  up = true;
+  await chat.getByRole("button", { name: "다시 시도", exact: true }).click();
+  await expect(chat.getByTestId("agent-offline")).toBeHidden();
+  await expect(chat).toContainText("무엇을 찾아볼까요?");
 });

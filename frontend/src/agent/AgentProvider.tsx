@@ -1,4 +1,5 @@
 import { useCallback, useMemo, type ReactNode } from "react";
+import type { ThreadMessage } from "@assistant-ui/react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,6 +15,8 @@ import { useExploration } from "../hooks/use-exploration";
 import { useStore } from "../store";
 import { buildInstructions } from "./context";
 import { createHistoryAdapter, type StoredThread } from "./history";
+import { getModelSelectionSnapshot } from "./settings";
+import { reportAgentError } from "./use-agent-health";
 import {
   createToolExecutors,
   toolDefinitions,
@@ -172,9 +175,13 @@ function AgentTools({ run, sessionId }: { run: string; sessionId: string }) {
 }
 
 /**
- * 채팅 런타임. Claude Agent SDK 서버(`/api/agent`)에 붙고 세션 UUID 를 매
- * 요청에 실어 보낸다. 서버는 그 id 로 세션을 열거나 이어간다. run 이나
- * 대화가 바뀌면 부모가 key 로 다시 마운트한다.
+ * 채팅 런타임. 에이전트 서버(`/api/agent`)에 붙고 세션 UUID 를 매 요청에 실어
+ * 보낸다. Claude 는 그 id 로 세션을 열거나 이어가고, Codex 는 첫 턴 응답의
+ * `codexThreadId` 를 저장해 다음 턴부터 함께 보낸다. run·프로바이더·대화가
+ * 바뀌면 부모가 key 로 다시 마운트한다.
+ *
+ * 모델·effort 는 작성창 선택기가 ModelContext 에 등록해 런타임이 본문에
+ * 싣는다(`modelName`·`reasoningEffort`). speed 는 자리가 없어 `body()` 로 싣는다.
  */
 export function AgentProvider({
   run,
@@ -186,15 +193,36 @@ export function AgentProvider({
   children: ReactNode;
 }) {
   const runtime = useDataStreamRuntime(
-    useMemo(
-      () => ({
+    useMemo(() => {
+      const history = createHistoryAdapter(run, thread);
+      return {
         api: AGENT_API,
-        body: () => ({ sessionId: thread.sessionId }),
-        adapters: { history: createHistoryAdapter(run, thread) },
-        onError: (error: Error) => console.error("[agent]", error),
-      }),
-      [run, thread],
-    ),
+        body: () => {
+          const { codexThreadId } = history.current();
+          const { speed } = getModelSelectionSnapshot();
+          return {
+            sessionId: thread.sessionId,
+            ...(codexThreadId ? { codexThreadId } : {}),
+            ...(speed ? { speed } : {}),
+          };
+        },
+        adapters: { history },
+        // Codex 스레드 id 는 응답의 data-session 파트로 온다. 메시지가 끝난 뒤
+        // 파트에서 읽어 저장본에 덧쓴다.
+        onFinish: (message: ThreadMessage) => {
+          for (const part of message.content) {
+            if (part.type !== "data" || part.name !== "session") continue;
+            const data = part.data as { codexThreadId?: unknown } | undefined;
+            if (typeof data?.codexThreadId === "string")
+              history.patch({ codexThreadId: data.codexThreadId });
+          }
+        },
+        onError: (error: Error) => {
+          console.error("[agent]", error);
+          reportAgentError(error);
+        },
+      };
+    }, [run, thread]),
   );
   return (
     <AssistantRuntimeProvider runtime={runtime}>
