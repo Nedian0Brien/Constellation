@@ -705,6 +705,19 @@ export default function MapView() {
     () => regionBlobs(map, a.clusters.data ?? []),
     [map, a.clusters.data],
   );
+  // 주제마다 지금 그려지는(연도 범위 안) 논문 비율. 영역 배경은 이 비율만큼 옅어지고,
+  // 논문이 하나도 없는 영역은 배경도 이름도 그리지 않는다.
+  const clusterShare = useMemo(() => {
+    const total = new Map<number, number>(),
+      shown = new Map<number, number>();
+    for (let i = 0; i < map.n; i++)
+      total.set(map.cluster[i], (total.get(map.cluster[i]) ?? 0) + 1);
+    for (const p of shownPoints)
+      shown.set(map.cluster[p.i], (shown.get(map.cluster[p.i]) ?? 0) + 1);
+    const share = new Map<number, number>();
+    for (const [c, n] of total) share.set(c, (shown.get(c) ?? 0) / n);
+    return share;
+  }, [map, shownPoints]);
   const relativeZoom = camera.zoom - home.zoom;
   const level = labelLevel(relativeZoom);
   // 상위 피인용 논문(98분위 이상). 크게 그리고 흰 테두리를 두른다.
@@ -808,6 +821,27 @@ export default function MapView() {
     () => regionLabels(a.tree.data, a.clusters.data ?? [], 2),
     [a.tree.data, a.clusters.data],
   );
+  // 영역 이름마다 그려지는 논문이 있는지. 상위·하위 분야는 자손 주제를 합친다.
+  const regionAlive = useMemo(() => {
+    const alive = new Set<string>();
+    const check = (items: ReturnType<typeof regionLabels>) => {
+      for (const n of items) {
+        const clusters =
+          n.node !== undefined
+            ? descendants(a.tree.data, n.node)
+            : new Set([n.cluster!]);
+        for (const c of clusters)
+          if ((clusterShare.get(c) ?? 0) > 0) {
+            alive.add(n.id);
+            break;
+          }
+      }
+    };
+    check(top);
+    check(sub);
+    check(leaves);
+    return alive;
+  }, [top, sub, leaves, a.tree.data, clusterShare]);
   const radii = useMemo(
     () => regionRadii(map, a.tree.data, a.clusters.data ?? []),
     [map, a.tree.data, a.clusters.data],
@@ -823,6 +857,7 @@ export default function MapView() {
     if (relativeZoom >= PAPER_LABEL_ZOOM + 0.5) return out;
     const [cx, cy] = viewport.unproject([size.width / 2, size.height / 2]);
     for (const n of [...regionSet].sort((a, b) => b.size - a.size)) {
+      if (!regionAlive.has(n.id)) continue;
       let [x, y] = viewport.project([n.x, n.y, 0]);
       const w = Math.min(205, n.label.length * 10),
         h = Math.ceil(n.label.length / 20) * 23;
@@ -847,7 +882,7 @@ export default function MapView() {
       out.set(n.id, [x, y]);
     }
     return out;
-  }, [relativeZoom, regionSet, viewport, size, radii]);
+  }, [relativeZoom, regionSet, viewport, size, radii, regionAlive]);
   // 논문 제목의 바닥 배율(절대 zoom). 겹치지 않는 제목은 여기서부터 진해진다.
   // 상위 분야 단계에서는 안 켠다. 하위 분야 단계인데 화면에 영역 이름이 하나도
   // 없으면(영역 사이 빈 곳) 바닥을 없애 겹치지 않는 제목을 바로 켠다 — 그 순간
@@ -1366,11 +1401,16 @@ export default function MapView() {
         getPosition: (b) => b.position,
         getRadius: (b) => b.radius,
         radiusUnits: "common",
-        getFillColor: (b) => [...b.color, 255],
+        // 그려지는 논문 비율만큼 옅어진다(연도 범위 밖이면 사라진다).
+        getFillColor: (b) => [
+          ...b.color,
+          Math.round(255 * (clusterShare.get(b.id) ?? 0)),
+        ],
         antialiasing: false,
         opacity: state.color === "cluster" ? 0.7 : 0.2,
         extensions: [regionGradient],
         pickable: false,
+        updateTriggers: { getFillColor: [clusterShare] },
       }),
     new ScatterplotLayer({
       id: "papers",
