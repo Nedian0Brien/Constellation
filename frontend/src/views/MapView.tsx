@@ -230,6 +230,24 @@ export default function MapView() {
   useEffect(() => {
     if (reduced) cancelAnimationFrame(frame.current);
   }, [reduced]);
+  // 영역 이름은 deck 캔버스 위에 얹힌 형제 오버레이라, 켜진 이름 위에서 굴린 휠은
+  // deck의 이벤트 루트(.deck-events-root)에 닿지 않아 확대가 멈춘다. 휠만 캔버스로
+  // 되보낸다 — 클릭·호버는 이름이 그대로 갖는다. React의 onWheel은 passive라
+  // 원본의 스크롤을 못 막으므로 native 리스너를 쓴다. 되보낸 이벤트는 캔버스에서
+  // 컨테이너로 올라가고 오버레이는 그 경로에 없어 다시 여기로 오지 않는다.
+  const labels = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = labels.current;
+    if (!el) return;
+    const forward = (e: WheelEvent) => {
+      const canvas = deckRef.current?.deck?.getCanvas();
+      if (!canvas) return;
+      e.preventDefault();
+      canvas.dispatchEvent(new WheelEvent(e.type, e));
+    };
+    el.addEventListener("wheel", forward, { passive: false });
+    return () => el.removeEventListener("wheel", forward);
+  }, []);
   useEffect(() => {
     const o = new ResizeObserver(([entry]) => {
       if (entry.contentRect.width > 0 && entry.contentRect.height > 0)
@@ -806,7 +824,7 @@ export default function MapView() {
           isDragging ? "grabbing" : hover ? "pointer" : "grab"
         }
       />
-      <div className="map-labels" aria-label="지도 라벨">
+      <div ref={labels} className="map-labels" aria-label="지도 라벨">
         {renderRegions(top, level === "field", "top")}
         {renderRegions(
           sub,

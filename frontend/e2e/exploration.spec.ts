@@ -314,6 +314,35 @@ test("unknown selection and malformed persisted layout remain recoverable", asyn
     "현재 분석에 포함되지 않은 논문입니다",
   );
 });
+test("wheel over a region name zooms the map and the name still opens the region", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const map = page.getByTestId("research-map");
+  await expect(map).toHaveAttribute("data-label-level", "field");
+  const zoomOf = async () =>
+    Number((await map.getAttribute("data-camera"))!.split(":")[0]);
+  // 영역 이름은 deck 캔버스 위의 DOM 버튼이다. 그 위에서 굴린 휠이 캔버스에 닿지
+  // 않으면 확대가 멈춘다. 켜진 이름 하나의 한가운데에 마우스를 두고 굴린다.
+  const name = page.locator(".region-name[data-active=true]").first();
+  await expect(name).toBeVisible();
+  const box = (await name.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const start = await zoomOf();
+  await page.mouse.wheel(0, -120);
+  await expect.poll(zoomOf).toBeGreaterThan(start);
+  const zoomedIn = await zoomOf();
+  await page.mouse.wheel(0, 120);
+  await expect.poll(zoomOf).toBeLessThan(zoomedIn);
+  // 휠을 넘겨도 클릭은 이름이 갖는다 — 그 영역으로 들어간다.
+  await name.click();
+  await expect
+    .poll(() => {
+      const q = new URL(page.url()).searchParams;
+      return q.has("node") || q.has("cluster");
+    })
+    .toBe(true);
+});
 test("explicit region selection replaces paper detail with the real cluster", async ({
   page,
   request,
