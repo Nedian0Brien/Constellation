@@ -21,8 +21,8 @@ date: 2026-09-19
 | `agent/src/session.ts` | `ChatRequest`에 `modelName`·`reasoningEffort`·`speed`·`codexThreadId` |
 | `agent/src/bridge.ts` | `data-session`에 `provider` |
 | `agent/src/server.ts` | 분기, `/api/agent/models`, `/mcp/*`, relays에 manifest |
-| `agent/src/relay.test.ts` 또는 신규 `models.test.ts` | `parseModelId`·Codex 브리지 중계 짝짓기 테스트 |
-| `agent/.gitignore` 또는 루트 `.gitignore` | `agent/.codex-home/` |
+| `agent/src/codex.test.ts` (신규) | `parseModelId`·Codex 브리지(중계·웹 검색·실패·중단) 테스트 |
+| 루트 `.gitignore` | `.codex-home/` |
 | `frontend/src/components/assistant-ui/elements/{model-selector,model-selector.aui,logos}.tsx` (신규) | `@acf` 설치본 |
 | `frontend/src/components/assistant-ui/elements/thread.aui.tsx` | `ComposerLeading` 슬롯 |
 | `frontend/src/agent/settings.ts` (신규) | 모델 선택 저장·`useModelSelection` |
@@ -34,6 +34,7 @@ date: 2026-09-19
 | `frontend/src/components/AgentSidebar.tsx` | 슬롯 연결, 오프라인 안내 |
 | `frontend/src/components/AppShell.tsx` | provider 전달 |
 | `frontend/src/agent/agent.test.ts` | history v2·settings 테스트 |
+| `frontend/vite.config.ts` | `/api/agent` 프록시 대상을 `CONSTELLATION_AGENT` 로 바꿀 수 있게(워크트리 검증용) |
 | `frontend/e2e/exploration.spec.ts` | health·models 목 |
 | `README.md`·`docs/ARCHITECTURE.md`·`docs/PRODUCT-FOUNDATION-QA.md` | 갱신 |
 
@@ -41,7 +42,7 @@ date: 2026-09-19
 
 1. `shadcn add @acf/model-selector-aui @acf/logos`(레지스트리는 `http://127.0.0.1:3100/r`에 프레임워크 `public/`을 정적으로 띄움) — 파일 3개 생김, `tsc -b` 통과.
 2. 서버: codex 모듈 옮기고 `models.ts`·`/api/agent/models` — `curl`로 두 프로바이더.
-3. `mcp-endpoint.ts` + Codex 브리지 중계 + `server.ts` 분기 — `curl`로 `tools:{zoom}` manifest를 보낸 Codex 턴에서 `zoom` tool-call 파트가 오고, `tool-result`를 넣으면 턴이 끝난다. `arguments`가 `item/started`에 오는지 여기서 확인해 브리지를 맞춘다.
+3. `mcp-endpoint.ts` + Codex 브리지 중계 + `server.ts` 분기 — `curl`로 `tools:{zoom}` manifest를 보낸 Codex 턴에서 `zoom` tool-call 파트가 오고, `tool-result`를 넣으면 턴이 끝난다. `arguments`가 `item/started`에 오는지 여기서 확인해 브리지를 맞춘다. (실측: `arguments`는 `item/started`에 온다. `approvalPolicy: never`에서 codex가 MCP 도구를 승인 대상으로 보고 거부해 `tools/call`이 오지 않았고, 도구에 `annotations.readOnlyHint`를 달아 해결했다.)
 4. 프론트 저장·선택·런타임(`history`·`settings`·`use-agent-thread`·`AgentProvider`·`AppShell`) — vitest.
 5. 선택기·슬롯·오프라인 안내(`thread.aui`·`AgentModelSelector`·`AgentSidebar`·`use-agent-health`) — 브라우저에서 Codex zoom, Claude 전환, 서버 꺼짐.
 6. 테스트·E2E·문서, 커밋, PR.
