@@ -47,7 +47,12 @@ import {
   descendants,
 } from "./map/labels";
 import { placeLabels, type LabelBox } from "./map/active-labels";
-import { clusterColor, regionBlobs, type RegionBlob } from "./map/regions";
+import {
+  clusterColor,
+  ordinalColor,
+  regionBlobs,
+  type RegionBlob,
+} from "./map/regions";
 import {
   citationIndex,
   degreeOf,
@@ -70,6 +75,12 @@ const LABEL_FADE_MS = 240;
 const DOT_RADIUS_MAX = 7,
   HALO_GAP = 5,
   HALO_MIN = 10;
+// 레퍼런스 시각 언어(프로토타입). 영역 블롭은 두고, 점은 기본 1.5px에 상위 피인용 논문만
+// 크게(3px) 흰 테두리로 강조한다. 강조 문턱은 피인용수 98분위.
+const SHOW_REGION_BLOBS = true as boolean,
+  DOT_RADIUS = 1.5,
+  DOT_RADIUS_TOP = 3,
+  TOP_CITED_QUANTILE = 0.98;
 // 마우스를 올린 논문의 인용 관계. 참조(올린 논문 → 이웃)는 파랑, 피인용(이웃 → 올린
 // 논문)은 빨강 — dataviz 기준 팔레트의 다크 모드 발산 쌍(#3987e5·#e66767)으로, 지도
 // 바탕 #0e1319 위에서 검증기를 통과한다(CVD ΔE 19.2, 정상 시각 29.0, 대비 3:1 이상).
@@ -83,11 +94,11 @@ const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
   LINK_FAR_WIDTH = 1;
 // 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값(1초 → 0.5초).
 const HOVER_DELAY_MS = 500;
-// 선택 모드의 버튼 셋: 노드에서 36px 떨어진 원의 위쪽 호에 60° 간격. 아래쪽은 노드의
-// 제목이 차지한다(점 아래 9px). 버튼은 32px(desktop dense, `design-ops`
-// patterns/button.md 높이 분포).
+// 선택 모드의 버튼 셋: 노드에서 36px 떨어진 원의 왼쪽·위쪽 호에 60° 간격. 오른쪽은
+// 노드의 제목이 차지한다. 버튼은 32px(desktop dense, `design-ops` patterns/button.md
+// 높이 분포).
 const MENU_RADIUS = 36,
-  MENU_ANGLES = [-150, -90, -30];
+  MENU_ANGLES = [150, -150, -90];
 // 선택 시 노드가 가장자리 이 안쪽이면 중앙으로 옮긴다 — 버튼이 화면 밖으로 안 나가게.
 const SELECT_MARGIN = 90;
 // 로컬 그래프를 화면에 맞출 때의 여백.
@@ -97,14 +108,21 @@ const LOCAL_HOPS = 1;
 // 논문 제목 상자. 본문 글꼴 11px, 220px 최대 폭(안쪽 여백 2px 4px를 뺀 212px에
 // 글자), 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의 줄
 // 간격이기도 하다. 글자는 점 아래 9px(위 여백 7 + 안쪽 2)에서 시작한다.
-const TITLE_FONT_SIZE = 11,
-  TITLE_MAX_WIDTH = 220,
+// 프로토타입: 10px 대문자 모노, 자간 0.8px, 점 오른쪽(점 상한 반지름 + 6px)에 왼쪽
+// 정렬, 세로는 점 중심. 제목 뒤 5px에 점 색으로 연도. 줄 간격 16px.
+// 겹침 계산(`revealZooms`·`placeLabels`)은 점 중심의 상자를 전제하므로 상자 폭을
+// 2·(오프셋 + 제목 + 연도)로 넣어 오른쪽 라벨을 안에 가둔다 — 안전하지만 같은 배율에서
+// 켜지는 제목이 준다.
+const TITLE_FONT_SIZE = 10,
+  TITLE_TRACKING = 0.8,
+  TITLE_MAX_WIDTH = 240,
   TITLE_PADDING = 8,
   TITLE_GAP_X = 8,
-  TITLE_HEIGHT = 20 + 4,
-  TITLE_OFFSET_Y = 9,
-  // 화면 밖이어도 이만큼 안이면 그린다: 가로는 라벨 폭의 절반, 세로는 쌓인 줄까지.
-  TITLE_MARGIN_X = TITLE_MAX_WIDTH / 2 + TITLE_GAP_X,
+  TITLE_HEIGHT = 16,
+  TITLE_OFFSET_X = DOT_RADIUS_MAX + 6,
+  VALUE_GAP = 5,
+  // 화면 밖이어도 이만큼 안이면 그린다: 가로는 라벨 전체 폭, 세로는 쌓인 줄까지.
+  TITLE_MARGIN_X = TITLE_OFFSET_X + TITLE_MAX_WIDTH + 60,
   TITLE_MARGIN_Y = TITLE_HEIGHT * (MAX_ROWS + 1),
   // 제목 배열을 다시 만드는 카메라 칸: 중심 240px, 배율 반 단계. `titles` 참고.
   TITLE_TILE = 240,
@@ -117,8 +135,12 @@ interface Title {
   /** boxes·reveals의 색인. */
   k: number;
   text: string;
+  /** 제목 뒤에 붙는 값(연도). 없으면 빈 문자열. */
+  value: string;
+  /** 값의 가로 픽셀 오프셋: 제목 오프셋 + 제목 폭 + 간격. */
+  valueDx: number;
   position: [number, number];
-  /** 점 아래 픽셀 거리: 9 + 줄 × 24. */
+  /** 점 중심에서의 세로 픽셀 거리: 줄 × 16. */
   dy: number;
   selected: boolean;
 }
@@ -140,12 +162,13 @@ function titleTypography(): TitleTypography {
       : document.createElement("canvas").getContext("2d");
   // 실측 기본값: 어두운 테마의 글자색(#e8e8ec)과 본문 글꼴.
   const fallback: TitleTypography = {
-    fontFamily: "system-ui, sans-serif",
+    fontFamily: "monospace",
     color: [232, 232, 236],
-    measureChar: () => 6,
+    measureChar: () => 6 + TITLE_TRACKING,
   };
   if (!ctx) return fallback;
   const style = getComputedStyle(document.body);
+  const mono = style.getPropertyValue("--font-mono").trim() || "monospace";
   const rgb = (css: string, or: RGB): RGB => {
     ctx.fillStyle = css;
     const hex = ctx.fillStyle;
@@ -153,11 +176,11 @@ function titleTypography(): TitleTypography {
       ? ([1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as RGB)
       : or;
   };
-  ctx.font = `${TITLE_FONT_SIZE}px ${style.fontFamily}`;
+  ctx.font = `${TITLE_FONT_SIZE}px ${mono}`;
   return {
-    fontFamily: style.fontFamily,
+    fontFamily: mono,
     color: rgb(style.color, fallback.color),
-    measureChar: (char) => ctx.measureText(char).width,
+    measureChar: (char) => ctx.measureText(char).width + TITLE_TRACKING,
   };
 }
 // 글꼴 아틀라스의 글리프를 DOM과 같은 래스터로 만든다. deck 기본 방식은 아틀라스
@@ -192,7 +215,7 @@ function titleFontRenderer(fontFamily: string, dpr: number): FontRenderer {
           descent: Math.ceil(m.fontBoundingBoxDescent * dpr),
         }
       : {
-          advance: m.width * dpr,
+          advance: (m.width + TITLE_TRACKING) * dpr,
           width: Math.ceil(
             (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) * dpr,
           ),
@@ -238,6 +261,8 @@ interface ActiveTitle {
   id: string;
   i: number;
   text: string;
+  value: string;
+  valueDx: number;
   position: [number, number];
   dy: number;
 }
@@ -548,14 +573,8 @@ export default function MapView() {
                   135 + Math.round(110 * (v ?? 0)),
                 ];
         }
-        if (state.color === "cited") {
-          const v = Math.log1p(map.cited[p.i]) / maxLog;
-          c = [
-            120 + Math.round(120 * v),
-            110 + Math.round(85 * v),
-            145 - Math.round(35 * v),
-          ];
-        }
+        if (state.color === "cited")
+          c = ordinalColor(Math.log1p(map.cited[p.i]) / maxLog);
         if (state.color === "abstract")
           c = map.has_abstract[p.i] ? [141, 223, 193] : [255, 161, 174];
         const hit =
@@ -588,13 +607,17 @@ export default function MapView() {
   );
   const relativeZoom = camera.zoom - home.zoom;
   const level = labelLevel(relativeZoom);
+  // 상위 피인용 논문(98분위 이상). 크게 그리고 흰 테두리를 두른다.
+  const topCited = useMemo(() => {
+    const sorted = [...map.cited].sort((a, b) => a - b),
+      cut = sorted[Math.floor(sorted.length * TOP_CITED_QUANTILE)] ?? Infinity;
+    return map.cited.map((c) => c >= cut && c > 0);
+  }, [map]);
   // 점 반지름. 점마다의 기본값(피인용 색이면 피인용수에 따라 1.5~4.5px)에 배율 배수를
   // 레이어 uniform으로 곱한다 — 확대해도 점별 속성은 다시 채우지 않는다.
   const scale = dotScale(relativeZoom);
   const baseRadius = (p: { i: number }) =>
-    state.color === "cited"
-      ? 1.5 + (3 * Math.log1p(map.cited[p.i])) / maxLog
-      : 1.5;
+    topCited[p.i] ? DOT_RADIUS_TOP : DOT_RADIUS;
   const radiusPx = (p: { i: number }) =>
     Math.min(DOT_RADIUS_MAX, scale * baseRadius(p));
   const haloRadius =
@@ -702,7 +725,8 @@ export default function MapView() {
   // TextLayer의 글꼴 아틀라스에 넣을 글자. 제목에 나오는 글자 전부와 말줄임표(133자).
   // 'auto'로 두면 새 글자가 화면에 들어올 때마다 아틀라스를 다시 만든다.
   const characterSet = useMemo(
-    () => [...new Set(map.title.join("") + "…")].join(""),
+    () =>
+      [...new Set(map.title.join("").toUpperCase() + "0123456789…")].join(""),
     [map],
   );
   // 글꼴 아틀라스는 실제로 그려질 크기(11px × 기기 픽셀 비율)로, 1:1로 표본한다.
@@ -731,20 +755,30 @@ export default function MapView() {
   }, [characterSet, typo]);
   // 제목 상자 폭과 한 줄로 줄인 제목(`…`). 지도마다 한 번(1만 편에 약 70ms). 필터가
   // 바뀌어도 다시 재지 않는다.
-  const widths = useMemo(
-    () =>
-      map.title.map(
-        (t) =>
-          Math.min(TITLE_MAX_WIDTH, measure(t) + TITLE_PADDING) + TITLE_GAP_X,
-      ),
-    [map, measure],
-  );
   const displays = useMemo(
     () =>
       map.title.map((t) =>
-        truncateTitle(measure, t, TITLE_MAX_WIDTH - TITLE_PADDING),
+        truncateTitle(measure, t.toUpperCase(), TITLE_MAX_WIDTH - TITLE_PADDING),
       ),
     [map, measure],
+  );
+  const values = useMemo(
+    () => map.year.map((y) => (y === null ? "" : String(y))),
+    [map],
+  );
+  // 값의 가로 오프셋과, 겹침 계산용 상자 폭(점 중심 대칭: 오른쪽 라벨 끝까지의 두 배).
+  const valueDx = useMemo(
+    () => displays.map((d) => TITLE_OFFSET_X + measure(d) + VALUE_GAP),
+    [displays, measure],
+  );
+  const widths = useMemo(
+    () =>
+      displays.map(
+        (_, i) =>
+          2 * (valueDx[i] + measure(values[i]) + TITLE_PADDING / 2) +
+          TITLE_GAP_X,
+      ),
+    [displays, values, valueDx, measure],
   );
   // 제목 상자: 필터에 든 논문만. 필터 밖 논문은 자리를 차지하지 않는다.
   const boxes = useMemo(
@@ -819,8 +853,10 @@ export default function MapView() {
         i: b.i,
         k,
         text: displays[b.i],
+        value: values[b.i],
+        valueDx: valueDx[b.i],
         position: [b.x, b.y],
-        dy: TITLE_OFFSET_Y + TITLE_HEIGHT * reveals.row[k],
+        dy: TITLE_HEIGHT * reveals.row[k],
         selected: isSelected,
       };
       if (isSelected) selected = t;
@@ -834,6 +870,8 @@ export default function MapView() {
     reveals,
     map,
     displays,
+    values,
+    valueDx,
     state.selected,
     memberFloor,
     zoomStep,
@@ -859,7 +897,7 @@ export default function MapView() {
     const s = 2 ** (zoomStep * TITLE_ZOOM_STEP);
     const boxOf = (i: number, dy: number): LabelBox => ({
       x: map.x[i] * s - widths[i] / 2,
-      y: map.y[i] * s + dy,
+      y: map.y[i] * s + dy - TITLE_HEIGHT / 2,
       w: widths[i],
       h: TITLE_HEIGHT,
     });
@@ -876,7 +914,7 @@ export default function MapView() {
       .sort((p, q) => map.cited[q] - map.cited[p]);
     const candidates = [heldIndex, ...order].map((i) => ({
       i,
-      dy: baseDy.get(i) ?? TITLE_OFFSET_Y,
+      dy: baseDy.get(i) ?? 0,
     }));
     const obstacles = titles
       .filter((t) => !activeSet.has(t.i))
@@ -890,11 +928,24 @@ export default function MapView() {
         id: map.id[i],
         i,
         text: displays[i],
+        value: values[i],
+        valueDx: valueDx[i],
         position: [map.x[i], map.y[i]] as [number, number],
         dy,
       };
     });
-  }, [heldIndex, graph, activeSet, zoomStep, map, widths, displays, titles]);
+  }, [
+    heldIndex,
+    graph,
+    activeSet,
+    zoomStep,
+    map,
+    widths,
+    displays,
+    values,
+    valueDx,
+    titles,
+  ]);
   useEffect(() => {
     const el = container.current as
       (HTMLDivElement & { __map?: MapBridge }) | null;
@@ -1003,7 +1054,8 @@ export default function MapView() {
   const layers = [
     // 영역 배경. 영역마다 옅어지는 원 하나를 GPU에서 픽셀마다 계산한다 — 어떤
     // 배율에서도 매끈하다.
-    new ScatterplotLayer<RegionBlob>({
+    SHOW_REGION_BLOBS &&
+      new ScatterplotLayer<RegionBlob>({
       id: "soft-regions",
       data: blobs,
       getPosition: (b) => b.position,
@@ -1025,12 +1077,21 @@ export default function MapView() {
       radiusScale: scale,
       radiusMinPixels: 1.3,
       radiusMaxPixels: DOT_RADIUS_MAX,
+      // 상위 피인용 논문은 흰 테두리.
+      stroked: true,
+      getLineColor: [255, 255, 255, 235],
+      getLineWidth: (p) => (topCited[p.i] ? 1 : 0),
+      lineWidthUnits: "pixels",
       // 마우스를 올린 동안 올린 점과 이웃 말고는 절반으로 옅어진다.
       opacity: 1 - HOVER_DIM * hoverT,
       pickable: true,
       autoHighlight: true,
       highlightColor: [255, 255, 255, 255],
-      updateTriggers: { getFillColor: [colors], getRadius: [state.color] },
+      updateTriggers: {
+        getFillColor: [colors],
+        getRadius: [topCited],
+        getLineWidth: [topCited],
+      },
       onHover: (info) => setHover(info.object ? info : null),
       onClick: (info) => {
         if (info.object) update({ selected: info.object.id });
@@ -1067,11 +1128,16 @@ export default function MapView() {
         radiusScale: scale,
         radiusMinPixels: 1.3,
         radiusMaxPixels: DOT_RADIUS_MAX,
+        stroked: true,
+        getLineColor: [255, 255, 255, 235],
+        getLineWidth: (p) => (topCited[p.i] ? 1 : 0),
+        lineWidthUnits: "pixels",
         opacity: hoverT,
         pickable: false,
         updateTriggers: {
           getFillColor: [colors, heldIndex],
-          getRadius: [state.color],
+          getRadius: [topCited],
+          getLineWidth: [topCited],
         },
       }),
     new ScatterplotLayer({
@@ -1100,9 +1166,9 @@ export default function MapView() {
       sizeUnits: "pixels",
       getSize: TITLE_FONT_SIZE,
       getPosition: (t) => t.position,
-      getPixelOffset: (t) => [0, t.dy],
-      getTextAnchor: "middle",
-      getAlignmentBaseline: "top",
+      getPixelOffset: (t) => [TITLE_OFFSET_X, t.dy],
+      getTextAnchor: "start",
+      getAlignmentBaseline: "center",
       getColor: (t) => [
         ...typo.color,
         Math.round(
@@ -1118,6 +1184,42 @@ export default function MapView() {
         if (info.object) update({ selected: info.object.id });
       },
     }),
+    // 제목 뒤의 값(연도). 점과 같은 색, 제목과 같은 불투명도.
+    new TextLayer<Title>({
+      id: "paper-values",
+      data: titles,
+      characterSet,
+      fontFamily: typo.fontFamily,
+      fontSettings,
+      _getFontRenderer: getFontRenderer,
+      extensions: [snapText],
+      sizeUnits: "pixels",
+      getSize: TITLE_FONT_SIZE,
+      getPosition: (t) => t.position,
+      getText: (t) => t.value,
+      getPixelOffset: (t) => [t.valueDx, t.dy],
+      getTextAnchor: "start",
+      getAlignmentBaseline: "center",
+      getColor: (t) => [
+        colors[t.i][0],
+        colors[t.i][1],
+        colors[t.i][2],
+        Math.round(
+          255 * titleOpacity(t) * (activeSet.has(t.i) ? 1 - hoverT : 1),
+        ),
+      ],
+      updateTriggers: {
+        getColor: [
+          camera.zoom,
+          paperFloor,
+          regionless,
+          activeKey,
+          hoverT,
+          colors,
+        ],
+      },
+      pickable: false,
+    }),
     // 활성 라벨. 강조가 켜지는 동안 지도 제목과 같은 모양으로 나타난다.
     heldIndex >= 0 &&
       new TextLayer<ActiveTitle>({
@@ -1131,9 +1233,9 @@ export default function MapView() {
         sizeUnits: "pixels",
         getSize: TITLE_FONT_SIZE,
         getPosition: (t) => t.position,
-        getPixelOffset: (t) => [0, t.dy],
-        getTextAnchor: "middle",
-        getAlignmentBaseline: "top",
+        getPixelOffset: (t) => [TITLE_OFFSET_X, t.dy],
+        getTextAnchor: "start",
+        getAlignmentBaseline: "center",
         getColor: [...typo.color, 255],
         opacity: hoverT,
         pickable: true,
@@ -1141,6 +1243,27 @@ export default function MapView() {
         onClick: (info) => {
           if (info.object) update({ selected: info.object.id });
         },
+      }),
+    heldIndex >= 0 &&
+      new TextLayer<ActiveTitle>({
+        id: "active-values",
+        data: activeTitles,
+        characterSet,
+        fontFamily: typo.fontFamily,
+        fontSettings,
+        _getFontRenderer: getFontRenderer,
+        extensions: [snapText],
+        sizeUnits: "pixels",
+        getSize: TITLE_FONT_SIZE,
+        getPosition: (t) => t.position,
+        getText: (t) => t.value,
+        getPixelOffset: (t) => [t.valueDx, t.dy],
+        getTextAnchor: "start",
+        getAlignmentBaseline: "center",
+        getColor: (t) => [colors[t.i][0], colors[t.i][1], colors[t.i][2], 255],
+        opacity: hoverT,
+        pickable: false,
+        updateTriggers: { getColor: [colors] },
       }),
   ];
   const renderRegions = (items: typeof top, active: boolean, prefix: string) =>

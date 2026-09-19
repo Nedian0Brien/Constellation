@@ -173,9 +173,33 @@ main {
   min-height: 0;
 }
 
+/* 레퍼런스 시각 언어(프로토타입): 남색 바탕, 화면에 고정된 십자 표시(480×400 칸마다
+   하나)와 모서리 크롭 마크. 별 잡음은 넣지 않는다 — 1px 점은 논문으로 읽힌다. */
 .map-wrap {
   position: absolute;
   inset: 0;
+  --map-ground: #0c1118;
+  --map-mark: rgb(255 255 255 / 0.16);
+  background-color: var(--map-ground);
+  background-image:
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='400'%3E%3Cg stroke='rgba(255,255,255,0.16)'%3E%3Cpath d='M220 200.5h40M240.5 180v40'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat,
+    no-repeat, no-repeat, no-repeat, repeat;
+  background-size:
+    56px 1px, 1px 56px, 56px 1px, 1px 56px, 56px 1px, 1px 56px, 56px 1px,
+    1px 56px, 480px 400px;
+  background-position:
+    18px 18px, 18px 18px, right 18px top 18px, right 18px top 18px,
+    18px bottom 18px, 18px bottom 18px, right 18px bottom 18px,
+    right 18px bottom 18px, center;
 }
 .map-empty {
   position: absolute;
@@ -1129,7 +1153,6 @@ input:focus-visible,
   max-width: 320px;
 }
 .map-wrap {
-  background: var(--background);
   outline-offset: -3px;
 }
 .map-labels {
@@ -1215,13 +1238,15 @@ input:focus-visible,
 }
 .map-caption {
   position: absolute;
-  top: 20px;
-  left: 22px;
+  top: 30px;
+  left: 34px;
   display: flex;
   align-items: center;
   gap: 15px;
   pointer-events: none;
-  font: 10px var(--font-mono);
+  font: 11px var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--muted-foreground);
 }
 .map-controls {
