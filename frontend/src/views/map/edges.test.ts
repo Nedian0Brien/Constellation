@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   citationIndex,
   degreeOf,
+  dotRadius,
   dotScale,
   linksOf,
   localGraph,
@@ -68,5 +69,22 @@ describe("localGraph", () => {
     expect(g.links.filter((l) => !l.seed)).toEqual([
       { a: 1, b: 2, seed: false },
     ]);
+  });
+});
+
+describe("dotRadius", () => {
+  it("runs from 1.5 at zero citations to 5 at the cap and stays there", () => {
+    expect(dotRadius(0)).toBe(1.5);
+    expect(dotRadius(10_000)).toBe(5);
+    expect(dotRadius(353_396)).toBe(5);
+    expect(dotRadius(28)).toBeCloseTo(1.97, 2);
+    expect(dotRadius(209)).toBeCloseTo(2.68, 2);
+  });
+  it("never shrinks as citations grow", () => {
+    let prev = dotRadius(0);
+    for (const c of [1, 5, 18, 60, 500, 3000, 9999, 20_000]) {
+      expect(dotRadius(c)).toBeGreaterThanOrEqual(prev);
+      prev = dotRadius(c);
+    }
   });
 });

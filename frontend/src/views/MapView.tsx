@@ -51,6 +51,7 @@ import { clusterColor, regionBlobs, type RegionBlob } from "./map/regions";
 import {
   citationIndex,
   degreeOf,
+  dotRadius,
   dotScale,
   linksOf,
   localGraph,
@@ -532,6 +533,7 @@ export default function MapView() {
     return new Map(years.map((y, i) => [y, i / Math.max(1, years.length - 1)]));
   }, [map]);
   const maxLog = Math.log1p(Math.max(1, ...map.cited));
+  const dotRadii = useMemo(() => Float32Array.from(map.cited, dotRadius), [map]);
   const colors = useMemo(
     () =>
       points.map((p) => {
@@ -588,13 +590,11 @@ export default function MapView() {
   );
   const relativeZoom = camera.zoom - home.zoom;
   const level = labelLevel(relativeZoom);
-  // 점 반지름. 점마다의 기본값(피인용 색이면 피인용수에 따라 1.5~4.5px)에 배율 배수를
-  // 레이어 uniform으로 곱한다 — 확대해도 점별 속성은 다시 채우지 않는다.
+  // 점 반지름. 점마다의 기본값(색 모드와 무관하게 피인용수에 따라 1.5~5px, `dotRadius`)은
+  // 지도마다 한 번 재고, 배율 배수를 레이어 uniform으로 곱한다 — 확대해도 점별 속성은
+  // 다시 채우지 않는다.
   const scale = dotScale(relativeZoom);
-  const baseRadius = (p: { i: number }) =>
-    state.color === "cited"
-      ? 1.5 + (3 * Math.log1p(map.cited[p.i])) / maxLog
-      : 1.5;
+  const baseRadius = (p: { i: number }) => dotRadii[p.i];
   const radiusPx = (p: { i: number }) =>
     Math.min(DOT_RADIUS_MAX, scale * baseRadius(p));
   const haloRadius =
@@ -1030,7 +1030,7 @@ export default function MapView() {
       pickable: true,
       autoHighlight: true,
       highlightColor: [255, 255, 255, 255],
-      updateTriggers: { getFillColor: [colors], getRadius: [state.color] },
+      updateTriggers: { getFillColor: [colors], getRadius: [dotRadii] },
       onHover: (info) => setHover(info.object ? info : null),
       onClick: (info) => {
         if (info.object) update({ selected: info.object.id });
@@ -1071,7 +1071,7 @@ export default function MapView() {
         pickable: false,
         updateTriggers: {
           getFillColor: [colors, heldIndex],
-          getRadius: [state.color],
+          getRadius: [dotRadii],
         },
       }),
     new ScatterplotLayer({
@@ -1405,10 +1405,11 @@ export default function MapView() {
         {state.color === "year"
           ? "발행연도 · 밝을수록 최근 · 연도 미상은 회색"
           : state.color === "cited"
-            ? "피인용수 · 색·크기 로그 척도"
+            ? "피인용수 · 색 로그 척도"
             : state.color === "abstract"
               ? "초록 있음: 녹색 / 없음: 분홍"
               : "색상: 연구 주제 · 미분류: 회색"}
+        {" · 점 크기: 피인용수(로그)"}
         <br />
         지도 거리는 차원 축소 결과입니다. 인용 관계와 함께 확인하세요.
       </div>

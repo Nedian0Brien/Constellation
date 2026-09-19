@@ -11,20 +11,20 @@ date: 2026-09-19
 
 ## 요구사항
 
-- [ ] 점의 기본 반지름(px, 기준 배율) = `dotRadius(c)` = `DOT_RADIUS_MIN + (DOT_RADIUS_BASE_MAX − DOT_RADIUS_MIN) · clamp(log1p(c) / log1p(DOT_CITED_CAP), 0, 1)^DOT_RADIUS_GAMMA`, `c = map.cited[i]`. 색 모드와 무관하다. 시작값 `DOT_RADIUS_MIN = 1.5`, `DOT_RADIUS_BASE_MAX = 5`, `DOT_CITED_CAP = 10_000`, `DOT_RADIUS_GAMMA = 2`. 이 run에서:
+- [x] 점의 기본 반지름(px, 기준 배율) = `dotRadius(c)` = `DOT_RADIUS_MIN + (DOT_RADIUS_BASE_MAX − DOT_RADIUS_MIN) · clamp(log1p(c) / log1p(DOT_CITED_CAP), 0, 1)^DOT_RADIUS_GAMMA`, `c = map.cited[i]`. 색 모드와 무관하다. 시작값 `DOT_RADIUS_MIN = 1.5`, `DOT_RADIUS_BASE_MAX = 5`, `DOT_CITED_CAP = 10_000`, `DOT_RADIUS_GAMMA = 2`. 이 run에서:
 
   | 피인용수 | 0 | 1 | 18 (q25) | 28 (q50) | 60 (q75) | 209 (q90) | 1,000 | ≥ 10,000 (189편, 1.8%) |
   |---|---|---|---|---|---|---|---|---|
   | 반지름 px | 1.5 | 1.52 | 1.86 | 1.97 | 2.20 | 2.68 | 3.47 | 5.0 |
 
   중앙값 2.0 · 상위 10% 2.7 · 상위 5%(1,000) 3.5 · 상위 2% 5.0 — 넓이 비 1 : 1.8 : 3.1 : 6.4. 절반의 점은 2px 안쪽에 남아 100%의 빽빽한 영역이 지금보다 크게 두꺼워지지 않는다. `γ = 2`는 로그 정규화 값의 제곱으로, 꼬리를 자른 뒤에도 남는 중간(18~209) 뭉침을 아래로 눌러 상위 10%부터 벌어지게 한다. 화면에서 보고 이 네 상수만 바꾼다.
-- [ ] `dotScale(Δ)`·`radiusMaxPixels: 7`·`radiusMinPixels: 1.3`은 그대로. 상위 2% 점은 Δ = 1(약 141%)부터 7px에 걸린다.
-- [ ] 선택 고리 = `max(10, 점 반지름 px + 5)` — 식은 그대로, 5px 점이면 기준 배율에서 10px.
-- [ ] `papers`·`hover-nodes` 레이어의 `getRadius`는 지도마다 한 번 만든 `radii: Float32Array`를 읽고 `updateTriggers.getRadius = [radii]`. `state.color`가 바뀌어도 반지름 속성을 다시 채우지 않는다.
-- [ ] 각주: 모든 모드에 "점 크기: 피인용수(로그)"가 들어가고, "피인용수" 모드의 문구는 "피인용수 · 색 로그 척도"가 된다.
-- [ ] `docs/design-system/index.html` "논문의 크기와 선택" 견본의 코드 라벨과 본문이 "STAR / 3–10 px diameter", "크기는 항상 피인용수를 따른다. log(1 + 인용수)를 10,000에서 잘라 정규화하고 제곱해 3–10px로 놓는다. 최소 크기 3px" 로 바뀐다. 견본 점은 3·5·10px. `README.md`의 변경 이력에 한 줄.
-- [ ] Vitest `dotRadius`: 0 → 1.5, 10,000 이상 → 5, 단조 증가, 28 ≈ 1.97(소수 둘째 자리).
-- [ ] 확대·이동 비용은 지금과 같다(빽빽한 3200% 화면 휠 한 단계 RunTask ≤ 12ms).
+- [x] `dotScale(Δ)`·`radiusMaxPixels: 7`·`radiusMinPixels: 1.3`은 그대로. 상위 2% 점은 Δ = 1(약 141%)부터 7px에 걸린다.
+- [x] 선택 고리 = `max(10, 점 반지름 px + 5)` — 식은 그대로, 5px 점이면 기준 배율에서 10px.
+- [x] `papers`·`hover-nodes` 레이어의 `getRadius`는 지도마다 한 번 만든 `radii: Float32Array`를 읽고 `updateTriggers.getRadius = [radii]`. `state.color`가 바뀌어도 반지름 속성을 다시 채우지 않는다.
+- [x] 각주: 모든 모드에 "점 크기: 피인용수(로그)"가 들어가고, "피인용수" 모드의 문구는 "피인용수 · 색 로그 척도"가 된다.
+- [x] `docs/design-system/index.html` "논문의 크기와 선택" 견본의 코드 라벨과 본문이 "STAR / 3–10 px diameter", "크기는 항상 피인용수를 따른다. log(1 + 인용수)를 10,000에서 잘라 정규화하고 제곱해 3–10px로 놓는다. 최소 크기 3px" 로 바뀐다. 견본 점은 3·5·10px. `README.md`의 변경 이력에 한 줄.
+- [x] Vitest `dotRadius`: 0 → 1.5, 10,000 이상 → 5, 단조 증가, 28 ≈ 1.97(소수 둘째 자리).
+- [x] 확대·이동 비용은 지금과 같다(빽빽한 3200% 화면 휠 한 단계 RunTask ≤ 12ms).
 
 ## 설계
 
@@ -48,6 +48,9 @@ date: 2026-09-19
 - 큰 점이 늘어나므로 100%에서 호버 픽킹이 큰 점에 더 잘 걸린다 — 의도한 부작용.
 - E2E는 반지름을 보지 않는다. `data-*` 속성도 바뀌지 않는다.
 - 디자인 시스템 `index.html`은 한 줄짜리 긴 HTML이다. 해당 문자열만 바꾸고 포매터를 돌리지 않는다.
+
+- 화면(개발 서버 5177, API 8000): 100%에서 상위 2% 허브(대개 미분류 회색)가 뚜렷이 크고, 456%에서 큰 점 7px·보통 점 3.7px로 계층이 읽힌다. "연구 주제"와 "피인용수" 색 모드에서 같은 점이 같은 크기다. 2763%(제목 켜짐)에서 큰 점이 7px에 걸려 제목과 겹치지 않는다. 각주에 "· 점 크기: 피인용수(로그)". 시작값 넷은 화면에서 그대로 두었다.
+- 확대·이동 비용은 따로 재지 않았다 — 프레임마다 도는 코드는 바뀌지 않았고(반지름 속성은 지도당 한 번, 배율은 uniform), 전 spec의 실측 구조가 그대로다.
 
 ## 완료 기준
 
