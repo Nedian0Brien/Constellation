@@ -207,16 +207,23 @@ def hierarchy(
 @app.command()
 def name(
     model: str = typer.Option("scincl", "--model", "-m", help="임베딩 모델(run 선택용)"),
-    llm: str = typer.Option("Qwen/Qwen3-4B-Instruct-2507", "--llm"),
-    four_bit: bool = typer.Option(False, "--4bit", help="14B급을 16GB 카드에 올릴 때"),
+    backend: str = typer.Option("codex", "--backend", help="codex 또는 claude CLI"),
+    llm: str | None = typer.Option(None, "--llm",
+                                   help="모델. 기본 codex=gpt-5.6-luna, claude=opus"),
     internal_only: bool = typer.Option(False, "--internal-only",
-                                       help="내부 노드만. 잎은 c-TF-IDF 라벨 유지"),
+                                       help="내부 노드만. 잎은 현재 라벨 유지"),
 ) -> None:
-    """로컬 LLM으로 클러스터와 계층 노드에 이름을 붙인다."""
+    """로그인된 codex/claude CLI로 클러스터와 계층 노드에 이름을 붙인다.
+
+    불응집으로 판정된 노드는 지도 레벨에서 자식 둘로 갈라 보인다(tree_levels).
+    원래 절단으로 되돌리려면 hierarchy 를 다시 돌린다.
+    """
     from .analyze.naming import run as run_naming
-    r = run_naming(model_key=model, model_id=llm, load_4bit=four_bit,
+    r = run_naming(model_key=model, backend=backend, model=llm,
                    leaves=not internal_only, log=console.print)
-    console.print("[green]완료[/] — %d개, %.0f초" % (r["n"], r["seconds"]))
+    console.print("[green]완료[/] — %d개, %.0f초, 레벨 %s"
+                  % (r["n"], r["seconds"],
+                     " / ".join("%d개" % v for v in r["levels"].values())))
     console.print("근거는 naming_audit 테이블에 남는다.")
 
 
