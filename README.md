@@ -70,6 +70,8 @@ Windows에서는 Python 경로를 `.venv/Scripts/python.exe`, CLI 경로를 `.ve
 
 다른 데이터 폴더를 사용하려면 환경변수 또는 저장소 루트 `.env`에 `CONSTELLATION_DATA_DIR`을 설정한다. 상대 경로는 저장소 루트를 기준으로 해석한다. 데이터는 Git에 포함되지 않는다.
 
+계층 트리는 `constellation hierarchy --method 2d|topical`이 세운다. `2d`(기본)는 클러스터의 지도 좌표로, `topical`은 임베딩 중심 거리로 합치되 지도에서 이웃인 것끼리만 합쳐 영역이 한 덩어리로 남는다. `--compare`가 두 방식의 지표를 찍고, 비교 결과는 [docs/HIERARCHY-COMPARISON.md](docs/HIERARCHY-COMPARISON.md)에 있다.
+
 영역 이름은 `constellation name`이 붙인다. 로컬 모델 대신 기계에 로그인된 `codex`(기본, `gpt-5.6-luna`) 또는 `claude`(`--backend claude`, `opus`) CLI를 부르므로 API 키가 필요 없다. 잎 45개와 내부 노드 44개를 각각 한 호출로 짓고, 서로 다른 분야가 지도에서 이웃이라는 이유로 한 노드에 묶인 경우는 `A · B` 이름을 주고 지도 레벨에서 자식 둘로 갈라 보인다(`tree_levels`). 원래 절단으로 되돌리려면 `constellation hierarchy`를 다시 돌린다. 프롬프트와 출력은 `naming_audit` 테이블에 남는다.
 
 ## 지도 조작
