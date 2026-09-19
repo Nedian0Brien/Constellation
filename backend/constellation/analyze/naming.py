@@ -427,18 +427,21 @@ def name_batch(
     ids: list[int],
     build: Callable[[list[int]], str],
     log: Progress,
+    taken: dict[int, str] | None = None,
 ) -> tuple[dict[int, tuple[str, bool]], dict[int, str]]:
-    """한 묶음을 짓고, 빠지거나 불량인 것만 한 번 더 묻는다.
+    """한 묶음을 짓고, 빠지거나 불량이거나 이름이 겹치는 것만 한 번 더 묻는다.
 
+    `taken`은 다른 묶음에서 이미 정해진 이름(내부 노드를 지을 때의 잎 이름).
     돌려주는 것: (id → (name, coherent), id → 그 id가 들어간 프롬프트).
     """
+    taken = dict(taken or {})
     prompt = build(ids)
     prompts = {i: prompt for i in ids}
-    ok, bad = check_names(ids, namer.complete(prompt))
+    ok, bad = check_names(ids, namer.complete(prompt), taken)
     if bad:
         log("    형식 불량·누락·중복 %d개 — 재요청: %s" % (len(bad), bad))
-        taken = {i: n for i, (n, _) in ok.items()}
-        prompt2 = build(bad) + RETRY_NOTE % "; ".join(sorted(taken.values()))
+        taken.update({i: n for i, (n, _) in ok.items()})
+        prompt2 = build(bad) + RETRY_NOTE % "; ".join(sorted(set(taken.values())))
         ok2, bad2 = check_names(bad, namer.complete(prompt2), taken)
         for i in bad:
             prompts[i] = prompt2
@@ -547,7 +550,8 @@ def run(
                 items.append({"id": i, "size": by_id[i][3], "keywords": kws[i],
                               "parent": parent.get(i), "groups": groups})
             return node_batch_prompt(items, phrases)
-        ok, ps = name_batch(namer, inner_ids, build_inner, log)
+        # 잎 이름은 이미 정해졌다. 부모가 잎과 같은 이름을 갖지 않게 넘긴다.
+        ok, ps = name_batch(namer, inner_ids, build_inner, log, leaf_name)
         named.update(ok)
         prompts.update(ps)
 

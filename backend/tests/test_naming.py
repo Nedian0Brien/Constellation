@@ -34,6 +34,15 @@ class CheckNamesTests(unittest.TestCase):
         self.assertEqual(ok, {1: ("Federated Learning", True), 4: ("A · B", False)})
         self.assertEqual(bad, [2, 3])
 
+    def test_duplicates_within_batch_and_against_taken(self):
+        ok, bad = naming.check_names([1, 2, 3], {"names": [
+            {"id": 1, "name": "Computer Vision", "coherent": True},
+            {"id": 2, "name": "computer vision", "coherent": True},
+            {"id": 3, "name": "Text Mining", "coherent": True},
+        ]}, taken={10: "Text Mining", 1: "ignored — same id"})
+        self.assertEqual(ok, {1: ("Computer Vision", True)})
+        self.assertEqual(bad, [2, 3])
+
 
 class SplitLevelsTests(unittest.TestCase):
     #        6
@@ -107,7 +116,9 @@ class RunTests(unittest.TestCase):
                 {"names": [{"id": 2, "name": "Arabic Text Processing", "coherent": True}]},
                 {"names": [{"id": 3, "name": "Music Information Retrieval · Arabic Text Processing",
                             "coherent": False},
-                           {"id": 4, "name": "Broken", "coherent": True, "extra": 1}]},
+                           {"id": 4, "name": "Dense Retrieval", "coherent": True}]},
+                # 4는 잎 0과 같은 이름이라 재요청된다
+                {"names": [{"id": 4, "name": "Broken", "coherent": True, "extra": 1}]},
             ])
             with mock.patch.object(store, "DB_PATH", db):
                 r = naming.run(run_id="r", namer=namer, log=lambda s: None)
@@ -120,6 +131,8 @@ class RunTests(unittest.TestCase):
             self.assertIn("Group A (3 papers): Dense Retrieval (3)", namer.prompts[2])
             self.assertIn("Music Information Retrieval (2), Arabic Text Processing (2)",
                           namer.prompts[2])
+            self.assertIn("do not reuse: Arabic Text Processing; Dense Retrieval; "
+                          "Music Information Retrieval", namer.prompts[3])
 
             c = store.connect(db, read_only=True)
             rows = dict(c.execute(

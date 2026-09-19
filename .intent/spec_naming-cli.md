@@ -31,9 +31,9 @@ date: 2026-09-19
 - `ClaudeNamer(model)`: `claude -p --tools "" --model MODEL --output-format json --json-schema SCHEMA --no-session-persistence --setting-sources "" --strict-mcp-config --system-prompt SYSTEM`. stdout JSON의 `structured_output`. `is_error`면 `result`를 오류로 올린다.
 - 타임아웃 600초. 비정상 종료면 stderr 꼬리를 붙여 `RuntimeError`.
 
-**배치 프롬프트** — `leaf_batch_prompt(items)`, `node_batch_prompt(items)`. 항목마다 `[id N]` 머리와 근거. 출력 스키마는 `{"names":[{"id":int,"name":str,"coherent":bool}]}`(잎은 `coherent` 항상 true로 두라고 지시). 예시(SHOTS)는 배치 형식 하나로 줄인다.
+**배치 프롬프트** — `leaf_batch_prompt(items)`, `node_batch_prompt(items, phrases)`. 항목마다 `[id N]` 머리와 근거. 내부 노드에는 중첩 관계(`Nested inside id P`, 내부 자식 그룹의 id)와 수집 쿼리 구절(`collections.filter_expr`의 따옴표 구절 — 지도 전체 주제라 이름으로 금지)을 함께 준다. 출력 스키마는 `{"names":[{"id":int,"name":str,"coherent":bool}]}`. 잎은 갈라지지 않지만 두 주제를 담은 잎은 `coherent=false`와 `A · B` 이름을 허용한다 — "억지로 합치지 않기"를 잎에도 적용한 결정(2026-09-19, 구현 중). 예시(SHOTS)는 배치 형식 하나로 줄인다.
 
-**응답 검증** — `check_names(items, response) -> (ok: dict[id,(name,coherent)], bad: list[id])`. 빠진 id, `is_malformed`, `Mixed:` 접두는 bad. 재요청은 bad 항목만으로 같은 프롬프트 함수 + 재요청 안내 문장.
+**응답 검증** — `check_names(ids, response, taken) -> (ok: dict[id,(name,coherent)], bad: list[id])`. 빠진 id, `is_malformed`, `Mixed:` 접두, 같은 묶음이나 `taken`(내부 노드를 지을 때의 잎 이름)과 겹치는 이름은 bad — 겹치는 이름은 적어도 한쪽에는 너무 넓다. 재요청은 bad 항목만으로 같은 프롬프트 함수 + 재요청 안내 문장(이미 쓰인 이름 목록 포함).
 
 **레벨 분할** — `split_levels(levels: dict[int,list[int]], tree: dict[node,(left,right,is_leaf)], coherent: dict[node,bool]) -> dict[int,list[int]]`. 마지막 레벨(잎)은 그대로. 순수 함수라 테스트한다.
 
@@ -69,6 +69,7 @@ PYTHONPATH=backend ../../.venv/bin/python -m unittest discover -s backend/tests 
 CONSTELLATION_DATA_DIR=<스크래치 복사본> PYTHONPATH=backend ../../.venv/bin/python -m constellation.cli name
   → "완료 — 89개", 갈라진 노드 로그
 duckdb: SELECT count(*) FROM cluster_tree WHERE label LIKE 'Mixed:%'  → 0
-duckdb: SELECT level, count(*) FROM tree_levels ... JOIN cluster_tree ... WHERE label LIKE '% · %' AND level < 2  → 0
+duckdb: 레벨 0·1의 내부 노드 중 label LIKE '% · %' → 0 (잎의 복합 이름은 허용)
+duckdb: 레벨 0·1 안에서 같은 label 이 둘 이상 → 0, 잎과 같은 이름의 내부 노드 → 0
 ```
 실제 DB에 돌린 뒤 `cargo run -p constellation-serve` + `npm run dev`로 지도 상위·하위 분야 라벨을 확인한다.
