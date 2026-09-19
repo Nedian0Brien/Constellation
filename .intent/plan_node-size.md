@@ -35,7 +35,8 @@ date: 2026-09-19
 ## 검증
 
 ```sh
-cd frontend && npm run test -- --run && npm run lint && npm run build
+cd frontend && npm run test -- --run && npm run lint && npm run build   # 50/50, 빌드 통과
+E2E_PORT=5177 npm run test:e2e                                      # 12/12
 ```
 
 화면: 지도 100%에서 허브(예: 피인용 ≥ 10,000)와 보통 논문을 같은 화면에서 스크린샷. 색 모드 "연구 주제"와 "피인용수"에서 점 크기가 같은지. 3200%에서 큰 점이 7px에 걸리고 제목과 겹치지 않는지. 각주 문구.

@@ -55,7 +55,8 @@ date: 2026-09-19
 ## 완료 기준
 
 ```sh
-cd frontend && npm run test -- --run && npm run lint && npm run build
+cd frontend && npm run test -- --run && npm run lint && npm run build   # 50/50, 경고 없음(손댄 파일), 빌드 통과
+E2E_PORT=5177 npm run test:e2e                                      # 12/12 — 호버·클릭 대상 점이 커져도 같은 점을 집는다
 ```
 
 브라우저(100%, 주제 색): 상위 2% 허브가 지름 10px, 보통 논문은 4px 안팎으로 보인다. 색 모드를 바꿔도 크기가 같다. 3200%에서는 지금과 같이 큰 점 7px·작은 점 4.5px. 각주에 "점 크기: 피인용수(로그)".
