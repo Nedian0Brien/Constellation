@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  wrapTitle,
   descendants,
   labelLevel,
   labelOpacity,
@@ -247,5 +248,20 @@ describe("fitCamera", () => {
       target: [3, 3, 0],
       zoom: 5,
     });
+  });
+});
+
+describe("wrapTitle", () => {
+  const measure = (t: string) => Array.from(t).length * 6;
+  it("단어 단위로 줄을 나누고 앞부분을 그려도 줄이 같다", () => {
+    const lines = wrapTitle(measure, "ALPHA BETA GAMMA DELTA", 72);
+    expect(lines).toEqual(["ALPHA BETA", "GAMMA DELTA"]);
+    expect(lines.every((l) => measure(l) <= 72)).toBe(true);
+  });
+  it("폭을 넘는 단어는 글자 단위로 자른다", () => {
+    expect(wrapTitle(measure, "ABCDEFGHIJ", 30)).toEqual(["ABCDE", "FGHIJ"]);
+  });
+  it("빈 제목은 빈 배열", () => {
+    expect(wrapTitle(measure, "   ", 30)).toEqual([]);
   });
 });

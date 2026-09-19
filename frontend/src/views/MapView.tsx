@@ -41,6 +41,7 @@ import {
   regionLabels,
   revealZooms,
   truncateTitle,
+  wrapTitle,
   MAX_ROWS,
   homeCamera,
   fitCamera,
@@ -94,6 +95,9 @@ const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
   LINK_FAR_WIDTH = 1;
 // 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값(1초 → 0.5초).
 const HOVER_DELAY_MS = 500;
+// 강조 노드의 라벨은 아래로 펼쳐지며 제목 전문을 한 글자씩(한 프레임에 하나) 보여준다.
+// 100자 제목이면 약 1.6초. 동작 줄이기면 즉시 전부.
+const TYPE_MS = 16;
 // 선택 모드의 버튼 셋: 노드에서 36px 떨어진 원의 왼쪽·위쪽 호에 60° 간격. 오른쪽은
 // 노드의 제목이 차지한다. 버튼은 32px(desktop dense, `design-ops` patterns/button.md
 // 높이 분포).
@@ -265,6 +269,10 @@ interface ActiveTitle {
   valueDx: number;
   position: [number, number];
   dy: number;
+  /** 값의 세로 오프셋(펼친 라벨은 마지막 줄). */
+  valueDy: number;
+  /** 값을 그릴지 — 펼친 라벨은 타이핑이 끝난 뒤에만. */
+  showValue: boolean;
 }
 const EMPTY_ACTIVE: ActiveTitle[] = [];
 const EMPTY_GRAPH: LocalGraph = { nodes: [], links: [] };
@@ -888,6 +896,50 @@ export default function MapView() {
   // 놓는다). 켜지는 순간 알파 0으로 두면 이미 켜져 있던 제목이 한 번 꺼졌다 켜진다.
   const activeSet = useMemo(() => new Set(graph.nodes), [graph]);
   const activeKey = heldIndex + ":" + graph.nodes.length;
+  // 강조 노드의 제목 전문을 미리 줄바꿈해 둔다. 줄 수와 가장 긴 줄로 펼친 상자를 잡는다.
+  const expanded = useMemo(() => {
+    if (heldIndex < 0) return null;
+    const lines = wrapTitle(
+      measure,
+      map.title[heldIndex].toUpperCase(),
+      TITLE_MAX_WIDTH - TITLE_PADDING,
+    );
+    const text = lines.join("\n");
+    return {
+      i: heldIndex,
+      lines,
+      text,
+      chars: Array.from(text),
+      width: Math.max(0, ...lines.map(measure)),
+      lastWidth: lines.length ? measure(lines[lines.length - 1]) : 0,
+    };
+  }, [heldIndex, map, measure]);
+  // 타이핑 진행. 강조 노드가 바뀌면 그때의 시각을 시작점으로 잡고(이전 렌더 값을
+  // state에 남기는 방식), 다 그릴 때까지 프레임마다 다시 렌더한다. 같은 노드가 호버 →
+  // 선택으로 바뀌면 이어서 간다.
+  const [typing, setTyping] = useState({ i: -1, start: -1 });
+  if (expanded && typing.i !== expanded.i)
+    setTyping({ i: expanded.i, start: -1 });
+  const [now, setNow] = useState(0);
+  const typedCount = !expanded
+    ? 0
+    : reduced
+      ? expanded.chars.length
+      : typing.start < 0
+        ? 0
+        : Math.min(
+            expanded.chars.length,
+            Math.max(0, Math.floor((now - typing.start) / TYPE_MS)),
+          );
+  useEffect(() => {
+    if (!expanded || reduced || typedCount >= expanded.chars.length) return;
+    const raf = requestAnimationFrame((t) => {
+      if (typing.start < 0) setTyping({ i: expanded.i, start: t });
+      setNow(t);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [expanded, reduced, typedCount, now, typing]);
+  const typingDone = !!expanded && typedCount >= expanded.chars.length;
   // 활성 라벨의 자리. 강조 노드는 항상, 나머지는 피인용수 순으로 앞서 놓인 활성
   // 라벨·지도 제목(이 칸에서 켜질 수 있는 것 전부)과 겹치지 않을 때만. 반 단계 배율의
   // 내림값으로 재므로 같은 단계 안에서 더 확대돼도 겹치지 않고, 단계가 오르면 다시
@@ -919,22 +971,48 @@ export default function MapView() {
     const obstacles = titles
       .filter((t) => !activeSet.has(t.i))
       .map((t) => boxOf(t.i, t.dy));
+    // 강조 노드의 상자는 펼친 크기(전문의 가장 긴 줄 × 줄 수)로 둔다.
+    const focusBox = (dy: number): LabelBox => {
+      const half =
+        TITLE_OFFSET_X +
+        (expanded?.width ?? 0) +
+        VALUE_GAP +
+        measure(values[heldIndex]) +
+        TITLE_PADDING / 2;
+      return {
+        x: map.x[heldIndex] * s - half,
+        y: map.y[heldIndex] * s + dy - TITLE_HEIGHT / 2,
+        w: 2 * half,
+        h: TITLE_HEIGHT * Math.max(1, expanded?.lines.length ?? 1),
+      };
+    };
     return placeLabels(
-      candidates.map((c) => boxOf(c.i, c.dy)),
+      candidates.map((c, k) =>
+        k === 0 ? focusBox(c.dy) : boxOf(c.i, c.dy),
+      ),
       obstacles,
     ).map((k) => {
       const { i, dy } = candidates[k];
+      const focus = k === 0 && expanded;
       return {
         id: map.id[i],
         i,
-        text: displays[i],
+        text: focus ? expanded.text : displays[i],
         value: values[i],
-        valueDx: valueDx[i],
+        valueDx: focus
+          ? TITLE_OFFSET_X + expanded.lastWidth + VALUE_GAP
+          : valueDx[i],
         position: [map.x[i], map.y[i]] as [number, number],
         dy,
+        valueDy: focus
+          ? dy + TITLE_HEIGHT * (expanded.lines.length - 1)
+          : dy,
+        showValue: !focus,
       };
     });
   }, [
+    expanded,
+    measure,
     heldIndex,
     graph,
     activeSet,
@@ -946,6 +1024,41 @@ export default function MapView() {
     valueDx,
     titles,
   ]);
+  // 펼친 라벨에 가려지는 지도 제목. 강조가 켜지는 동안 함께 옅어진다.
+  const covered = useMemo(() => {
+    const out = new Set<number>();
+    const focus = activeTitles[0];
+    if (!expanded || !focus || focus.i !== expanded.i) return out;
+    const s = 2 ** (zoomStep * TITLE_ZOOM_STEP);
+    const fx0 = map.x[expanded.i] * s + TITLE_OFFSET_X,
+      fx1 = fx0 + expanded.width + VALUE_GAP + measure(values[expanded.i]),
+      fy0 = map.y[expanded.i] * s + focus.dy - TITLE_HEIGHT / 2,
+      fy1 = fy0 + TITLE_HEIGHT * expanded.lines.length;
+    for (const t of titles) {
+      if (activeSet.has(t.i)) continue;
+      const x0 = map.x[t.i] * s + TITLE_OFFSET_X,
+        x1 = map.x[t.i] * s + widths[t.i] / 2 - TITLE_GAP_X / 2,
+        y0 = map.y[t.i] * s + t.dy - TITLE_HEIGHT / 2,
+        y1 = y0 + TITLE_HEIGHT;
+      if (x0 < fx1 && x1 > fx0 && y0 < fy1 && y1 > fy0) out.add(t.i);
+    }
+    return out;
+  }, [
+    activeTitles,
+    expanded,
+    zoomStep,
+    map,
+    measure,
+    values,
+    titles,
+    activeSet,
+    widths,
+  ]);
+  const coveredKey = [...covered].join(",");
+  const titleAlpha = (t: Title) =>
+    255 *
+    titleOpacity(t) *
+    (activeSet.has(t.i) || covered.has(t.i) ? 1 - hoverT : 1);
   useEffect(() => {
     const el = container.current as
       (HTMLDivElement & { __map?: MapBridge }) | null;
@@ -1169,14 +1282,16 @@ export default function MapView() {
       getPixelOffset: (t) => [TITLE_OFFSET_X, t.dy],
       getTextAnchor: "start",
       getAlignmentBaseline: "center",
-      getColor: (t) => [
-        ...typo.color,
-        Math.round(
-          255 * titleOpacity(t) * (activeSet.has(t.i) ? 1 - hoverT : 1),
-        ),
-      ],
+      getColor: (t) => [...typo.color, Math.round(titleAlpha(t))],
       updateTriggers: {
-        getColor: [camera.zoom, paperFloor, regionless, activeKey, hoverT],
+        getColor: [
+          camera.zoom,
+          paperFloor,
+          regionless,
+          activeKey,
+          coveredKey,
+          hoverT,
+        ],
       },
       pickable: true,
       onHover: (info) => setHover(info.object ? info : null),
@@ -1204,9 +1319,7 @@ export default function MapView() {
         colors[t.i][0],
         colors[t.i][1],
         colors[t.i][2],
-        Math.round(
-          255 * titleOpacity(t) * (activeSet.has(t.i) ? 1 - hoverT : 1),
-        ),
+        Math.round(titleAlpha(t)),
       ],
       updateTriggers: {
         getColor: [
@@ -1214,6 +1327,7 @@ export default function MapView() {
           paperFloor,
           regionless,
           activeKey,
+          coveredKey,
           hoverT,
           colors,
         ],
@@ -1232,13 +1346,20 @@ export default function MapView() {
         extensions: [snapText],
         sizeUnits: "pixels",
         getSize: TITLE_FONT_SIZE,
+        // 줄 높이는 제목 줄 간격과 같다. 블록의 위를 첫 줄이 점 중심에 오도록 둔다.
+        lineHeight: TITLE_HEIGHT / TITLE_FONT_SIZE,
         getPosition: (t) => t.position,
-        getPixelOffset: (t) => [TITLE_OFFSET_X, t.dy],
+        getText: (t) =>
+          expanded && t.i === expanded.i
+            ? expanded.chars.slice(0, typedCount).join("")
+            : t.text,
+        getPixelOffset: (t) => [TITLE_OFFSET_X, t.dy - TITLE_HEIGHT / 2],
         getTextAnchor: "start",
-        getAlignmentBaseline: "center",
+        getAlignmentBaseline: "top",
         getColor: [...typo.color, 255],
         opacity: hoverT,
         pickable: true,
+        updateTriggers: { getText: [expanded, typedCount] },
         onHover: (info) => setHover(info.object ? info : null),
         onClick: (info) => {
           if (info.object) update({ selected: info.object.id });
@@ -1256,14 +1377,14 @@ export default function MapView() {
         sizeUnits: "pixels",
         getSize: TITLE_FONT_SIZE,
         getPosition: (t) => t.position,
-        getText: (t) => t.value,
-        getPixelOffset: (t) => [t.valueDx, t.dy],
+        getText: (t) => (t.showValue || typingDone ? t.value : ""),
+        getPixelOffset: (t) => [t.valueDx, t.valueDy],
         getTextAnchor: "start",
         getAlignmentBaseline: "center",
         getColor: (t) => [colors[t.i][0], colors[t.i][1], colors[t.i][2], 255],
         opacity: hoverT,
         pickable: false,
-        updateTriggers: { getColor: [colors] },
+        updateTriggers: { getColor: [colors], getText: [typingDone] },
       }),
   ];
   const renderRegions = (items: typeof top, active: boolean, prefix: string) =>

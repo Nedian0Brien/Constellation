@@ -198,6 +198,40 @@ export function truncateTitle(
   return cut(n);
 }
 
+// 제목 전문을 단어 단위로 줄바꿈한다(펼친 라벨용). 줄을 미리 정해 두므로 앞 k글자만
+// 그려도(타이핑) 줄이 흔들리지 않는다. 한 단어가 폭을 넘으면 글자 단위로 자른다.
+export function wrapTitle(
+  measure: (text: string) => number,
+  text: string,
+  maxWidth: number,
+): string[] {
+  const lines: string[] = [];
+  let line = "";
+  const pushWord = (word: string) => {
+    const joined = line ? line + " " + word : word;
+    if (measure(joined) <= maxWidth) {
+      line = joined;
+      return;
+    }
+    if (line) lines.push(line);
+    line = "";
+    if (measure(word) <= maxWidth) {
+      line = word;
+      return;
+    }
+    for (const ch of word) {
+      if (line && measure(line + ch) > maxWidth) {
+        lines.push(line);
+        line = "";
+      }
+      line += ch;
+    }
+  };
+  for (const word of text.split(/\s+/)) if (word) pushWord(word);
+  if (line) lines.push(line);
+  return lines;
+}
+
 // ── 논문마다 제목이 켜지는 배율 ────────────────────────────────────
 // UMAP은 비슷한 논문을 라벨 폭보다 가깝게 놓으므로 어떤 배율에서도 "전부 켜고
 // 겹치지 않기"는 안 된다. 대신 논문마다 켜지는 배율을 좌표·제목 폭·피인용수만으로
