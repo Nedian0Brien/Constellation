@@ -1,5 +1,5 @@
 import { useReducedMotion } from "../hooks/use-reduced-motion";
-import { useKeyedTween, useTween } from "../hooks/use-tween";
+import { useFront, useTween } from "../hooks/use-tween";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DeckGL, { type DeckGLRef } from "@deck.gl/react";
@@ -93,10 +93,12 @@ const LINK_OUT: [number, number, number] = [57, 135, 229],
 // 로컬 그래프에서 선택 노드에 닿지 않는 선(이웃끼리의 인용). `--ink-soft` #93a3b4, 1px, 옅게.
 const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
   LINK_FAR_WIDTH = 1;
-// 강조가 켜지면 연결선이 강조 노드에서 이웃으로 이만큼에 걸쳐 뻗어 나온다(ease-out).
-// 다 닿은 뒤에 이웃의 점·라벨이 240ms 페이드인한다. 꺼지면 선은 되돌아가고 라벨은 바로
-// 옅어진다.
-const LINK_GROW_MS = 400;
+// 강조가 켜지면 연결선이 강조 노드에서 이웃으로 초당 이만큼(화면 픽셀) 일정한 속도로
+// 뻗어 나온다 — 가까운 이웃에 먼저 닿는다. 이웃의 점·라벨은 선이 닿은 순간부터 240ms
+// 페이드인(앞머리가 그 뒤로 `LINK_SPEED × 0.24s`만큼 더 나아가는 동안). 꺼지면 선은
+// 같은 속도로 되돌아가고 라벨은 바로 옅어진다.
+const LINK_SPEED = 1200,
+  LINK_FADE_PX = (LINK_SPEED * LABEL_FADE_MS) / 1000;
 // 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값(1초 → 0.5초).
 const HOVER_DELAY_MS = 500;
 // 강조 노드의 라벨은 아래로 펼쳐지며 제목 전문을 한 글자씩(한 프레임에 하나) 보여준다.
@@ -543,22 +545,13 @@ export default function MapView() {
   // 1 → 0이고, 옅어지는 동안은 마지막 강조 노드의 선·라벨을 그대로 둔다.
   const focusIndex = active >= 0 ? active : selectedIndex;
   const hoverT = useTween(focusIndex >= 0 ? 1 : 0, LABEL_FADE_MS, reduced);
-  // 연결선 길이(0 → 1). 강조 노드가 바뀌면 새 노드에서 0부터.
-  const growT = useKeyedTween(focusIndex, LINK_GROW_MS, reduced);
-  // 이웃의 점·라벨. 선이 다 닿은 뒤에 켜지고, 강조가 꺼지면 바로 옅어진다.
-  const linkedT = useTween(
-    focusIndex >= 0 && growT >= 1 ? 1 : 0,
-    LABEL_FADE_MS,
-    reduced,
-  );
   const [lastFocus, setLastFocus] = useState(focusIndex);
   if (focusIndex >= 0 && focusIndex !== lastFocus) setLastFocus(focusIndex);
+  // 강조가 꺼진 뒤에도 선이 되돌아가는 동안(`front` > 0, 아래) 마지막 강조 노드를
+  // 붙든다. `front`는 그래프 뒤에 계산되므로 이전 렌더의 값을 state에 남겨 본다.
+  const [retracting, setRetracting] = useState(false);
   const heldIndex =
-    focusIndex >= 0
-      ? focusIndex
-      : hoverT > 0 || growT > 0 || linkedT > 0
-        ? lastFocus
-        : -1;
+    focusIndex >= 0 ? focusIndex : hoverT > 0 || retracting ? lastFocus : -1;
   const points = useMemo(
     () =>
       map.id.map((id, i) => ({
@@ -672,6 +665,35 @@ export default function MapView() {
     () => graph.nodes.map((i) => points[i]),
     [points, graph],
   );
+  // 강조 노드에서 각 이웃까지의 화면 거리(픽셀). 연결선 앞머리와 견줘 닿았는지 본다.
+  const linkLength = useMemo(() => {
+    const out = new Map<number, number>();
+    if (heldIndex < 0) return out;
+    const s = 2 ** camera.zoom;
+    for (const i of graph.nodes)
+      if (i !== heldIndex)
+        out.set(
+          i,
+          Math.hypot(map.x[i] - map.x[heldIndex], map.y[i] - map.y[heldIndex]) *
+            s,
+        );
+    return out;
+  }, [graph, heldIndex, map, camera.zoom]);
+  const farthest = Math.max(0, ...linkLength.values());
+  // 연결선 앞머리(픽셀). 가장 먼 이웃에 닿고 그 라벨이 다 켜질 만큼까지 나아간다.
+  const front = useFront(
+    focusIndex,
+    LINK_SPEED,
+    farthest + LINK_FADE_PX,
+    reduced,
+  );
+  if (retracting !== front > 0) setRetracting(front > 0);
+  // 이웃 i의 점·라벨 알파(0~1): 선이 닿은 뒤 240ms에 걸쳐 켜지고, 강조가 꺼지면 hoverT로
+  // 같이 옅어진다.
+  const linked = (i: number) =>
+    hoverT *
+    Math.min(1, Math.max(0, (front - (linkLength.get(i) ?? 0)) / LINK_FADE_PX));
+  const allLinked = front >= farthest + LINK_FADE_PX;
   // 에이전트의 시스템 프롬프트가 읽는 확대 단계.
   const setMapLevel = useStore((s) => s.setMapLevel);
   useEffect(() => setMapLevel(level), [level, setMapLevel]);
@@ -1234,8 +1256,8 @@ export default function MapView() {
       new LineLayer<GraphLink>({
         id: "hover-links",
         data: graph.links,
-        // 강조 노드에 닿는 선은 강조 노드에서 이웃 쪽으로 `growT`만큼 뻗는다. 로컬
-        // 그래프의 이웃끼리 선은 선이 다 닿은 뒤 옅게 나타난다.
+        // 강조 노드에 닿는 선은 강조 노드에서 이웃 쪽으로 앞머리(`front`)까지만
+        // 뻗는다. 로컬 그래프의 이웃끼리 선은 전부 닿은 뒤 옅게 나타난다.
         getSourcePosition: (l) =>
           l.seed && l.b === heldIndex
             ? points[l.b].position
@@ -1244,9 +1266,11 @@ export default function MapView() {
           const from = l.seed && l.b === heldIndex ? points[l.b] : points[l.a],
             to = l.seed && l.b === heldIndex ? points[l.a] : points[l.b];
           if (!l.seed) return to.position;
+          const len = linkLength.get(to.i) ?? 0,
+            f = len > 0 ? Math.min(1, front / len) : 1;
           return [
-            from.position[0] + (to.position[0] - from.position[0]) * growT,
-            from.position[1] + (to.position[1] - from.position[1]) * growT,
+            from.position[0] + (to.position[0] - from.position[0]) * f,
+            from.position[1] + (to.position[1] - from.position[1]) * f,
             0,
           ];
         },
@@ -1254,7 +1278,12 @@ export default function MapView() {
         // 빨강), 로컬 그래프의 나머지 선은 옅은 한 색.
         getColor: (l) =>
           !l.seed
-            ? [LINK_FAR[0], LINK_FAR[1], LINK_FAR[2], LINK_FAR[3] * linkedT]
+            ? [
+                LINK_FAR[0],
+                LINK_FAR[1],
+                LINK_FAR[2],
+                LINK_FAR[3] * hoverT * (allLinked ? 1 : 0),
+              ]
             : l.a === heldIndex
               ? LINK_OUT
               : LINK_IN,
@@ -1263,8 +1292,8 @@ export default function MapView() {
         pickable: false,
         updateTriggers: {
           getSourcePosition: [heldIndex],
-          getTargetPosition: [heldIndex, growT],
-          getColor: [heldIndex, linkedT],
+          getTargetPosition: [heldIndex, front, linkLength],
+          getColor: [heldIndex, hoverT, allLinked],
         },
       }),
     heldIndex >= 0 &&
@@ -1280,7 +1309,7 @@ export default function MapView() {
                 colors[p.i][0],
                 colors[p.i][1],
                 colors[p.i][2],
-                colors[p.i][3] * linkedT,
+                colors[p.i][3] * linked(p.i),
               ],
         getRadius: baseRadius,
         radiusUnits: "pixels",
@@ -1292,14 +1321,14 @@ export default function MapView() {
           255,
           255,
           255,
-          235 * (p.i === heldIndex ? hoverT : linkedT),
+          235 * (p.i === heldIndex ? hoverT : linked(p.i)),
         ],
         getLineWidth: (p) => (topCited[p.i] ? 1 : 0),
         lineWidthUnits: "pixels",
         pickable: false,
         updateTriggers: {
-          getFillColor: [colors, heldIndex, hoverT, linkedT],
-          getLineColor: [heldIndex, hoverT, linkedT],
+          getFillColor: [colors, heldIndex, hoverT, front, linkLength],
+          getLineColor: [heldIndex, hoverT, front, linkLength],
           getRadius: [topCited],
           getLineWidth: [topCited],
         },
@@ -1410,12 +1439,12 @@ export default function MapView() {
         // 강조 노드의 라벨은 바로, 이웃의 라벨은 선이 닿은 뒤에.
         getColor: (t) => [
           ...typo.color,
-          Math.round(255 * (t.i === heldIndex ? hoverT : linkedT)),
+          Math.round(255 * (t.i === heldIndex ? hoverT : linked(t.i))),
         ],
         pickable: true,
         updateTriggers: {
           getText: [expanded, typedCount],
-          getColor: [heldIndex, hoverT, linkedT],
+          getColor: [heldIndex, hoverT, front, linkLength],
         },
         onHover: (info) => setHover(info.object ? info : null),
         onClick: (info) => {
@@ -1442,11 +1471,11 @@ export default function MapView() {
           colors[t.i][0],
           colors[t.i][1],
           colors[t.i][2],
-          Math.round(255 * (t.i === heldIndex ? hoverT : linkedT)),
+          Math.round(255 * (t.i === heldIndex ? hoverT : linked(t.i))),
         ],
         pickable: false,
         updateTriggers: {
-          getColor: [colors, heldIndex, hoverT, linkedT],
+          getColor: [colors, heldIndex, hoverT, front, linkLength],
           getText: [typingDone],
         },
       }),
@@ -1485,8 +1514,8 @@ export default function MapView() {
       data-title-count={titles.length}
       data-hover-id={heldIndex >= 0 ? points[heldIndex].id : undefined}
       data-hover-links={graph.links.length}
-      data-link-grow={growT.toFixed(2)}
-      data-linked={linkedT.toFixed(2)}
+      data-link-front={front.toFixed(0)}
+      data-link-farthest={farthest.toFixed(0)}
       data-active-labels={activeTitles.length}
       data-local={showLocal || undefined}
       data-reveal-floor={settledHome.toFixed(4)}
