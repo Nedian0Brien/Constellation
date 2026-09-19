@@ -329,6 +329,97 @@ export default function MapView() {
   useEffect(() => {
     if (reduced) cancelAnimationFrame(frame.current);
   }, [reduced]);
+  // 영역 이름은 deck 캔버스 위에 얹힌 형제 오버레이라, 켜진 이름 위에서 굴린 휠은
+  // deck의 이벤트 루트(.deck-events-root)에 닿지 않아 확대가 멈춘다. 휠만 캔버스로
+  // 되보낸다 — 클릭·호버는 이름이 그대로 갖는다. React의 onWheel은 passive라
+  // 원본의 스크롤을 못 막으므로 native 리스너를 쓴다. 되보낸 이벤트는 캔버스에서
+  // 컨테이너로 올라가고 오버레이는 그 경로에 없어 다시 여기로 오지 않는다.
+  const labels = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = labels.current;
+    if (!el) return;
+    const forward = (e: WheelEvent) => {
+      const canvas = deckRef.current?.deck?.getCanvas();
+      if (!canvas) return;
+      e.preventDefault();
+      canvas.dispatchEvent(new WheelEvent(e.type, e));
+    };
+    el.addEventListener("wheel", forward, { passive: false });
+    return () => el.removeEventListener("wheel", forward);
+  }, []);
+  // 영역 이름 위에서 누르고 끌면 지도가 따라온다. 포인터 이벤트는 deck에 되보내지
+  // 않는다 — mjolnir가 down/up으로 클릭을 다시 만들어 이름 뒤의 점을 집는다. 대신
+  // 한 걸음마다 지금 카메라의 뷰포트로 픽셀 차를 지도 좌표 차로 바꿔 target을 옮긴다
+  // (화살표 키와 같은 경로). 끄는 중에 휠로 배율이 바뀌어도 그 배율에서 이어진다.
+  // 4px 넘게 끌었으면 놓을 때 나오는 click은 onClickCapture에서 막는다.
+  const drag = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    x0: number;
+    y0: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClick = useRef(false);
+  const [dragging, setDragging] = useState(false);
+  const onLabelPointerDown = (e: React.PointerEvent) => {
+    const button = (e.target as Element).closest(".region-name");
+    if (!button || e.button !== 0) return;
+    button.setPointerCapture(e.pointerId);
+    drag.current = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      x0: e.clientX,
+      y0: e.clientY,
+      moved: false,
+    };
+  };
+  const onLabelPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    if (!d.moved) {
+      if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 4) return;
+      d.moved = true;
+      setDragging(true);
+    }
+    const current = useStore.getState().cameras[map.run_id] ?? home,
+      vp = new OrthographicViewport({ ...current, ...size }),
+      [x0, y0] = vp.unproject([d.x, d.y]),
+      [x1, y1] = vp.unproject([e.clientX, e.clientY]);
+    d.x = e.clientX;
+    d.y = e.clientY;
+    move(
+      {
+        ...current,
+        target: [
+          current.target[0] - (x1 - x0),
+          current.target[1] - (y1 - y0),
+          0,
+        ],
+      },
+      false,
+    );
+  };
+  const onLabelPointerEnd = (e: React.PointerEvent) => {
+    if (drag.current?.id !== e.pointerId) return;
+    const { moved } = drag.current;
+    drag.current = null;
+    setDragging(false);
+    // click은 pointerup 바로 뒤 같은 태스크에서 온다. 안 오면(터치 드래그·취소)
+    // 다음 틱에 풀어, 뒤에 오는 무관한 클릭을 삼키지 않는다.
+    if (moved && e.type === "pointerup") {
+      suppressClick.current = true;
+      setTimeout(() => {
+        suppressClick.current = false;
+      }, 0);
+    }
+  };
+  const onLabelClickCapture = (e: React.MouseEvent) => {
+    if (!suppressClick.current) return;
+    e.stopPropagation();
+    suppressClick.current = false;
+  };
   useEffect(() => {
     const o = new ResizeObserver(([entry]) => {
       if (entry.contentRect.width > 0 && entry.contentRect.height > 0)
@@ -1168,7 +1259,17 @@ export default function MapView() {
           isDragging ? "grabbing" : hover ? "pointer" : "grab"
         }
       />
-      <div className="map-labels" aria-label="지도 라벨">
+      <div
+        ref={labels}
+        className="map-labels"
+        aria-label="지도 라벨"
+        data-dragging={dragging || undefined}
+        onPointerDown={onLabelPointerDown}
+        onPointerMove={onLabelPointerMove}
+        onPointerUp={onLabelPointerEnd}
+        onPointerCancel={onLabelPointerEnd}
+        onClickCapture={onLabelClickCapture}
+      >
         {renderRegions(top, level === "field", "top")}
         {renderRegions(
           sub,

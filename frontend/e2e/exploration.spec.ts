@@ -403,6 +403,70 @@ test("unknown selection and malformed persisted layout remain recoverable", asyn
     .click();
   expect(new URL(page.url()).searchParams.has("selected")).toBe(false);
 });
+test("wheel over a region name zooms the map and the name still opens the region", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const map = page.getByTestId("research-map");
+  await expect(map).toHaveAttribute("data-label-level", "field");
+  const zoomOf = async () =>
+    Number((await map.getAttribute("data-camera"))!.split(":")[0]);
+  // 영역 이름은 deck 캔버스 위의 DOM 버튼이다. 그 위에서 굴린 휠이 캔버스에 닿지
+  // 않으면 확대가 멈춘다. 켜진 이름 하나의 한가운데에 마우스를 두고 굴린다.
+  const name = page.locator(".region-name[data-active=true]").first();
+  await expect(name).toBeVisible();
+  const box = (await name.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const start = await zoomOf();
+  await page.mouse.wheel(0, -120);
+  await expect.poll(zoomOf).toBeGreaterThan(start);
+  const zoomedIn = await zoomOf();
+  await page.mouse.wheel(0, 120);
+  await expect.poll(zoomOf).toBeLessThan(zoomedIn);
+  // 휠을 넘겨도 클릭은 이름이 갖는다 — 그 영역으로 들어간다.
+  await name.click();
+  await expect
+    .poll(() => {
+      const q = new URL(page.url()).searchParams;
+      return q.has("node") || q.has("cluster");
+    })
+    .toBe(true);
+});
+test("drag over a region name pans the map without opening the region", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const map = page.getByTestId("research-map");
+  await expect(map).toHaveAttribute("data-label-level", "field");
+  const targetOf = async () =>
+    (await map.getAttribute("data-camera"))!.split(":")[1];
+  const name = page.locator(".region-name[data-active=true]").first();
+  await expect(name).toBeVisible();
+  const box = (await name.boundingBox())!;
+  const cx = box.x + box.width / 2,
+    cy = box.y + box.height / 2;
+  // 이름 위에서 누르고 120px 끌면 지도가 따라오고, 놓아도 그 영역으로 들어가지 않는다.
+  const start = await targetOf();
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 60, cy + 40, { steps: 4 });
+  await page.mouse.move(cx + 120, cy + 80, { steps: 4 });
+  await expect.poll(targetOf).not.toBe(start);
+  await page.mouse.up();
+  // 클릭이 났다면 URL이 바로 바뀐다. 잠시 두고 확인한다.
+  await page.waitForTimeout(300);
+  const q = new URL(page.url()).searchParams;
+  expect(q.has("node") || q.has("cluster")).toBe(false);
+  // 끈 뒤에도 키보드 활성화(초점 + Enter)는 먹히지 않고 그 영역으로 들어간다.
+  // 그냥 클릭으로 들어가는 것은 휠 시나리오가 본다.
+  await name.focus();
+  await page.keyboard.press("Enter");
+  const entered = () => {
+    const q = new URL(page.url()).searchParams;
+    return q.has("node") || q.has("cluster");
+  };
+  await expect.poll(entered).toBe(true);
+});
 test("explicit region selection replaces paper detail with the real cluster", async ({
   page,
   request,
