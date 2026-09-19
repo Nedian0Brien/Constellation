@@ -483,15 +483,29 @@ test("explicit region selection replaces paper detail with the real cluster", as
   await expect(
     page.getByRole("button", { name: "노드 상세정보", exact: true }),
   ).toBeVisible();
-  // 논문이 선택된 채로 주제 라벨을 고르면 논문 선택은 지워지고 주제 상세가 열린다.
+  // 논문이 선택된 채로 사이드바에서 주제를 고르면 논문 선택은 지워지고 그 주제만
+  // 켜진다. 상세 모달은 자동으로 열리지 않고, 지도의 영역 이름이 화면에 있으면 그 위
+  // 버튼 셋의 "영역 상세정보"로 연다.
   await page
+    .locator('[data-slot="sidebar"]')
     .getByRole("button", { name: clusters[0].label, exact: true })
+    .first()
     .click();
-  await expect(page.getByTestId("inspector").locator("h2")).toHaveText(
-    clusters[0].label,
-  );
+  await expect
+    .poll(() => new URL(page.url()).searchParams.has("cluster"))
+    .toBe(true);
   expect(new URL(page.url()).searchParams.has("selected")).toBe(false);
-  expect(new URL(page.url()).searchParams.has("cluster")).toBe(true);
+  await expect(page.getByTestId("inspector")).toHaveCount(0);
+  const detail = page.getByRole("button", {
+    name: "영역 상세정보",
+    exact: true,
+  });
+  if (await detail.count()) {
+    await detail.click();
+    await expect(page.getByTestId("inspector").locator("h2")).toHaveText(
+      clusters[0].label,
+    );
+  }
 });
 test("agent chat: canned stream renders, runs a frontend tool, and survives reload", async ({
   page,
