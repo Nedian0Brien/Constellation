@@ -1483,6 +1483,79 @@ input:focus-visible,
 .year-marker[data-selected] {
   box-shadow: 0 0 0 1px var(--foreground);
 }
+/* 묶음 표식: 전경색 막대 위에 개수 배지. */
+.year-marker-group {
+  height: 12px;
+  width: 5px;
+  transform: translateX(-2.5px);
+  background: var(--foreground);
+  border-radius: 2px 2px 0 0;
+}
+.year-marker-group:hover,
+.year-marker-group:focus-visible,
+.year-marker-group[data-open] {
+  transform: translateX(-2.5px) scaleY(1.3);
+}
+.year-marker-count {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 2px;
+  font: 9px var(--font-mono);
+  line-height: 1;
+  color: var(--foreground);
+  text-shadow: 0 0 4px var(--map-ground, #0c1118);
+}
+.year-group-pop {
+  width: 360px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.year-group-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.year-group-item {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+.year-group-item:hover,
+.year-group-item:focus-visible {
+  background: var(--muted);
+  outline: none;
+}
+.year-group-item i {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.year-group-title {
+  font-size: 12px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.year-group-meta {
+  font: 10px var(--font-mono);
+  color: var(--muted-foreground);
+  letter-spacing: 0.04em;
+}
 .year-marker-tip {
   display: flex;
   flex-direction: column;

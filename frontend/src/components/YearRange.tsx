@@ -9,6 +9,7 @@ import { clusterColor } from "../views/map/regions";
 import { citationIndex, linksOf } from "../views/map/edges";
 import { descendants } from "../views/map/labels";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 // 발행연도 범위. 스테이지 아래쪽에 가로로 꽉 차게 얹힌다(모든 뷰에 적용되는 필터라 뷰
 // 밖, 스테이지 안). 축은 비례 축이다: 해마다 폭이 그 해 논문 수의 비율(최소 2px)이라
 // 논문이 몰린 시대가 넓고 빈 시대는 몇 픽셀로 지나간다. 눈금자 모양이다 — 해마다 눈금,
@@ -16,25 +17,23 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 // - 손잡이 끌기, 가운데 구간 끌기(폭 유지 이동), 트랙 클릭(가까운 손잡이 이동),
 //   더블클릭(전체 범위), 키보드 ←→ 1년·Shift 10년·Home/End.
 // - 손잡이 위 연도 라벨을 클릭하면 직접 입력.
-// - 표식: 중요한 논문의 발행연도 자리에 큰 눈금. 아무것도 선택하지 않았으면 피인용
-//   상위 60편(해마다 최대 3편, 주제마다 최소 1편)을 주제 색으로; 영역을 선택하면 그
-//   영역 안의 상위 60편; 논문을 선택하면 그 논문이 인용한(파랑)·그 논문을 인용한(빨강)
-//   논문. 높이는 피인용수(log)에 비례. 같은 해에 여럿이면 칸 안에 고르게 나눈다.
-//   호버하면 제목, 클릭하면 그 논문을 선택. 범위 밖이면 옅다.
-// - 돋보기: 트랙 위에 마우스가 있으면 그 자리를 중심으로 반지름 R 안이 어안(fisheye)
-//   렌즈처럼 늘어나(Sarkar–Brown 1차원 식, 중심 배율 d+1, 가장자리에서 1/(d+1)로 압축,
-//   렌즈 밖은 그대로) 좁은 시대의 눈금·표식이 벌어진다. 끄는 동안은 끈다.
+// - 표식: 중요한 논문의 발행연도 자리에 큰 눈금. 주제마다 피인용 상위 3편 ∪ 연도마다
+//   피인용 상위 3편 — 논문이 있는 해는 반드시 표식이 있고, 주제마다 고전이 남는다.
+//   영역을 선택하면 그 영역 안에서 같은 규칙, 논문을 선택하면 그 논문이 참조한(파랑)·
+//   인용한(빨강) 논문. 높이는 피인용수(log)에 비례. 축에서 6px 안에 붙는 표식은 묶음
+//   표식(전경색, 개수 배지) 하나로 접힌다 — 호버하면 기간·편수, 클릭하면 목록 팝오버.
+//   낱개 표식은 호버하면 제목, 클릭하면 그 논문을 선택. 범위 밖이면 옅다.
 // - 재생: 창을 초당 1년씩 앞으로 민다. 범위가 전체면 처음 5년 창으로 시작한다. 끝에
 //   닿거나 손잡이를 잡으면 멈춘다. 선택 노드의 인용선도 그 시점까지만 그려진다.
 // 범위가 전체와 같으면 URL에서 from·to를 뺀다. 끄는 동안의 갱신은 프레임마다 한 번.
 const MIN_CELL_PX = 2,
   MARKER_MAX = 60,
   MARKER_PER_YEAR = 3,
+  MARKER_PER_TOPIC = 3,
   MARKER_MIN_H = 6,
   MARKER_MAX_H = 14,
-  FISHEYE_D = 8,
-  FISHEYE_R = 180,
-  MARKER_GAP = 3,
+  MARKER_SPACING = 4,
+  GROUP_SPAN = 24,
   LINK_OUT = "rgb(57 135 229)",
   LINK_IN = "rgb(230 103 103)",
   LABEL_MIN_PX = 24,
@@ -112,22 +111,18 @@ export function YearRange() {
         )
           pool.push(i);
       pool.sort((p, q) => score(q) - score(p));
-      // 상위 N, 해마다 최대 k. 그 뒤 빠진 주제는 그 주제의 1위를 더한다.
-      const perYear = new Map<number, number>(),
+      // 주제마다 상위 3편 ∪ 연도마다 상위 3편.
+      const perTopic = new Map<number, number>(),
+        perYear = new Map<number, number>(),
         chosen = new Set<number>();
       for (const i of pool) {
-        if (chosen.size >= MARKER_MAX) break;
-        const y = map.year[i]!,
-          n = perYear.get(y) ?? 0;
-        if (n >= MARKER_PER_YEAR) continue;
-        perYear.set(y, n + 1);
-        chosen.add(i);
-      }
-      const covered = new Set([...chosen].map((i) => map.cluster[i]));
-      for (const i of pool) {
-        const c = map.cluster[i];
-        if (covered.has(c)) continue;
-        covered.add(c);
+        const c = map.cluster[i],
+          y = map.year[i]!,
+          nc = perTopic.get(c) ?? 0,
+          ny = perYear.get(y) ?? 0;
+        if (nc >= MARKER_PER_TOPIC && ny >= MARKER_PER_YEAR) continue;
+        perTopic.set(c, nc + 1);
+        perYear.set(y, ny + 1);
         chosen.add(i);
       }
       picks = [...chosen].map((i) => ({
@@ -188,59 +183,49 @@ export function YearRange() {
   }, [counts, width]);
   const xOf = (y: number) =>
     edges[Math.min(Math.max(y - lo, 0), counts.length)];
-  // 돋보기 초점(트랙 안 x). 끄는 동안은 없다.
-  const [focus, setFocus] = useState<number | null>(null);
-  // 렌즈 변환과 역변환. 초점 a에서 |x−a| = t·R (0 ≤ t ≤ 1)이면
-  // t' = (d+1)·t / (d·t + 1). t=1에서 t'=1이라 렌즈 가장자리는 이어진다.
-  // 렌즈 반지름은 트랙 끝을 넘지 않게 좌우 따로 줄인다 — 끝의 손잡이·라벨이 밀려나지 않는다.
-  const lensR = (dx: number) =>
-    Math.max(1, Math.min(FISHEYE_R, dx < 0 ? focus! : width - focus!));
-  const warp = (x: number) => {
-    if (focus === null) return x;
-    const dx = x - focus,
-      R = lensR(dx),
-      t = Math.abs(dx) / R;
-    if (t >= 1 || t === 0) return x;
-    const tw = ((FISHEYE_D + 1) * t) / (FISHEYE_D * t + 1);
-    return focus + Math.sign(dx) * tw * R;
-  };
-  const unwarp = (x: number) => {
-    if (focus === null) return x;
-    const dx = x - focus,
-      R = lensR(dx),
-      tw = Math.abs(dx) / R;
-    if (tw >= 1 || tw === 0) return x;
-    // t' = (d+1)t/(dt+1)  ⇒  t = t' / (d+1 − d·t')
-    const t = tw / (FISHEYE_D + 1 - FISHEYE_D * tw);
-    return focus + Math.sign(dx) * t * R;
-  };
-  const vx = (y: number) => warp(xOf(y));
-  const cellWidth = (y: number) => vx(y + 1) - vx(y);
-  // 같은 해의 표식은 칸 안에 고르게 나눈다(돋보기 뒤 좌표). 표식은 수십 개라 매 렌더
-  // 계산해도 싸다.
-  const markerX = (() => {
+  const cellWidth = (y: number) => xOf(y + 1) - xOf(y);
+  // 같은 해의 표식은 칸 안에 고르게 나눈다. 칸이 표식 수 × 4px보다 좁아 다 못 놓는 해는
+  // 그 해 전체가 묶음이 되고, 이웃한 묶음은 첫 묶음에서 24px 안이면 하나로 합친다(칸이
+  // 넓은 최근 시대는 낱개로 남는다). 표식은 수백 개 이하라 매 렌더 계산해도 싸다.
+  type Group = { x: number; items: number[]; y0: number; y1: number };
+  const groups: Group[] = (() => {
     const byYear = new Map<number, number[]>();
     markers.forEach((m, k) => {
       const list = byYear.get(m.year) ?? [];
       list.push(k);
       byYear.set(m.year, list);
     });
-    const xs = new Array<number>(markers.length);
-    for (const [y, ks] of byYear) {
-      const x0 = vx(y),
+    const out: Group[] = [];
+    let open: Group | null = null,
+      openStart = 0;
+    for (const y of [...byYear.keys()].sort((p, q) => p - q)) {
+      const ks = byYear.get(y)!,
+        x0 = xOf(y),
         w = cellWidth(y);
-      ks.forEach((k, j) => {
-        xs[k] = x0 + ((j + 0.5) / ks.length) * w;
-      });
+      if (w >= ks.length * MARKER_SPACING) {
+        open = null;
+        ks.forEach((k, j) =>
+          out.push({
+            x: x0 + ((j + 0.5) / ks.length) * w,
+            items: [k],
+            y0: y,
+            y1: y,
+          }),
+        );
+        continue;
+      }
+      const cx = x0 + w / 2;
+      if (open && cx - openStart < GROUP_SPAN) {
+        open.items.push(...ks);
+        open.y1 = y;
+        open.x = (openStart + cx) / 2;
+      } else {
+        open = { x: cx, items: [...ks], y0: y, y1: y };
+        openStart = cx;
+        out.push(open);
+      }
     }
-    // 그래도 3px 안이면 오른쪽으로 민다(돋보기 안에서는 벌어져 밀림이 줄어든다).
-    const order = xs.map((x, k) => [x, k] as const).sort((p, q) => p[0] - q[0]);
-    let prev = -Infinity;
-    for (const [x, k] of order) {
-      xs[k] = Math.max(x, prev + MARKER_GAP);
-      prev = xs[k];
-    }
-    return xs;
+    return out;
   })();
   // 범위 갱신. 전체 범위면 URL에서 뺀다. 끄는 동안은 프레임마다 한 번만 보낸다.
   const pending = useRef<{ from: number; to: number } | null>(null),
@@ -267,6 +252,11 @@ export function YearRange() {
     [lo, hi, update],
   );
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  const select = useCallback(
+    (id: string) =>
+      update({ selected: id, cluster: undefined, node: undefined }),
+    [update],
+  );
   // 재생. 지금 창을 1초마다 1년 민다. 끝(hi)에 닿으면 멈춘다.
   const [playing, setPlaying] = useState(false);
   const range = useRef({ from, to });
@@ -323,16 +313,10 @@ export function YearRange() {
     drag.current = { id: e.pointerId, kind, x0: e.clientX, from, to };
     setDragging(kind);
     setPlaying(false);
-    setFocus(null);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
-    if (!d || d.id !== e.pointerId) {
-      // 끌지 않는 동안은 돋보기 초점만 따라간다.
-      if (!d && e.pointerType === "mouse")
-        setFocus(e.clientX - track.current!.getBoundingClientRect().left);
-      return;
-    }
+    if (!d || d.id !== e.pointerId) return;
     if (d.kind === "window") {
       // 창의 왼쪽 가장자리를 픽셀만큼 옮긴 자리의 연도로. 폭(연도 수)은 그대로.
       const span = d.to - d.from,
@@ -353,7 +337,7 @@ export function YearRange() {
   // 트랙의 빈 곳을 누르면 가까운 손잡이가 그리로 온다.
   const onTrackPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    const x = unwarp(e.clientX - track.current!.getBoundingClientRect().left),
+    const x = e.clientX - track.current!.getBoundingClientRect().left,
       y = Math.floor(yearAtX(x));
     if (Math.abs(x - xOf(from)) <= Math.abs(x - xOf(to + 1))) commit(y, to);
     else commit(from, y);
@@ -386,7 +370,7 @@ export function YearRange() {
   let lastLabelRight = -Infinity,
     lastTickX = -Infinity;
   for (let y = lo; y <= hi + 1; y++) {
-    const x = vx(y),
+    const x = xOf(y),
       wide = y <= hi && cellWidth(y) >= LABEL_MIN_PX,
       decade = y % 10 === 0;
     if (x - lastTickX < 3 && !decade) continue;
@@ -424,24 +408,22 @@ export function YearRange() {
           commit(lo, hi);
         }}
         className="year-track"
-        data-focus={focus !== null || undefined}
         onPointerDown={onTrackPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        onPointerLeave={() => setFocus(null)}
       >
         <div className="year-line" aria-hidden="true" />
         <div
           className="year-line-in"
           aria-hidden="true"
-          style={{ left: vx(from), width: vx(to + 1) - vx(from) }}
+          style={{ left: xOf(from), width: xOf(to + 1) - xOf(from) }}
         />
         {/* 가운데 구간: 폭을 유지한 채 이동. */}
         {to > from && (
           <div
             className="year-window"
-            style={{ left: vx(from), width: vx(to + 1) - vx(from) }}
+            style={{ left: xOf(from), width: xOf(to + 1) - xOf(from) }}
             onPointerDown={(e) => startDrag(e, "window")}
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
@@ -449,43 +431,31 @@ export function YearRange() {
           />
         )}
         {/* 주제 표식: 피인용 1위 논문의 연도. */}
-        <div className="year-markers" aria-label="주제별 대표 논문">
-          {markers.map((m, k) => (
-            <Tooltip key={m.id}>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    className="year-marker"
-                    data-in={(m.year >= from && m.year <= to) || undefined}
-                    data-selected={state.selected === m.id || undefined}
-                    aria-label={`${m.kind}: ${m.title} (${m.year})`}
-                    style={{
-                      left: markerX[k],
-                      height: m.height,
-                      background: m.color,
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onDoubleClick={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      update({
-                        selected: m.id,
-                        cluster: undefined,
-                        node: undefined,
-                      });
-                    }}
-                  />
+        <div className="year-markers" aria-label="대표 논문">
+          {groups.map((g) =>
+            g.items.length === 1 ? (
+              <SingleMarker
+                key={markers[g.items[0]].id}
+                m={markers[g.items[0]]}
+                x={g.x}
+                inRange={
+                  markers[g.items[0]].year >= from &&
+                  markers[g.items[0]].year <= to
                 }
+                selected={state.selected === markers[g.items[0]].id}
+                onSelect={select}
               />
-              <TooltipContent className="year-marker-tip">
-                <span className="year-marker-title">{m.title}</span>
-                <span className="year-marker-meta" style={{ color: m.color }}>
-                  {m.kind} · {m.year} · 피인용 {m.cited.toLocaleString()}
-                </span>
-              </TooltipContent>
-            </Tooltip>
-          ))}
+            ) : (
+              <GroupMarker
+                key={`${g.y0}-${g.y1}-${g.items[0]}`}
+                group={g}
+                items={g.items.map((k) => markers[k])}
+                x={g.x}
+                inRange={g.y1 >= from && g.y0 <= to}
+                onSelect={select}
+              />
+            ),
+          )}
         </div>
         {(["from", "to"] as const).map((kind) => {
           const y = kind === "from" ? from : to;
@@ -500,7 +470,7 @@ export function YearRange() {
               aria-valuemin={kind === "from" ? lo : from}
               aria-valuemax={kind === "from" ? to : hi}
               aria-valuenow={y}
-              style={{ left: kind === "from" ? vx(y) : vx(y + 1) }}
+              style={{ left: kind === "from" ? xOf(y) : xOf(y + 1) }}
               onPointerDown={(e) => startDrag(e, kind)}
               onPointerMove={onPointerMove}
               onPointerUp={endDrag}
@@ -532,6 +502,141 @@ export function YearRange() {
         </div>
       </div>
     </div>
+  );
+}
+interface Marker {
+  i: number;
+  id: string;
+  year: number;
+  title: string;
+  cited: number;
+  color: string;
+  kind: string;
+  height: number;
+}
+// 낱개 표식. 호버하면 제목, 클릭하면 선택.
+function SingleMarker({
+  m,
+  x,
+  inRange,
+  selected,
+  onSelect,
+}: {
+  m: Marker;
+  x: number;
+  inRange: boolean;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="year-marker"
+            data-in={inRange || undefined}
+            data-selected={selected || undefined}
+            aria-label={`${m.kind}: ${m.title} (${m.year})`}
+            style={{ left: x, height: m.height, background: m.color }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(m.id);
+            }}
+          />
+        }
+      />
+      <TooltipContent className="year-marker-tip">
+        <span className="year-marker-title">{m.title}</span>
+        <span className="year-marker-meta" style={{ color: m.color }}>
+          {m.kind} · {m.year} · 피인용 {m.cited.toLocaleString()}
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+// 묶음 표식. 호버하면 기간·편수, 클릭하면 목록 팝오버(점수순). 항목을 고르면 선택.
+function GroupMarker({
+  group,
+  items,
+  x,
+  inRange,
+  onSelect,
+}: {
+  group: { y0: number; y1: number };
+  items: Marker[];
+  x: number;
+  inRange: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const span =
+    group.y0 === group.y1 ? `${group.y0}` : `${group.y0}–${group.y1}`;
+  const sorted = [...items].sort((p, q) => q.cited - p.cited);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                <button
+                  type="button"
+                  className="year-marker year-marker-group"
+                  data-in={inRange || undefined}
+                  data-open={open || undefined}
+                  aria-label={`${span} 대표 논문 ${items.length}편`}
+                  style={{ left: x }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span className="year-marker-count">{items.length}</span>
+                </button>
+              }
+            />
+          }
+        />
+        <TooltipContent className="year-marker-tip">
+          <span className="year-marker-meta">
+            {span} · {items.length}편
+          </span>
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        side="top"
+        sideOffset={8}
+        className="year-group-pop"
+        onPointerDown={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <span className="year-marker-meta">
+          {span} · {items.length}편 · 피인용순
+        </span>
+        <ul className="year-group-list">
+          {sorted.map((m) => (
+            <li key={m.id}>
+              <button
+                type="button"
+                className="year-group-item"
+                onClick={() => {
+                  setOpen(false);
+                  onSelect(m.id);
+                }}
+              >
+                <i style={{ background: m.color }} />
+                <span className="year-group-title">{m.title}</span>
+                <span className="year-group-meta">
+                  {m.year} · {m.cited.toLocaleString()}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
   );
 }
 // 손잡이 위의 연도. 클릭하면 입력 상자가 되고 Enter·포커스 이탈로 확정, Escape로 취소.
