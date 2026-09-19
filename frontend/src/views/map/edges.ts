@@ -52,6 +52,26 @@ export function linksOf(index: CitationIndex, i: number): Link[] {
     out.push({ j: index.neighbors[k], incoming: index.incoming[k] === 1 });
   return out;
 }
+// 점의 기본 반지름(px, 기준 배율). 색 모드와 무관하게 피인용수(OpenAlex cited_by_count)를
+// 따른다. log1p(c)를 DOT_CITED_CAP에서 잘라 정규화하고 제곱한다 — 최대값(이 run에서
+// 353,396) 한 편이 범위를 독차지하지 않고, 중간(18~209)의 뭉침이 눌려 상위 10%부터
+// 벌어진다. 이 run: 중앙값 28 → 2.0px, 상위 10% 209 → 2.7, 1,000 → 3.5, ≥10,000(1.8%) → 5.
+// 최소 1.5px는 예전 고정 크기와 같다(빽빽한 영역이 더 두꺼워지지 않게). 픽셀 상한은
+// MapView의 DOT_RADIUS_MAX(7, 제목이 점 아래 9px에서 시작)가 맡는다.
+export const DOT_RADIUS_MIN = 1.5,
+  DOT_RADIUS_BASE_MAX = 5,
+  DOT_CITED_CAP = 10_000,
+  DOT_RADIUS_GAMMA = 2;
+export function dotRadius(cited: number): number {
+  const v = Math.min(
+    1,
+    Math.max(0, Math.log1p(cited) / Math.log1p(DOT_CITED_CAP)),
+  );
+  return (
+    DOT_RADIUS_MIN +
+    (DOT_RADIUS_BASE_MAX - DOT_RADIUS_MIN) * v ** DOT_RADIUS_GAMMA
+  );
+}
 // 점 반지름 배수. 기준 배율에서 1, 다섯 단계(3200%) 위에서 3, 그 위는 3 고정. 점마다
 // 반지름을 다시 재지 않고 레이어의 `radiusScale` 하나로 곱한다.
 export const DOT_SCALE_MAX = 3,
