@@ -30,6 +30,7 @@ import { chooseDatabase, desktop, fetchDbStatus } from "../api";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { usePersistentLayout } from "../hooks/use-persistent-layout";
+import { useStore } from "../store";
 import { useIsMobile } from "../hooks/use-mobile";
 import MapView from "../views/MapView";
 import TreeView from "../views/TreeView";
@@ -99,6 +100,15 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", key);
   }, [state.list, update]);
   const map = a.map.data;
+  // "AI에게 질문하기"(지도의 선택 버튼). 채팅을 연다 — 포커스는 AgentSidebar가 둔다.
+  const chatRequest = useStore((s) => s.chatRequest);
+  useEffect(() => {
+    if (chatRequest > 0) save({ chatOpen: true });
+  }, [chatRequest, save]);
+  // 지도에 없는 논문 id(딥링크·다른 run). 논문 상세는 지도의 선택 모드가 여는데
+  // 노드가 없으니 주제·분야처럼 안내와 해제 버튼을 보인다.
+  const invalidPaper =
+    state.selected !== undefined && !!map && !map.id.includes(state.selected);
   const invalidRegion =
     (state.cluster !== undefined &&
       a.clusters.isSuccess &&
@@ -139,14 +149,21 @@ export function AppShell() {
             {state.view === "lineage" && <LineageView key={map.run_id} />}
             {state.view === "sky" && <SkyView key={map.run_id} />}
             {state.list && <PaperListOverlay />}
-            {invalidRegion && (
+            {(invalidRegion || invalidPaper) && (
               <div className="invalid-region" role="status">
-                선택한 연구 주제를 찾을 수 없습니다.
+                {invalidPaper
+                  ? "선택한 논문은 현재 분석에 포함되지 않았습니다."
+                  : "선택한 연구 주제를 찾을 수 없습니다."}
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() =>
-                    update({ cluster: undefined, node: undefined }, true)
+                    update(
+                      invalidPaper
+                        ? { selected: undefined }
+                        : { cluster: undefined, node: undefined },
+                      true,
+                    )
                   }
                 >
                   선택 해제

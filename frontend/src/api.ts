@@ -15,6 +15,14 @@ export interface MapData {
   cluster: number[];
 }
 
+// run 안에서 닫힌 인용 관계 전부. `citing[k]`·`cited[k]`는 `MapData` 배열의 인덱스다.
+export interface EdgesData {
+  run_id: string;
+  n: number;
+  citing: number[];
+  cited: number[];
+}
+
 export interface ClusterInfo {
   cluster_id: number;
   label: string;
@@ -222,6 +230,8 @@ export const fetchWork = (id: string, run?: string, signal?: AbortSignal) =>
     { id, run },
     signal,
   );
+export const fetchEdges = (run: string, signal?: AbortSignal) =>
+  call<EdgesData>("edges", "/edges?" + params({ run }), { run }, signal);
 export const fetchClusters = (run: string, signal?: AbortSignal) =>
   call<ClusterInfo[]>("clusters", "/clusters?" + params({ run }), { run }, signal);
 export const fetchClusterDetail = (

@@ -28,5 +28,6 @@ export function useWorkspace() {
         selected: undefined,
       }),
     setView: (view: View) => update({ view }),
+    update,
   };
 }

@@ -65,3 +65,17 @@ it("preserves a deep link when resolving the default run for the first time", ()
   expect(s.node).toBe(42);
   expect(s.from).toBe(2020);
 });
+
+describe("local graph flag", () => {
+  it("follows the selected paper and clears when the selection changes", () => {
+    const base = parseSearch({ selected: "a", local: "true" });
+    expect(base.local).toBe(true);
+    expect(changeSearch(base, { selected: "b" }).local).toBe(false);
+    expect(changeSearch(base, { selected: undefined }).local).toBe(false);
+    expect(changeSearch(base, { q: "x" }).local).toBe(true);
+    expect(
+      changeSearch(parseSearch({ selected: "a" }), { local: true }).local,
+    ).toBe(true);
+    expect(changeSearch(parseSearch({}), { local: true }).local).toBe(false);
+  });
+});

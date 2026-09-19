@@ -200,6 +200,8 @@ scripts/compare-api.py             # Python 서버와 Rust 서버 응답 대조 
 
 우측 사이드바가 에이전트 채팅이 되고 논문·주제 상세는 선택 시 열리는 `Dialog`(`InspectorDialog`)로 옮겼다. 패널 열림은 `constellation.layout.v3` `{navOpen, chatOpen}`이다.
 
+2026-09-18 지도 호버·선택 모드 뒤로 논문 선택(URL `selected`)은 지도의 선택 모드(인용 선·이웃·활성 라벨·노드 둘레 버튼 셋)를 뜻하고, 논문 Dialog는 "노드 상세정보" 버튼(`useStore.detailOpen`, 세션)으로만 연다. 주제·분야 Dialog는 그대로다. run 안 인용 관계는 `/api/edges`(Tauri `edges`)로 한 번 받아 `views/map/edges.ts`의 CSR 인접 표로 둔다. `local=1`은 선택 논문의 로컬 그래프(1홉 이웃과 이웃끼리의 인용선).
+
 ```
 agent/                             # Node 서버 (Hono). agent-chat-framework 의 route.ts·bridge.ts 를 옮긴 것
   src/server.ts                    #   POST /api/agent (assistant-ui 데이터 스트림), POST /api/agent/tool-result

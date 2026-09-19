@@ -1,4 +1,5 @@
 import type { MapData, TreeData, ClusterInfo } from "../../api";
+import type { Camera } from "../../store";
 export type LabelLevel = "field" | "topic" | "paper";
 // 논문 제목이 켜지기 시작하는 배율(기준 배율 대비 log2). 5 = 3200%. 하위 분야 라벨은
 // 이 배율에서 꺼지므로 라벨이 하나도 없는 구간이 생기지 않는다.
@@ -80,6 +81,32 @@ export function homeCamera(map: MapData, width: number, height: number) {
         Math.max(160, height - 130) / Math.max(1, maxY - minY),
       ),
     ),
+  };
+}
+// 좌표 묶음이 여백을 두고 화면에 들어오는 카메라. 로컬 그래프를 보일 때 쓴다. 점
+// 하나면 그 자리에서 최대 배율.
+export function fitCamera(
+  xs: number[],
+  ys: number[],
+  width: number,
+  height: number,
+  padding: number,
+  zoomMin: number,
+  zoomMax: number,
+): Camera {
+  const minX = Math.min(...xs),
+    maxX = Math.max(...xs),
+    minY = Math.min(...ys),
+    maxY = Math.max(...ys);
+  const zoom = Math.log2(
+    Math.min(
+      Math.max(1, width - 2 * padding) / Math.max(1e-6, maxX - minX),
+      Math.max(1, height - 2 * padding) / Math.max(1e-6, maxY - minY),
+    ),
+  );
+  return {
+    target: [(minX + maxX) / 2, (minY + maxY) / 2, 0],
+    zoom: Math.min(zoomMax, Math.max(zoomMin, zoom)),
   };
 }
 // ── 영역이 화면을 덮고 있는 동안 이름을 붙들어 두기 ─────────────────

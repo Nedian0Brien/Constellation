@@ -14,7 +14,7 @@ export default function SkyView() {
   const reduced = useReducedMotion();
   const map = workspace.map;
   const clusters = workspace.clusters;
-  const select = workspace.select;
+  const update = workspace.update;
   const run = map?.run_id;
 
   const [viewState, setViewState] = useState<any>(() => {
@@ -114,8 +114,9 @@ export default function SkyView() {
       opacity: 0.85,
       pickable: true,
       onHover: (i: any) => setHover(i?.index >= 0 ? i : null),
+      // 논문 선택은 지도의 선택 모드다 — 지도로 간다.
       onClick: (i: any) => {
-        if (i?.index >= 0) select(map.id[i.index]);
+        if (i?.index >= 0) update({ selected: map.id[i.index], view: "map" });
       },
     }),
   ];

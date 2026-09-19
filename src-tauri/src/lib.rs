@@ -60,6 +60,7 @@ pub fn configure<R: tauri::Runtime>(
             commands::citations,
             commands::db_status,
             commands::choose_database,
+            commands::edges,
         ])
 }
 

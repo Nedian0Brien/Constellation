@@ -22,13 +22,29 @@ test("real corpus: map, list, selection, history, reload and panels", async ({
   await expect(
     page.getByRole("region", { name: "논문 목록", exact: false }),
   ).toBeHidden();
-  // 상세는 Dialog다. 딥링크로 새로고침해도 열린 채이고, Escape는 선택을 지운다.
-  await expect(page.getByTestId("inspector").locator("h2")).toHaveText(text!);
+  // 논문을 고르면 지도의 선택 모드다: Dialog 없이 노드 둘레에 버튼 셋이 붙는다.
+  // 딥링크로 새로고침해도 선택 모드로 시작한다. 상세 Dialog는 버튼으로 열고, 닫아도
+  // 선택은 남는다. 지도의 Escape가 선택을 지운다.
+  await expect(
+    page.getByRole("button", { name: "노드 상세정보", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("inspector")).toBeHidden();
   expect(new URL(page.url()).searchParams.has("selected")).toBe(true);
   await page.reload();
+  await expect(
+    page.getByRole("button", { name: "노드 상세정보", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("inspector")).toBeHidden();
+  await page.getByRole("button", { name: "노드 상세정보", exact: true }).click();
   await expect(page.getByTestId("inspector").locator("h2")).toHaveText(text!);
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("inspector")).toBeHidden();
+  expect(new URL(page.url()).searchParams.has("selected")).toBe(true);
+  await map.focus();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "노드 상세정보", exact: true }),
+  ).toBeHidden();
   expect(new URL(page.url()).searchParams.has("selected")).toBe(false);
   await expect(map).toBeVisible();
   // 에이전트 패널: 헤더 버튼으로 열고, 새로고침 뒤에도 열린 채이며, ✕로 닫는다.
@@ -125,6 +141,7 @@ interface Bridge {
   titles(): { id: string; x: number; y: number; dy: number; opacity: number }[];
   project(x: number, y: number): [number, number] | null;
   pick(x: number, y: number): string | null;
+  degree(id: string): number;
 }
 type Bridged = HTMLElement & { __map?: Bridge };
 test("semantic zoom, reversibility, and list does not replace the map", async ({
@@ -191,9 +208,18 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
   await expect
     .poll(() => new URL(page.url()).searchParams.get("selected"))
     .toBe(pin!.id);
-  // 선택은 상세 Dialog(모달)를 연다. 지도를 다시 조작하려면 닫는다 — 선택도 지워진다.
-  await page.keyboard.press("Escape");
+  // 선택 모드: Dialog는 없고 버튼 셋과 인용 선이 붙는다. 지도의 Escape가 지운다.
+  await expect(
+    page.getByRole("button", { name: "노드 상세정보", exact: true }),
+  ).toBeVisible();
   await expect(page.getByTestId("inspector")).toBeHidden();
+  await expect(map).toHaveAttribute("data-hover-id", pin!.id);
+  await map.focus();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "노드 상세정보", exact: true }),
+  ).toBeHidden();
+  expect(new URL(page.url()).searchParams.has("selected")).toBe(false);
   // 휠로 확대한 뒤 키로 확대해도 지도가 따라온다. deck이 주는 viewState의 내부 값
   // (zoomX·zoomY)을 그대로 저장하면 뒤의 키 확대가 배율 표시와 라벨만 바꾸고 지도는
   // 그대로라 라벨이 제자리에 못 박힌다. JS 투영이 가리키는 자리에 실제로 그 점이
@@ -212,6 +238,60 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
       return [Math.round(x) !== Math.round(wheeled), await pick(x, y)];
     })
     .toEqual([true, pin!.id]);
+  // 점에 0.5초 머물면 run 안의 인용 관계가 선으로 나타나고 활성 라벨이 켜지며, 떼면
+  // 사라진다. 200ms 안에는 켜지지 않는다(지나가는 점에 반응하지 않도록). 이웃이
+  // 있는 제목 하나를 골라 그 점 위에 마우스를 둔다(인용 자료는 지도 뒤에 따로 온다).
+  const linkedPin = () =>
+    map.evaluate(
+      (el, size) => {
+        const b = (el as Bridged).__map!;
+        for (const t of b.titles()) {
+          const [x, y] = b.project(t.x, t.y)!;
+          const degree = b.degree(t.id);
+          if (
+            degree > 0 &&
+            x > 40 &&
+            x < size[0] - 40 &&
+            y > 40 &&
+            y < size[1] - 40
+          )
+            return { id: t.id, x, y, degree };
+        }
+        return null;
+      },
+      [box.width, box.height],
+    );
+  await expect.poll(linkedPin).not.toBeNull();
+  const linked = (await linkedPin())!;
+  await page.mouse.move(box.x + linked.x, box.y + linked.y);
+  await page.waitForTimeout(200);
+  expect(await map.getAttribute("data-hover-id")).toBeNull();
+  await expect(map).toHaveAttribute("data-hover-id", linked.id);
+  await expect(map).toHaveAttribute("data-hover-links", String(linked.degree));
+  await expect
+    .poll(() => map.getAttribute("data-active-labels").then(Number))
+    .toBeGreaterThan(0);
+  // 캔버스 밖(위 도구 막대)으로 나가야 deck이 호버를 확실히 거둔다. 오른쪽 가장자리
+  // 안쪽은 거기에도 점이 있을 수 있다.
+  await page.mouse.move(box.x + box.width / 2, box.y - 20);
+  await expect(map).toHaveAttribute("data-hover-links", "0");
+  // 다시 선택해 "로컬 그래프 보기": 2홉 이웃까지 그리고(선이 늘어난다) 카메라를 그
+  // 범위에 맞춘다. 다시 누르면 1홉으로.
+  await page.mouse.click(box.x + linked.x, box.y + linked.y);
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("selected"))
+    .toBe(linked.id);
+  await expect(map).toHaveAttribute("data-hover-links", String(linked.degree));
+  await page.getByRole("button", { name: "로컬 그래프 보기", exact: true }).click();
+  await expect(map).toHaveAttribute("data-local", "true");
+  await expect
+    .poll(() => map.getAttribute("data-hover-links").then(Number))
+    .toBeGreaterThanOrEqual(linked.degree);
+  await page.getByRole("button", { name: "로컬 그래프 보기", exact: true }).click();
+  await expect(map).not.toHaveAttribute("data-local", "true");
+  await expect(map).toHaveAttribute("data-hover-links", String(linked.degree));
+  await map.focus();
+  await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
@@ -243,7 +323,10 @@ test("mobile overlays and no horizontal overflow", async ({ page }) => {
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
   await page.getByTestId("paper-title").first().click();
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "노드 상세정보", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "노드 상세정보", exact: true }).click();
   await expect(page.getByTestId("inspector").locator("h2")).toBeVisible();
 });
 test("failed request can recover without resetting URL state", async ({
@@ -307,12 +390,18 @@ test("unknown selection and malformed persisted layout remain recoverable", asyn
     .getByRole("button", { name: "선택 해제", exact: true })
     .click();
   await expect(page.locator(".invalid-region")).toBeHidden();
-  // 저장값이 깨졌어도 선택이 있는 딥링크는 인스펙터를 연 채로 시작한다.
+  // 저장값이 깨졌어도 지도에 없는 논문의 딥링크는 안내와 해제 버튼으로 시작한다.
   await page.goto("/?run=" + run + "&selected=missing");
   await expect(page.getByTestId("research-map")).toBeVisible();
-  await expect(page.getByTestId("inspector")).toContainText(
-    "현재 분석에 포함되지 않은 논문입니다",
+  await expect(page.locator(".invalid-region")).toContainText(
+    "선택한 논문은 현재 분석에 포함되지 않았습니다",
   );
+  await expect(page.getByTestId("inspector")).toBeHidden();
+  await page
+    .locator(".invalid-region")
+    .getByRole("button", { name: "선택 해제", exact: true })
+    .click();
+  expect(new URL(page.url()).searchParams.has("selected")).toBe(false);
 });
 test("wheel over a region name zooms the map and the name still opens the region", async ({
   page,
@@ -391,10 +480,10 @@ test("explicit region selection replaces paper detail with the real cluster", as
     .getByRole("button", { name: "논문 목록 열기", exact: true })
     .click();
   await page.getByTestId("paper-title").first().click();
-  await expect(page.getByTestId("inspector").locator("h2")).toBeVisible();
-  // Dialog가 지도를 덮으므로 먼저 닫는다(선택 해제). 그다음 주제 라벨을 고른다.
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("inspector")).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "노드 상세정보", exact: true }),
+  ).toBeVisible();
+  // 논문이 선택된 채로 주제 라벨을 고르면 논문 선택은 지워지고 주제 상세가 열린다.
   await page
     .getByRole("button", { name: clusters[0].label, exact: true })
     .click();

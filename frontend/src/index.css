@@ -1138,6 +1138,20 @@ input:focus-visible,
   overflow: hidden;
   pointer-events: none;
 }
+/* 선택 모드의 버튼 셋. 노드 중심에 0×0 상자를 두고 버튼을 원 위에 놓는다. */
+.node-menu {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.node-menu-btn {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  pointer-events: auto;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+}
 .region-name {
   position: absolute;
   transform: translate(-50%, -50%);

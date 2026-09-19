@@ -36,6 +36,12 @@ interface LocalState {
   requestCamera: (request: Omit<CameraRequest, "nonce">) => void;
   annotations: Annotation[];
   setAnnotations: (annotations: Annotation[]) => void;
+  // 논문 상세 Dialog. 선택(URL)은 지도의 선택 모드를 뜻하고, Dialog는 버튼으로만 연다.
+  detailOpen: boolean;
+  setDetailOpen: (open: boolean) => void;
+  // "AI에게 질문하기". AppShell이 채팅을 열고 AgentSidebar가 입력창에 포커스를 둔다.
+  chatRequest: number;
+  requestChat: () => void;
 }
 // Server data belongs to Query; navigation belongs to the URL. These values live only in this session.
 export const useStore = create<LocalState>((set) => ({
@@ -51,4 +57,8 @@ export const useStore = create<LocalState>((set) => ({
     })),
   annotations: [],
   setAnnotations: (annotations) => set({ annotations }),
+  detailOpen: false,
+  setDetailOpen: (detailOpen) => set({ detailOpen }),
+  chatRequest: 0,
+  requestChat: () => set((s) => ({ chatRequest: s.chatRequest + 1 })),
 }));
