@@ -1360,9 +1360,20 @@ input:focus-visible,
   right: 34px;
   z-index: 5;
   --bar-max: 22px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.year-play {
+  /* 트랙 줄(눈금 14px 위)에 버튼 중심을 맞춘다. */
+  margin-bottom: -2px;
+}
+.year-range[data-playing] .year-label {
+  color: var(--warn);
 }
 .year-track {
   position: relative;
+  flex: 1 1 auto;
   /* 라벨 12 + 막대 22 + 트랙 2 + 눈금 14 */
   height: 50px;
   cursor: pointer;

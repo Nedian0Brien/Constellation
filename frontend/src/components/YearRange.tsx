@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pause, Play } from "lucide-react";
+import { Button } from "./ui/button";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { descendants } from "../views/map/labels";
@@ -8,9 +10,13 @@ import { descendants } from "../views/map/labels";
 // - 손잡이 끌기, 가운데 구간 끌기(폭 유지 이동), 트랙 클릭(가까운 손잡이 이동),
 //   더블클릭(전체 범위), 키보드 ←→ 1년·Shift 10년·Home/End.
 // - 손잡이 위 연도 라벨을 클릭하면 직접 입력.
+// - 재생: 창을 초당 1년씩 앞으로 민다. 범위가 전체면 처음 5년 창으로 시작한다. 끝에
+//   닿거나 손잡이를 잡으면 멈춘다. 선택 노드의 인용선도 그 시점까지만 그려진다.
 // 범위가 전체와 같으면 URL에서 from·to를 뺀다. 끄는 동안의 갱신은 프레임마다 한 번.
 const BAR_MAX = 22,
-  ACCENT = "var(--warn)";
+  ACCENT = "var(--warn)",
+  PLAY_WINDOW = 5,
+  PLAY_MS = 1000;
 export function YearRange() {
   const a = useAnalysis(),
     { state, update } = useExploration();
@@ -75,6 +81,34 @@ export function YearRange() {
     [lo, hi, update],
   );
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  // 재생. 지금 창을 1초마다 1년 민다. 끝(hi)에 닿으면 멈춘다.
+  const [playing, setPlaying] = useState(false);
+  const range = useRef({ from, to });
+  useEffect(() => {
+    range.current = { from, to };
+  }, [from, to]);
+  useEffect(() => {
+    if (!playing) return;
+    const t = setInterval(() => {
+      const { from: f, to: t } = range.current;
+      if (t >= hi) {
+        setPlaying(false);
+        return;
+      }
+      commit(f + 1, t + 1);
+    }, PLAY_MS);
+    return () => clearInterval(t);
+  }, [playing, hi, commit]);
+  const togglePlay = () => {
+    if (playing) {
+      setPlaying(false);
+      return;
+    }
+    // 전체 범위거나 이미 끝에 있으면 처음 5년 창부터.
+    if ((from <= lo && to >= hi) || to >= hi)
+      commit(lo, Math.min(hi, lo + PLAY_WINDOW - 1));
+    setPlaying(true);
+  };
   const yearAt = (clientX: number) => {
     const r = track.current!.getBoundingClientRect();
     return lo + ((clientX - r.left) / r.width) * span;
@@ -97,6 +131,7 @@ export function YearRange() {
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     drag.current = { id: e.pointerId, kind, x0: e.clientX, from, to };
     setDragging(kind);
+    setPlaying(false);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
@@ -160,10 +195,24 @@ export function YearRange() {
       data-from={from}
       data-to={to}
       data-dragging={dragging ?? undefined}
-      onDoubleClick={() => commit(lo, hi)}
+      data-playing={playing || undefined}
     >
+      <Button
+        variant="ghost"
+        size="icon"
+        className="year-play"
+        aria-label={playing ? "재생 멈춤" : "연도 재생"}
+        aria-pressed={playing}
+        onClick={togglePlay}
+      >
+        {playing ? <Pause /> : <Play />}
+      </Button>
       <div
         ref={track}
+        onDoubleClick={() => {
+          setPlaying(false);
+          commit(lo, hi);
+        }}
         className="year-track"
         onPointerDown={onTrackPointerDown}
         onPointerMove={onPointerMove}
