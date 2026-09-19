@@ -36,24 +36,24 @@ constellation name                                # codex / gpt-5.6-luna, 두 �
 
 ## 이름 짓기의 응집 판정
 
-`constellation name`은 내부 노드마다 "한 분야로 이름 지을 수 있는가"를 판정하고, 아니면 자식 둘로 갈라 보인다. 판정은 비결정적이라 2d는 이 세션에서 네 번(codex 3, claude 1), topical은 두 번(codex) 돌렸다.
+`constellation name`은 내부 노드마다 "한 분야로 이름 지을 수 있는가"를 판정하고, 아니면 자식 둘로 갈라 보인다. 판정은 비결정적이라 같은 코드(PR #13 최종 프롬프트)로 2d는 세 번(codex 2, claude 1), topical은 두 번(codex) 돌렸다.
 
-| 방식 | 레벨 | 절단 직후 노드 | 그중 내부 노드 | 응집 판정 | 갈라진 뒤 노드 |
+| 방식 | 레벨 | 절단 직후 노드 | 그중 내부 노드 | 응집 판정 통과 | 갈라진 뒤 노드 |
 |---|---:|---:|---:|---|---:|
-| 2d | 0 | 8 | 8 | 1–3 (13–38%) | 20–27 |
-| 2d | 1 | 18 | 14 | 5–7 | 29–32 |
+| 2d | 0 | 8 | 8 | 2, 2, 3 (25–38%) | 20, 26, 19 |
+| 2d | 1 | 18 | 14 | 7, 9, 10 (50–71%) | 29, 32, 23 |
 | topical | 0 | 16 | 14 | 7, 9 (50–64%) | 27, 25 |
 | topical | 1 | 27 | 15 | 7, 10 (47–67%) | 35, 32 |
 
-topical의 상위 노드는 절반 이상이 판정을 통과한다. 2d는 8개 중 1–3개다. 갈라진 뒤 상위 분야 개수는 두 방식이 비슷하다(20–27) — topical은 16개에서 시작해 7개가 갈라지고, 2d는 8개에서 시작해 6개가 갈라져 같은 개수가 된다.
+상위 분야에서 차이가 난다. topical은 절반 이상이 통과하고 2d는 8개 중 2–3개다. 2d에서 통과한 것은 IR 핵심(`Search Technology`), NLP 핵심(`NLP Applications`), `Visual Computing`처럼 넓은 분야였고, `Innovation Management + Sustainable Agriculture`, `Music IR + Multilingual NLP`, `PIR + Software Engineering` 같은 우연한 이웃은 매번 갈라졌다. 하위 분야에서는 두 방식이 같은 수준이다. 갈라진 뒤 상위 분야 개수는 두 방식이 비슷하다(2d 19–26, topical 25–27) — topical은 16개에서 시작해 5–7개가 갈라지고, 2d는 8개에서 시작해 5–6개가 갈라져 비슷한 개수가 된다.
 
 ### 상위 분야 이름 (갈라진 뒤, 논문 수 순)
 
-**2d** (실제 DB, 20개): Information Science · Innovation Management · Search And Recommendation · Visual Computing · Natural Language Understanding · Industrial AI · Energy Engineering · Privacy-Preserving Information Retrieval · Computational Linguistics · Software Engineering · Music Information Retrieval · Semantic Web · Cybersecurity · Adversarial Machine Learning · Knowledge Representation · Computational Social Science · Sentiment Analysis · Sustainable Agriculture · Geographic Information Retrieval · Data Mining · Quantum Information · Black Hole Physics · Social Network Analysis
+**2d** (실제 DB, 20개): Information Science, Innovation Management, Search And Recommendation, Visual Computing, Natural Language Understanding, Industrial AI · Energy Engineering, Privacy-Preserving Information Retrieval, Computational Linguistics, Software Engineering, Music Information Retrieval, Semantic Web, Cybersecurity · Adversarial Machine Learning, Knowledge Representation, Computational Social Science, Sentiment Analysis, Sustainable Agriculture, Geographic Information Retrieval, Data Mining, Quantum Information · Black Hole Physics, Social Network Analysis
 
-**topical 1회차** (27개): Innovation Management · Visual Search · Medical Informatics · Engineering Informatics · Question Answering · Interactive Search · Multilingual NLP · Natural Language Processing · Privacy-Preserving Information Retrieval · Software Engineering · Music Information Retrieval · Dialogue Systems · Learning To Rank · Document Analytics · Recommender Systems · Cybersecurity · Bibliometrics · Knowledge Graphs · Human-Computer Interaction · Sustainable Agriculture · Legal Information Retrieval · Quantum Information Theory · Library And Information Science · Fake News Detection · Network Science · Fairness In Information Retrieval · Crowdsourcing
+**topical 1회차** (27개): Innovation Management, Visual Search, Medical Informatics, Engineering Informatics, Question Answering, Interactive Search, Multilingual NLP, Natural Language Processing, Privacy-Preserving Information Retrieval, Software Engineering, Music Information Retrieval, Dialogue Systems, Learning To Rank, Document Analytics, Recommender Systems, Cybersecurity, Bibliometrics, Knowledge Graphs, Human-Computer Interaction, Sustainable Agriculture, Legal Information Retrieval, Quantum Information Theory, Library And Information Science, Fake News Detection, Network Science, Fairness In Information Retrieval, Crowdsourcing
 
-**topical 2회차** (25개): Innovation Management · Visual Information Retrieval · Biomedical Informatics · Information Access · Secure Software Engineering · Human-Centered Recommendation · Interactive Information Access · Multilingual Information Access · Industrial Engineering · Large Language Models · Computational Linguistics · Private Information Retrieval · Music Information Retrieval · AI In Education · Text Mining · Semantic Web · Library and Information Science · Knowledge Graph Learning · Human-Computer Interaction · Cognitive Neuroscience · Sustainable Agriculture · Geographic Information Retrieval · Data Mining · Quantum Information Theory · Library Science · Education · Misinformation Detection · Network Science
+**topical 2회차** (25개): Innovation Management, Visual Information Retrieval, Biomedical Informatics, Information Access, Secure Software Engineering, Human-Centered Recommendation, Interactive Information Access, Multilingual Information Access, Industrial Engineering · Large Language Models, Computational Linguistics, Private Information Retrieval, Music Information Retrieval, AI In Education, Text Mining, Semantic Web, Library and Information Science, Knowledge Graph Learning, Human-Computer Interaction · Cognitive Neuroscience, Sustainable Agriculture, Geographic Information Retrieval, Data Mining, Quantum Information Theory, Library Science · Education, Misinformation Detection, Network Science
 
 ### 판정을 통과한 topical 상위 노드
 
@@ -79,8 +79,8 @@ topical의 상위 노드는 절반 이상이 판정을 통과한다. 2d는 8개 
 
 ## 판단 근거
 
-- topical은 상위 노드의 응집 판정 통과율이 2–3배 높고, 통과한 그룹이 분야 이름으로 읽힌다(Visual Search, Multilingual NLP, Knowledge Graphs). 2d에서 통과한 것은 Innovation Management + Sustainable Agriculture 같은 우연한 이웃이 대부분이었다.
+- topical은 상위 노드의 응집 판정 통과율이 약 2배 높고(50–64% vs 25–38%), 통과한 그룹이 중간 크기의 분야로 읽힌다(Visual Search, Multilingual NLP, Knowledge Graphs, Interactive Search). 2d에서 통과한 것은 IR 핵심·NLP 핵심처럼 코퍼스의 절반을 덮는 넓은 분야였고, 나머지 상위 노드는 우연한 이웃이라 갈라졌다.
 - 2D 퍼짐이 2d와 같은 수준이라 영역이 지도에서 한 덩어리로 남는다. 임베딩 트리를 접었던 이유(퍼짐 0.59)는 이웃 제약으로 해소된다.
 - 인용 배수는 2d가 0.6–0.8 높다. 지도 거리가 인용 관계와 상관이 높으므로 예상된 차이다.
-- 갈라진 뒤 상위 분야 개수는 비슷하다. 상위 개수를 줄이려면 문턱을 올려야 하는데(0.20이면 10개), 그때 생기는 큰 그룹은 판정에서 갈라진다. 이 코퍼스에서 "한 분야"로 이름 지을 수 있는 묶음의 크기가 그 정도라는 뜻이다.
+- 갈라진 뒤 상위 분야 개수는 비슷하다(2d 19–26, topical 25–27). 상위 개수를 줄이려면 문턱을 올려야 하는데(0.20이면 10개), 그때 생기는 큰 그룹은 판정에서 갈라진다. 이 코퍼스에서 "한 분야"로 이름 지을 수 있는 묶음의 크기가 그 정도라는 뜻이다.
 - 이름은 회차마다 바뀐다. 트리는 결정적이고 이름만 비결정적이다.
