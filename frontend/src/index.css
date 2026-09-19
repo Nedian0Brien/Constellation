@@ -1168,12 +1168,31 @@ input:focus-visible,
   height: 0;
   pointer-events: none;
 }
+/* 버튼은 노드 중심에서 반지름 --r, 각도 --a 자리. 등장할 때 시계 방향 45° 앞에서 원을
+   따라 역시계 방향으로 돌아 들어오며 페이드인한다(버튼 자체는 돌지 않는다 — 안쪽
+   rotate가 되돌린다). 버튼마다 40ms씩 뒤에 시작한다. */
 .node-menu-btn {
   position: absolute;
-  transform: translate(-50%, -50%);
+  --sweep: 45deg;
+  transform: translate(-50%, -50%) rotate(var(--a)) translate(var(--r))
+    rotate(calc(-1 * var(--a)));
   border-radius: 9999px;
   pointer-events: auto;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  animation: node-menu-in var(--duration-label) var(--ease) backwards;
+  animation-delay: calc(var(--k) * 40ms);
+}
+@keyframes node-menu-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(calc(var(--a) + var(--sweep)))
+      translate(var(--r)) rotate(calc(-1 * (var(--a) + var(--sweep))));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(var(--a)) translate(var(--r))
+      rotate(calc(-1 * var(--a)));
+  }
 }
 .region-name {
   position: absolute;

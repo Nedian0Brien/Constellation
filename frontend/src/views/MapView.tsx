@@ -1610,13 +1610,14 @@ export default function MapView() {
           "leaf",
         )}
         {menuAt && (
+          // 선택이 바뀌면 다시 마운트해 등장 애니메이션을 다시 튼다.
           <div
+            key={state.selected}
             className="node-menu"
             data-testid="node-menu"
             style={{ left: menuAt[0], top: menuAt[1] }}
           >
             {menu.map((item, k) => {
-              const a = (MENU_ANGLES[k] * Math.PI) / 180;
               return (
                 <Tooltip key={item.label}>
                   <TooltipTrigger
@@ -1627,10 +1628,14 @@ export default function MapView() {
                         className="node-menu-btn"
                         aria-label={item.label}
                         aria-pressed={item.pressed}
-                        style={{
-                          left: MENU_RADIUS * Math.cos(a),
-                          top: MENU_RADIUS * Math.sin(a),
-                        }}
+                        // 자리는 CSS가 각도·반지름으로 잡는다(등장 때 원을 따라 돈다).
+                        style={
+                          {
+                            "--a": `${MENU_ANGLES[k]}deg`,
+                            "--r": `${MENU_RADIUS}px`,
+                            "--k": k,
+                          } as React.CSSProperties
+                        }
                         onClick={item.onClick}
                       />
                     }
