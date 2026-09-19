@@ -3,7 +3,11 @@ import { Pause, Play } from "lucide-react";
 import { Button } from "./ui/button";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
+import { useQuery } from "@tanstack/react-query";
+import { fetchEdges } from "../api";
 import { clusterColor } from "../views/map/regions";
+import { citationIndex, linksOf } from "../views/map/edges";
+import { descendants } from "../views/map/labels";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 // 발행연도 범위. 스테이지 아래쪽에 가로로 꽉 차게 얹힌다(모든 뷰에 적용되는 필터라 뷰
 // 밖, 스테이지 안). 축은 비례 축이다: 해마다 폭이 그 해 논문 수의 비율(최소 2px)이라
@@ -12,13 +16,24 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 // - 손잡이 끌기, 가운데 구간 끌기(폭 유지 이동), 트랙 클릭(가까운 손잡이 이동),
 //   더블클릭(전체 범위), 키보드 ←→ 1년·Shift 10년·Home/End.
 // - 손잡이 위 연도 라벨을 클릭하면 직접 입력.
-// - 주제 표식: 주제(클러스터)마다 피인용수가 가장 높은 논문의 발행연도 자리에 주제
-//   색 큰 눈금. 같은 해에 여럿이면 칸 안에 고르게 나눠 놓는다. 호버하면 제목, 클릭하면
-//   그 논문을 선택한다. 범위 밖이면 옅다.
+// - 표식: 중요한 논문의 발행연도 자리에 큰 눈금. 아무것도 선택하지 않았으면 피인용
+//   상위 60편(해마다 최대 3편, 주제마다 최소 1편)을 주제 색으로; 영역을 선택하면 그
+//   영역 안의 상위 60편; 논문을 선택하면 그 논문이 인용한(파랑)·그 논문을 인용한(빨강)
+//   논문. 높이는 피인용수(log)에 비례. 같은 해에 여럿이면 칸 안에 고르게 나누고,
+//   겹치면 최대 4줄로 쌓는다. 호버하면 제목, 클릭하면 그 논문을 선택. 범위 밖이면 옅다.
 // - 재생: 창을 초당 1년씩 앞으로 민다. 범위가 전체면 처음 5년 창으로 시작한다. 끝에
 //   닿거나 손잡이를 잡으면 멈춘다. 선택 노드의 인용선도 그 시점까지만 그려진다.
 // 범위가 전체와 같으면 URL에서 from·to를 뺀다. 끄는 동안의 갱신은 프레임마다 한 번.
 const MIN_CELL_PX = 2,
+  MARKER_MAX = 60,
+  MARKER_PER_YEAR = 3,
+  MARKER_ROWS = 4,
+  MARKER_GAP = 3,
+  MARKER_ROW_PX = 10,
+  MARKER_MIN_H = 4,
+  MARKER_MAX_H = 9,
+  LINK_OUT = "rgb(57 135 229)",
+  LINK_IN = "rgb(230 103 103)",
   LABEL_MIN_PX = 24,
   PLAY_WINDOW = 5,
   PLAY_MS = 1000;
@@ -44,32 +59,105 @@ export function YearRange() {
     for (const y of years) if (y !== null) counts[y - lo]++;
     return { lo, hi, counts };
   }, [map]);
-  // 주제마다 피인용 1위 논문. 표식의 자리·색·툴팁이 여기서 나온다.
+  // 인용 관계(논문 선택 때 표식이 된다). MapView와 같은 키라 한 번만 받는다.
+  const edgeQuery = useQuery({
+    queryKey: ["edges", map?.run_id],
+    queryFn: ({ signal }) => fetchEdges(map!.run_id, signal),
+    enabled: !!map,
+  });
+  const index = useMemo(() => {
+    const e = edgeQuery.data;
+    return e && map && e.n === map.n
+      ? citationIndex(map.n, e.citing, e.cited)
+      : null;
+  }, [edgeQuery.data, map]);
+  const tree = a.tree.data;
+  // 표식. 맥락(선택 없음·영역·논문)에 따라 후보를 고르고 점수(log 피인용) 순으로 자른다.
   const markers = useMemo(() => {
     if (!map) return [];
-    const best = new Map<number, number>();
-    for (let i = 0; i < map.n; i++) {
-      const c = map.cluster[i];
-      if (c < 0 || map.year[i] === null) continue;
-      const b = best.get(c);
-      if (b === undefined || map.cited[i] > map.cited[b]) best.set(c, i);
-    }
     const labels = new Map(
       (a.clusters.data ?? []).map((c) => [c.cluster_id, c.label]),
     );
-    return [...best.entries()]
-      .map(([c, i]) => ({
-        cluster: c,
+    const selected = state.selected ? map.id.indexOf(state.selected) : -1;
+    const score = (i: number) => Math.log1p(map.cited[i]);
+    type Pick = { i: number; color: string; kind: string };
+    let picks: Pick[] = [];
+    if (selected >= 0 && index) {
+      // 선택한 논문의 참조(파랑)·피인용(빨강). 많으면 점수 순으로 자른다.
+      picks = linksOf(index, selected)
+        .filter((l) => map.year[l.j] !== null)
+        .map((l) => ({
+          i: l.j,
+          color: l.incoming ? LINK_IN : LINK_OUT,
+          kind: l.incoming ? "이 논문을 인용" : "이 논문이 참조",
+        }))
+        .sort((p, q) => score(q.i) - score(p.i))
+        .slice(0, MARKER_MAX);
+    } else {
+      const region =
+        state.node !== undefined && tree
+          ? descendants(tree, state.node)
+          : state.cluster !== undefined
+            ? new Set([state.cluster])
+            : null;
+      const pool: number[] = [];
+      for (let i = 0; i < map.n; i++)
+        if (
+          map.year[i] !== null &&
+          map.cluster[i] >= 0 &&
+          (!region || region.has(map.cluster[i]))
+        )
+          pool.push(i);
+      pool.sort((p, q) => score(q) - score(p));
+      // 상위 N, 해마다 최대 k. 그 뒤 빠진 주제는 그 주제의 1위를 더한다.
+      const perYear = new Map<number, number>(),
+        chosen = new Set<number>();
+      for (const i of pool) {
+        if (chosen.size >= MARKER_MAX) break;
+        const y = map.year[i]!,
+          n = perYear.get(y) ?? 0;
+        if (n >= MARKER_PER_YEAR) continue;
+        perYear.set(y, n + 1);
+        chosen.add(i);
+      }
+      const covered = new Set([...chosen].map((i) => map.cluster[i]));
+      for (const i of pool) {
+        const c = map.cluster[i];
+        if (covered.has(c)) continue;
+        covered.add(c);
+        chosen.add(i);
+      }
+      picks = [...chosen].map((i) => ({
         i,
-        id: map.id[i],
-        year: map.year[i]!,
-        title: map.title[i],
-        cited: map.cited[i],
-        label: labels.get(c) ?? `주제 ${c}`,
-        color: `rgb(${clusterColor(c).join(" ")})`,
+        color: `rgb(${clusterColor(map.cluster[i]).join(" ")})`,
+        kind: labels.get(map.cluster[i]) ?? `주제 ${map.cluster[i]}`,
+      }));
+    }
+    const scores = picks.map((p) => score(p.i)),
+      sMin = Math.min(...scores),
+      sMax = Math.max(...scores);
+    return picks
+      .map((p) => ({
+        ...p,
+        id: map.id[p.i],
+        year: map.year[p.i]!,
+        title: map.title[p.i],
+        cited: map.cited[p.i],
+        height:
+          MARKER_MIN_H +
+          (MARKER_MAX_H - MARKER_MIN_H) *
+            (sMax > sMin ? (score(p.i) - sMin) / (sMax - sMin) : 1),
       }))
       .sort((p, q) => p.year - q.year || q.cited - p.cited);
-  }, [map, a.clusters.data]);
+  }, [
+    map,
+    a.clusters.data,
+    tree,
+    index,
+    state.selected,
+    state.node,
+    state.cluster,
+  ]);
   const from = Math.min(Math.max(state.from ?? lo, lo), hi),
     to = Math.min(Math.max(state.to ?? hi, lo), hi);
   const track = useRef<HTMLDivElement>(null);
@@ -98,15 +186,17 @@ export function YearRange() {
   const xOf = (y: number) =>
     edges[Math.min(Math.max(y - lo, 0), counts.length)];
   const cellWidth = (y: number) => edges[y - lo + 1] - edges[y - lo];
-  // 같은 해의 표식은 칸 안에 고르게 나눠 놓는다(표식은 주제 수만큼이라 매 렌더 계산해도 싸다).
-  const markerX = (() => {
+  // 같은 해의 표식은 칸 안에 고르게 나누고, 앞 표식과 3px 안이면 윗줄로 올린다(최대
+  // 4줄, 다 차면 맨 윗줄에 겹친다). 표식은 수십 개라 매 렌더 계산해도 싸다.
+  const layout = (() => {
     const byYear = new Map<number, number[]>();
     markers.forEach((m, k) => {
       const list = byYear.get(m.year) ?? [];
       list.push(k);
       byYear.set(m.year, list);
     });
-    const xs = new Array<number>(markers.length);
+    const xs = new Array<number>(markers.length),
+      rows = new Array<number>(markers.length).fill(0);
     for (const [y, ks] of byYear) {
       const x0 = xOf(y),
         w = cellWidth(y);
@@ -114,14 +204,15 @@ export function YearRange() {
         xs[k] = x0 + ((j + 0.5) / ks.length) * w;
       });
     }
-    // 좁은 시대에 몰린 표식은 4px 간격으로 오른쪽으로 밀어 겹치지 않게 한다.
     const order = xs.map((x, k) => [x, k] as const).sort((p, q) => p[0] - q[0]);
-    let prev = -Infinity;
+    const last = new Array<number>(MARKER_ROWS).fill(-Infinity);
     for (const [x, k] of order) {
-      xs[k] = Math.max(x, prev + 4);
-      prev = xs[k];
+      let r = last.findIndex((lx) => x - lx >= MARKER_GAP);
+      if (r < 0) r = MARKER_ROWS - 1;
+      rows[k] = r;
+      last[r] = x;
     }
-    return xs;
+    return { xs, rows };
   })();
   // 범위 갱신. 전체 범위면 URL에서 뺀다. 끄는 동안은 프레임마다 한 번만 보낸다.
   const pending = useRef<{ from: number; to: number } | null>(null),
@@ -324,7 +415,7 @@ export function YearRange() {
         {/* 주제 표식: 피인용 1위 논문의 연도. */}
         <div className="year-markers" aria-label="주제별 대표 논문">
           {markers.map((m, k) => (
-            <Tooltip key={m.cluster}>
+            <Tooltip key={m.id}>
               <TooltipTrigger
                 render={
                   <button
@@ -332,8 +423,13 @@ export function YearRange() {
                     className="year-marker"
                     data-in={(m.year >= from && m.year <= to) || undefined}
                     data-selected={state.selected === m.id || undefined}
-                    aria-label={`${m.label}: ${m.title} (${m.year})`}
-                    style={{ left: markerX[k], background: m.color }}
+                    aria-label={`${m.kind}: ${m.title} (${m.year})`}
+                    style={{
+                      left: layout.xs[k],
+                      bottom: 14 + layout.rows[k] * MARKER_ROW_PX,
+                      height: m.height,
+                      background: m.color,
+                    }}
                     onPointerDown={(e) => e.stopPropagation()}
                     onDoubleClick={(e) => e.stopPropagation()}
                     onClick={(e) => {
@@ -350,7 +446,7 @@ export function YearRange() {
               <TooltipContent className="year-marker-tip">
                 <span className="year-marker-title">{m.title}</span>
                 <span className="year-marker-meta" style={{ color: m.color }}>
-                  {m.label} · {m.year} · 피인용 {m.cited.toLocaleString()}
+                  {m.kind} · {m.year} · 피인용 {m.cited.toLocaleString()}
                 </span>
               </TooltipContent>
             </Tooltip>
