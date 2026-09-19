@@ -108,7 +108,7 @@ export function ExploreToolbar() {
           ? "두 글자 이상 입력"
           : a.matches.isFetching
             ? "검색 중…"
-            : `${a.matches.data?.total.toLocaleString() ?? "—"}편`}
+            : `${a.count?.toLocaleString() ?? "—"}편`}
       </span>
       {(state.from !== undefined ||
         state.to !== undefined ||

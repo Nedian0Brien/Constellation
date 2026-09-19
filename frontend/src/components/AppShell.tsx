@@ -186,7 +186,7 @@ export function AppShell() {
       <footer className="workspace-status">
         <span>
           {viewNames[state.view]} <span className="status-dot" />{" "}
-          {a.matches.data?.total.toLocaleString() ?? "—"} /{" "}
+          {a.count?.toLocaleString() ?? "—"} /{" "}
           {map?.n.toLocaleString() ?? "—"}편
         </span>
         <span>
