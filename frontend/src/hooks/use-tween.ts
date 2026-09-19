@@ -28,9 +28,10 @@ export function useTween(
   return immediate ? target : value;
 }
 // 일정한 속도로 나아가는 앞머리(픽셀). 열쇠가 있는 동안(0 이상) 0에서 `limit`까지
-// 초당 `speed`만큼 늘고, 없어지면 지금 값에서 같은 속도로 0까지 준다. 열쇠가 다른 값으로
-// 바뀌면 0부터 다시 — 강조 노드를 옮기면 연결선이 새 노드에서 다시 뻗어 나온다.
-// 열쇠가 바뀐 렌더에서 바로 0을 돌려준다(이전 렌더 값을 state에 남기는 방식).
+// 초당 `speed`만큼 는다. 열쇠가 없어지면 그 자리에 멈춘다(되돌아가지 않는다 — 선은
+// 페이드아웃으로 사라진다). 열쇠가 다른 값으로 바뀌면 0부터 다시 — 강조 노드를 옮기면
+// 연결선이 새 노드에서 다시 뻗어 나온다. 열쇠가 바뀐 렌더에서 바로 0을 돌려준다(이전
+// 렌더 값을 state에 남기는 방식).
 export function useFront(
   key: number,
   speed: number,
@@ -46,21 +47,20 @@ export function useFront(
     current.current = d;
   }, [d]);
   useEffect(() => {
-    if (immediate) return;
-    const target = on ? limit : 0;
-    if (current.current === target) return;
+    if (immediate || !on || current.current >= limit) return;
     let prev = performance.now();
     let frame = requestAnimationFrame(function tick(now) {
-      const step = (speed * (now - prev)) / 1000;
+      // rAF의 시각은 프레임 시작이라 effect의 performance.now()보다 앞설 수 있다.
+      const next = Math.min(
+        limit,
+        current.current + (speed * Math.max(0, now - prev)) / 1000,
+      );
       prev = now;
-      const next = on
-        ? Math.min(limit, current.current + step)
-        : Math.max(0, current.current - step);
       current.current = next;
       setState({ key, d: next });
-      if (next !== target) frame = requestAnimationFrame(tick);
+      if (next < limit) frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);
   }, [key, on, speed, limit, immediate]);
-  return immediate ? (on ? limit : 0) : d;
+  return immediate ? limit : d;
 }

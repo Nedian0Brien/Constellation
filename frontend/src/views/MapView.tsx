@@ -95,8 +95,8 @@ const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
   LINK_FAR_WIDTH = 1;
 // 강조가 켜지면 연결선이 강조 노드에서 이웃으로 초당 이만큼(화면 픽셀) 일정한 속도로
 // 뻗어 나온다 — 가까운 이웃에 먼저 닿는다. 이웃의 점·라벨은 선이 닿은 순간부터 240ms
-// 페이드인(앞머리가 그 뒤로 `LINK_SPEED × 0.24s`만큼 더 나아가는 동안). 꺼지면 선은
-// 같은 속도로 되돌아가고 라벨은 바로 옅어진다.
+// 페이드인(앞머리가 그 뒤로 `LINK_SPEED × 0.24s`만큼 더 나아가는 동안). 꺼지면 선과
+// 라벨이 그 자리에서 240ms 페이드아웃한다.
 const LINK_SPEED = 1200,
   LINK_FADE_PX = (LINK_SPEED * LABEL_FADE_MS) / 1000;
 // 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값(1초 → 0.5초).
@@ -547,11 +547,7 @@ export default function MapView() {
   const hoverT = useTween(focusIndex >= 0 ? 1 : 0, LABEL_FADE_MS, reduced);
   const [lastFocus, setLastFocus] = useState(focusIndex);
   if (focusIndex >= 0 && focusIndex !== lastFocus) setLastFocus(focusIndex);
-  // 강조가 꺼진 뒤에도 선이 되돌아가는 동안(`front` > 0, 아래) 마지막 강조 노드를
-  // 붙든다. `front`는 그래프 뒤에 계산되므로 이전 렌더의 값을 state에 남겨 본다.
-  const [retracting, setRetracting] = useState(false);
-  const heldIndex =
-    focusIndex >= 0 ? focusIndex : hoverT > 0 || retracting ? lastFocus : -1;
+  const heldIndex = focusIndex >= 0 ? focusIndex : hoverT > 0 ? lastFocus : -1;
   const points = useMemo(
     () =>
       map.id.map((id, i) => ({
@@ -687,7 +683,6 @@ export default function MapView() {
     farthest + LINK_FADE_PX,
     reduced,
   );
-  if (retracting !== front > 0) setRetracting(front > 0);
   // 이웃 i의 점·라벨 알파(0~1): 선이 닿은 뒤 240ms에 걸쳐 켜지고, 강조가 꺼지면 hoverT로
   // 같이 옅어진다.
   const linked = (i: number) =>
@@ -1276,17 +1271,11 @@ export default function MapView() {
         },
         // 강조 노드에 닿는 선은 방향 색(강조 노드가 인용 → 파랑, 강조 노드를 인용 →
         // 빨강), 로컬 그래프의 나머지 선은 옅은 한 색.
-        getColor: (l) =>
-          !l.seed
-            ? [
-                LINK_FAR[0],
-                LINK_FAR[1],
-                LINK_FAR[2],
-                LINK_FAR[3] * hoverT * (allLinked ? 1 : 0),
-              ]
-            : l.a === heldIndex
-              ? LINK_OUT
-              : LINK_IN,
+        getColor: (l) => {
+          const c = !l.seed ? LINK_FAR : l.a === heldIndex ? LINK_OUT : LINK_IN,
+            a = (!l.seed ? LINK_FAR[3] * (allLinked ? 1 : 0) : 255) * hoverT;
+          return [c[0], c[1], c[2], a];
+        },
         getWidth: (l) => (l.seed ? LINK_WIDTH : LINK_FAR_WIDTH),
         widthUnits: "pixels",
         pickable: false,
