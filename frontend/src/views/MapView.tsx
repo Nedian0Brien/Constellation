@@ -655,7 +655,9 @@ export default function MapView() {
   // 점 레이어의 연도 필터는 GPU에서(`DataFilterExtension`). 재생 중에는 헤드의 소수
   // 자리 `h`를 상한으로 두고 `[h−1, h]`를 소프트 범위로 주어, 연도 Y의 점이 헤드가 그
   // 칸을 지나는 동안(0→1) 옅고 작은 모습에서 제 모습으로 나타난다. 값 0인 점은 그리지도
-  // 픽킹하지도 않는다. 연도 없는 논문은 하한과 같은 값을 주어 늘 통과시킨다.
+  // 픽킹하지도 않는다. 연도 없는 논문은 하한(`from − 1`) 값을 주어 늘 통과시킨다 — 하한과
+  // 소프트 상한이 같아지는 첫 프레임(`h = from`)에도 소프트 가장자리 아래라 온전히 보인다.
+  // 범위 아래의 해는 하한보다 더 아래(`from − 2`)로 보내 걸러진다.
   const playhead = usePlayheadExact();
   const yearSpan = useMemo(() => {
     let lo = Infinity,
@@ -670,6 +672,13 @@ export default function MapView() {
   const yearLower = state.from ?? yearSpan[0],
     yearUpper = playhead ?? state.to ?? yearSpan[1],
     yearSoft = playhead !== undefined && !reduced;
+  const yearValue = useCallback(
+    (p: Point) => {
+      const y = map.year[p.i];
+      return y === null ? yearLower - 1 : y < yearLower ? yearLower - 2 : y;
+    },
+    [map, yearLower],
+  );
   const nodeClusters = useMemo(
     () =>
       state.node !== undefined && a.tree.data
@@ -1447,9 +1456,9 @@ export default function MapView() {
       data: points,
       getPosition: (p) => p.position,
       getFillColor: (p) => colors[p.i],
-      getFilterValue: (p) => map.year[p.i] ?? yearLower,
-      filterRange: [yearLower, yearUpper],
-      filterSoftRange: yearSoft ? [yearLower, yearUpper - 1] : undefined,
+      getFilterValue: yearValue,
+      filterRange: [yearLower - 1, yearUpper],
+      filterSoftRange: yearSoft ? [yearLower - 1, yearUpper - 1] : undefined,
       extensions: [yearFilter],
       getRadius: baseRadius,
       radiusUnits: "pixels",
@@ -1468,7 +1477,7 @@ export default function MapView() {
       highlightColor: [255, 255, 255, 255],
       updateTriggers: {
         getFillColor: [colors],
-        getFilterValue: [yearLower],
+        getFilterValue: [yearValue],
         getRadius: [topCited],
         getLineWidth: [topCited],
       },

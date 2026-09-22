@@ -30,8 +30,8 @@ date: 2026-09-22
 
 **MapView — 점 레이어(`papers`).** `data: points`(전부)로 바꾸고 `DataFilterExtension({ filterSize: 1 })`을 붙인다.
 - `lower = state.from ?? yearLo`(데이터 최소 연도), `upper = head ?? state.to ?? yearHi`.
-- `getFilterValue: p => map.year[p.i] ?? lower` — 연도 없는 논문은 항상 하한과 같아 통과한다. `updateTriggers.getFilterValue: [lower]`.
-- `filterRange: [lower, upper]`. 재생 중이고 동작 줄이기가 아니면 `filterSoftRange: [lower, upper − 1]`, 아니면 없음. `softMin = min`이라 아래쪽은 계단, 위쪽만 1년 폭으로 옅어진다. `filterTransformSize`·`filterTransformColor`는 기본값 true(작아지고 옅어진다). `radiusMinPixels`가 1.3px로 받치지만 알파가 함께 0으로 가므로 보이지 않는다.
+- `getFilterValue`: 연도 있으면 그 해, 없으면 `lower − 1`, 범위 아래면 `lower − 2`. `filterRange: [lower − 1, upper]`라 연도 없는 논문은 늘 통과하고 소프트 상한(`upper − 1 ≥ lower − 1`) 아래라 첫 프레임(`h = from`)에도 온전히 보인다(하한을 `lower`로 두면 `h = from`에서 `smoothstep(from−1, from, from) = 1`이라 사라진다). `updateTriggers.getFilterValue: [yearValue]`.
+- 재생 중이고 동작 줄이기가 아니면 `filterSoftRange: [lower − 1, upper − 1]`, 아니면 없음. `softMin = min`이라 아래쪽은 계단, 위쪽만 1년 폭으로 옅어진다. `filterTransformSize`·`filterTransformColor`는 기본값 true(작아지고 옅어진다). `radiusMinPixels`가 1.3px로 받치지만 알파가 함께 0으로 가므로 보이지 않는다.
 - `shownPoints`는 `clusterShare`에만 남는다.
 
 **MapView — 영역 배경.** `soft-regions`에 `transitions: reduced ? undefined : { getFillColor: LABEL_FADE_MS }`. `blobs`는 run마다 고정이라 인덱스 기준 보간이 옳다.
@@ -61,4 +61,4 @@ date: 2026-09-22
 cd frontend && npx tsc -b && npm run lint && npm test
 cd frontend && E2E_PORT=5179 npx playwright test e2e/exploration.spec.ts -g "year playhead"
 ```
-브라우저: `/?from=1995&to=2020` 재생 중 점이 1초에 걸쳐 커지며 나타나고, 영역 이름은 페이드인, 영역 배경은 계단 없이 짙어진다. 일시정지하면 반쯤 나타난 점이 그대로 남는다. 재생 중 아직 옅은 점 위에서 호버 강조가 켜지지 않는다(픽킹 제외). `data-paper-opacity` 등 기존 속성은 그대로.
+브라우저: `/?from=1995&to=2020` 재생 중 점이 1초에 걸쳐 커지며 나타나고, 영역 이름은 페이드인, 영역 배경은 계단 없이 짙어진다. 일시정지하면 반쯤 나타난 점이 그대로 남는다. 재생 중 아직 나타나지 않은(값 0) 점은 호버에 잡히지 않는다. 옅게 나타나는 중인 점(0 < 값 < 1)은 보이는 만큼 잡힌다. `data-paper-opacity` 등 기존 속성은 그대로.
