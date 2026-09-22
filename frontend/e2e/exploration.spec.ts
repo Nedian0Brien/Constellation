@@ -599,6 +599,28 @@ test("year playhead runs between the thumbs and leaves the range alone", async (
   await expect(range).not.toHaveAttribute("data-playing", "true");
   await expect(range).toHaveAttribute("data-to", "2020");
   await expect(status).toHaveText(full);
+  // 두 손잡이 사이(표식 위 빈 줄)를 클릭하면 헤드가 그 자리로 간다 — 재생 중이 아니면
+  // 일시정지한 헤드가 생기고, 재생 중이면 거기서 이어 간다.
+  const window_ = page.locator(".year-window");
+  const box = (await window_.boundingBox())!;
+  await window_.click({ position: { x: box.width * 0.7, y: 4 } });
+  await expect(range).toHaveAttribute("data-head", /^\d+$/);
+  await expect(range).not.toHaveAttribute("data-playing", "true");
+  const sought = Number(await range.getAttribute("data-head"));
+  expect(sought).toBeGreaterThan(1995);
+  expect(sought).toBeLessThanOrEqual(2020);
+  await window_.click({ position: { x: box.width * 0.4, y: 4 } });
+  await expect
+    .poll(async () => Number(await range.getAttribute("data-head")))
+    .toBeLessThan(sought);
+  await play.click();
+  await expect(range).toHaveAttribute("data-playing", "true");
+  await window_.click({ position: { x: box.width * 0.7, y: 4 } });
+  await expect(range).toHaveAttribute("data-playing", "true");
+  await expect
+    .poll(async () => Number(await range.getAttribute("data-head")))
+    .toBeGreaterThanOrEqual(sought);
+  await page.getByRole("button", { name: "재생 멈춤", exact: true }).click();
   // 범위를 바꾸면 헤드가 사라진다.
   await play.click();
   await expect(range).toHaveAttribute("data-head", /^\d+$/);

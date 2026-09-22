@@ -37,6 +37,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 //   해는 URL이 아니라 `use-playhead` 스토어에 있고 한 해를 넘을 때만 쓴다. `to` 손잡이에
 //   닿으면 멈추고 헤드가 사라진다. 일시정지하면 헤드가 남고 다시 누르면 이어 간다. 손잡이를
 //   잡거나 범위를 바꾸면 헤드가 사라진다. 선택 노드의 인용선도 헤드의 해까지만 그려진다.
+//   두 손잡이 사이를 클릭(끌지 않고)하면 헤드가 그 자리로 간다 — 재생 중이면 거기서 이어
+//   가고, 아니면 그 자리에 일시정지한 헤드가 생긴다.
 // 범위가 전체와 같으면 URL에서 from·to를 뺀다. 끄는 동안의 갱신은 프레임마다 한 번.
 const MIN_CELL_PX = 2,
   MARKER_MAX = 60,
@@ -49,7 +51,8 @@ const MIN_CELL_PX = 2,
   LINK_OUT = "rgb(57 135 229)",
   LINK_IN = "rgb(230 103 103)",
   LABEL_MIN_PX = 24,
-  PLAY_FULL_MS = 20000;
+  PLAY_FULL_MS = 20000,
+  SEEK_SLOP_PX = 4;
 export function YearRange() {
   const a = useAnalysis(),
     { state, update } = useExploration();
@@ -358,13 +361,20 @@ export function YearRange() {
   };
   const yearAt = (clientX: number) =>
     yearAtX(clientX - track.current!.getBoundingClientRect().left);
-  // 끌기: 손잡이 하나, 또는 가운데 구간(폭 유지).
+  // 탐색: 헤드를 소수 연도 y로 옮긴다. 헤드가 없었으면 일시정지한 헤드가 생긴다.
+  const seek = (y: number) => {
+    head.current = Math.min(Math.max(y, from), to + 1 - 1e-6);
+    setPlayhead(head.current);
+    drawHead();
+  };
+  // 끌기: 손잡이 하나, 또는 가운데 구간(폭 유지). 가운데 구간은 움직임 없는 클릭이면 탐색.
   const drag = useRef<{
     id: number;
     kind: "from" | "to" | "window";
     x0: number;
     from: number;
     to: number;
+    moved: boolean;
   } | null>(null);
   const [dragging, setDragging] = useState<"from" | "to" | "window" | null>(
     null,
@@ -373,14 +383,27 @@ export function YearRange() {
     if (e.button !== 0) return;
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    drag.current = { id: e.pointerId, kind, x0: e.clientX, from, to };
+    drag.current = {
+      id: e.pointerId,
+      kind,
+      x0: e.clientX,
+      from,
+      to,
+      moved: false,
+    };
     setDragging(kind);
-    stopPlay();
+    // 가운데 구간은 클릭일 수 있으니 실제로 끌기 시작할 때 멈춘다.
+    if (kind !== "window") stopPlay();
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     if (d.kind === "window") {
+      if (!d.moved && Math.abs(e.clientX - d.x0) < SEEK_SLOP_PX) return;
+      if (!d.moved) {
+        d.moved = true;
+        stopPlay();
+      }
       // 창의 왼쪽 가장자리를 픽셀만큼 옮긴 자리의 연도로. 폭(연도 수)은 그대로.
       const span = d.to - d.from,
         y = Math.floor(yearAtX(xOf(d.from) + (e.clientX - d.x0))),
@@ -393,9 +416,12 @@ export function YearRange() {
     }
   };
   const endDrag = (e: React.PointerEvent) => {
-    if (drag.current?.id !== e.pointerId) return;
+    const d = drag.current;
+    if (d?.id !== e.pointerId) return;
     drag.current = null;
     setDragging(null);
+    if (d.kind === "window" && !d.moved && e.type === "pointerup")
+      seek(yearAt(e.clientX));
   };
   // 트랙의 빈 곳을 누르면 가까운 손잡이가 그리로 온다.
   const onTrackPointerDown = (e: React.PointerEvent) => {

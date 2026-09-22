@@ -1400,9 +1400,10 @@ input:focus-visible,
   background: var(--foreground);
 }
 .year-window {
+  /* 축 위 전체(표식 위 빈 줄까지). 표식이 빽빽한 시대에도 그 위를 눌러 탐색할 수 있다. */
   position: absolute;
+  top: 0;
   bottom: 14px;
-  height: 22px;
   cursor: grab;
 }
 .year-range[data-dragging="window"] .year-window {

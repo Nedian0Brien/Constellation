@@ -21,6 +21,7 @@ date: 2026-09-22
 - [ ] 손잡이·가운데 구간 끌기, 트랙 클릭, 더블클릭, 연도 직접 입력, 키보드 이동, 그리고 URL로 `from`·`to`가 바뀌면 재생이 멈추고 헤드가 사라진다.
 - [ ] `data-playing`은 재생 중에만, `data-head`(정수 연도)는 헤드가 보이는 동안(재생·일시정지) 붙는다 — E2E가 읽는다.
 - [ ] 컴포넌트가 사라지거나(뷰 전환) run이 바뀌면 rAF를 취소하고 헤드를 지운다.
+- [ ] `.year-window`(두 손잡이 사이, 축 위 전체 높이)를 4px 안에서 누르고 떼면 그 x의 소수 연도로 헤드를 옮긴다(`seek`). 재생 중이면 `playing` 유지, 아니면 일시정지한 헤드가 생긴다. 4px 넘게 움직이면 지금처럼 창 끌기(그때 헤드가 사라진다).
 
 ## 설계
 
@@ -32,7 +33,7 @@ date: 2026-09-22
 - `head` ref(소수 연도), `playing` state, 스토어의 `year`(정수)가 헤드의 세 얼굴이다. 헤드가 보이는 조건은 `store.year !== undefined`.
 - 시작(`togglePlay`, 헤드 없음): `head = from`, `setPlayhead(from)`, `playing = true`. 헤드 있음(일시정지 중): `playing = true`만. 재생 중: `playing = false`(헤드 유지).
 - 루프(`useEffect([playing])`): `requestAnimationFrame` 재귀. 프레임마다 `head = yearAtPx(xAt(head) + dt × 축폭 / PLAY_FULL_MS)`(`xAt`·`yearAtPx`는 ref의 최신 축을 읽는 소수 연도 ↔ x 변환); `head >= to + 1`이면 `head = to + 1`로 그리고 멈춤(`playing=false`, `setPlayhead(undefined)`). 아니면 `.year-playhead` 요소의 `style.width = xAt(head) - xOf(from)`을 ref로 직접 쓰고, `floor(head)`가 바뀌었을 때만 `setPlayhead(floor)` — 라벨은 정수 연도라 그 갱신으로 React가 그린다. `xAt(y)`는 `yearAtX`의 역함수(소수 연도 → x): `edges[k] + frac × (edges[k+1] − edges[k])`. `edges`·`from`·`to`는 ref로 최신값을 읽는다(`range` ref 확장).
-- 멈추는 지점: `startDrag`, `onTrackPointerDown`, 더블클릭에서 `stopPlay()`(`playing=false` + `setPlayhead(undefined)`). `YearLabel.onChange`·`onKey`·URL 변경은 `commit`으로 범위를 바꾸므로 `useEffect([from, to, lo, hi])`가 헤드가 있을 때 지운다 — 마운트 직후는 헤드가 없어 아무 일도 없다. 언마운트 정리에서 `setPlayhead(undefined)`.
+- 멈추는 지점: `startDrag`(손잡이; 창은 실제로 끌기 시작할 때), `onTrackPointerDown`, 더블클릭에서 `stopPlay()`(`playing=false` + `setPlayhead(undefined)`). `YearLabel.onChange`·`onKey`·URL 변경은 `commit`으로 범위를 바꾸므로 `useEffect([from, to, lo, hi])`가 헤드가 있을 때 지운다 — 마운트 직후는 헤드가 없어 아무 일도 없다. 언마운트 정리에서 `setPlayhead(undefined)`.
 - `commit`의 `frame` ref는 URL 갱신 합치기용이라 건드리지 않고, 재생 루프는 별도 ref를 쓴다.
 
 **렌더.** `.year-track` 안, `.year-line-in` 뒤·손잡이 앞에 헤드가 있을 때만:
