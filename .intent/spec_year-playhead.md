@@ -11,7 +11,7 @@ date: 2026-09-22
 
 ## 요구사항
 
-- [ ] 재생 버튼을 누르면 `.year-track` 안에 빨간 세로선(재생 헤드)이 `from` 칸의 왼쪽 가장자리에서 나타나 `to` 칸의 오른쪽 가장자리(`to` 손잡이 자리)까지 rAF 프레임마다 움직인다. 속도는 1년당 `PLAY_MS`(1000ms) — 비례 축이라 픽셀 속도는 칸 폭에 비례한다.
+- [ ] 재생 버튼을 누르면 `.year-track` 안에 빨간 세로선(재생 헤드)이 `from` 칸의 왼쪽 가장자리에서 나타나 `to` 칸의 오른쪽 가장자리(`to` 손잡이 자리)까지 rAF 프레임마다 움직인다. 속도는 축 위 픽셀로 일정 — 전체 축 폭을 `PLAY_FULL_MS`(20초)에 건너는 값. 논문이 몰린 해는 오래, 빈 시대는 순식간에 지난다(사용자 지시 2026-09-22; 처음엔 1년당 1초였다).
 - [ ] 세로선 위에 `Math.floor(헤드)` 연도가 붙어 함께 움직인다. 재생 중에는 두 손잡이의 연도 라벨을 숨긴다(헤드 라벨과 겹친다).
 - [ ] `from`부터 헤드까지 축 선이 빨갛게 채워진다(재생된 구간).
 - [ ] 두 손잡이·URL의 `from`·`to`는 재생 중 바뀌지 않는다. `data-from`·`data-to`도 그대로다.
@@ -31,7 +31,7 @@ date: 2026-09-22
 **YearRange 재생 로직.** 기존 `setInterval` + `commit(f+1, t+1)`을 지운다. `PLAY_WINDOW` 상수도 지운다.
 - `head` ref(소수 연도), `playing` state, 스토어의 `year`(정수)가 헤드의 세 얼굴이다. 헤드가 보이는 조건은 `store.year !== undefined`.
 - 시작(`togglePlay`, 헤드 없음): `head = from`, `setPlayhead(from)`, `playing = true`. 헤드 있음(일시정지 중): `playing = true`만. 재생 중: `playing = false`(헤드 유지).
-- 루프(`useEffect([playing])`): `requestAnimationFrame` 재귀. 프레임마다 `head += dt / PLAY_MS`; `head >= to + 1`이면 `head = to + 1`로 그리고 멈춤(`playing=false`, `setPlayhead(undefined)`). 아니면 `.year-playhead` 요소의 `style.width = xAt(head) - xOf(from)`을 ref로 직접 쓰고, `floor(head)`가 바뀌었을 때만 `setPlayhead(floor)` — 라벨은 정수 연도라 그 갱신으로 React가 그린다. `xAt(y)`는 `yearAtX`의 역함수(소수 연도 → x): `edges[k] + frac × (edges[k+1] − edges[k])`. `edges`·`from`·`to`는 ref로 최신값을 읽는다(`range` ref 확장).
+- 루프(`useEffect([playing])`): `requestAnimationFrame` 재귀. 프레임마다 `head = yearAtPx(xAt(head) + dt × 축폭 / PLAY_FULL_MS)`(`xAt`·`yearAtPx`는 ref의 최신 축을 읽는 소수 연도 ↔ x 변환); `head >= to + 1`이면 `head = to + 1`로 그리고 멈춤(`playing=false`, `setPlayhead(undefined)`). 아니면 `.year-playhead` 요소의 `style.width = xAt(head) - xOf(from)`을 ref로 직접 쓰고, `floor(head)`가 바뀌었을 때만 `setPlayhead(floor)` — 라벨은 정수 연도라 그 갱신으로 React가 그린다. `xAt(y)`는 `yearAtX`의 역함수(소수 연도 → x): `edges[k] + frac × (edges[k+1] − edges[k])`. `edges`·`from`·`to`는 ref로 최신값을 읽는다(`range` ref 확장).
 - 멈추는 지점: `startDrag`, `onTrackPointerDown`, 더블클릭에서 `stopPlay()`(`playing=false` + `setPlayhead(undefined)`). `YearLabel.onChange`·`onKey`·URL 변경은 `commit`으로 범위를 바꾸므로 `useEffect([from, to, lo, hi])`가 헤드가 있을 때 지운다 — 마운트 직후는 헤드가 없어 아무 일도 없다. 언마운트 정리에서 `setPlayhead(undefined)`.
 - `commit`의 `frame` ref는 URL 갱신 합치기용이라 건드리지 않고, 재생 루프는 별도 ref를 쓴다.
 
@@ -52,7 +52,7 @@ date: 2026-09-22
 - **헤드를 URL `to`에 쓰기(지금 방식의 연장).** 손잡이가 헤드를 따라 움직여 "두 손잡이 사이에서" 재생한다는 지시와 어긋나고, 일시정지 뒤 원래 `to`를 잃는다.
 - **헤드를 URL 파라미터로.** 새로고침·뒤로가기에 재생 중이 아닌데 헤드가 남는다.
 - **프레임마다 `setState`.** 렌더마다 `groups`를 다시 계산하고 소비처가 60번/초 다시 그린다.
-- **일정한 픽셀 속도.** 라벨의 연도가 빈 시대를 순식간에 건너뛰어 "현재 연도"가 읽히지 않는다. 초당 1년을 유지한다(intent).
+- **1년당 고정 시간(처음 구현).** 논문이 거의 없는 1945–2010이 65초 걸려 사용자가 축 비례로 바꾸게 했다. 빈 시대의 연도 라벨은 읽히지 않지만 그 시대엔 보여 줄 점도 없다.
 
 ## 함정
 
@@ -68,5 +68,5 @@ date: 2026-09-22
 cd frontend && npx tsc -b && npm run lint && npm test
 cd frontend && npx playwright test e2e/exploration.spec.ts -g "year playhead"
 ```
-E2E: 범위를 `from=2010&to=2014`로 열고 재생 → `data-playing`·`data-head=2010`이 붙고 `data-to`는 2014 그대로, 1.2초 뒤 `data-head`가 2011 이상, 일시정지 → `data-playing` 사라지고 `data-head` 유지, 더블클릭 → `data-head` 사라짐.
+E2E: 범위를 `from=1995&to=2020`으로 열고 재생 → `data-playing`·`data-head`가 붙고 `data-to`는 2020 그대로, `data-head`가 1996 이상으로 오르고, 일시정지 → `data-playing` 사라지고 `data-head` 유지, 재개 → 15초 안에 끝나 `data-head` 사라짐, 더블클릭 → `data-head` 사라짐.
 브라우저: 재생 중 빨간 선이 끊김 없이 이동하고 위에 연도가 붙는지, 지도 점이 해마다 늘어나는지, 끝에서 멈추는지 눈으로 확인.

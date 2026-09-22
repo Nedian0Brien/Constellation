@@ -31,8 +31,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 //   인용한(빨강) 논문. 높이는 피인용수(log)에 비례. 축에서 6px 안에 붙는 표식은 묶음
 //   표식(전경색, 개수 배지) 하나로 접힌다 — 호버하면 기간·편수, 클릭하면 목록 팝오버.
 //   낱개 표식은 호버하면 제목, 클릭하면 그 논문을 선택. 범위 밖이면 옅다.
-// - 재생: 두 손잡이 사이를 동영상 재생 헤드처럼 빨간 세로선이 초당 1년씩 연속으로
-//   지난다(rAF). 선 위에 지나는 해가 붙고, 지도는 [from, 그 해]의 논문을 보인다 — 헤드의
+// - 재생: 두 손잡이 사이를 동영상 재생 헤드처럼 빨간 세로선이 연속으로 지난다(rAF). 속도는
+//   축 위 픽셀로 일정해(전체 축이 20초) 논문이 몰린 해는 오래, 빈 시대는 순식간에 지나고
+//   지도의 점은 일정한 속도로 는다. 선 위에 지나는 해가 붙고, 지도는 [from, 그 해]의 논문을 보인다 — 헤드의
 //   해는 URL이 아니라 `use-playhead` 스토어에 있고 한 해를 넘을 때만 쓴다. `to` 손잡이에
 //   닿으면 멈추고 헤드가 사라진다. 일시정지하면 헤드가 남고 다시 누르면 이어 간다. 손잡이를
 //   잡거나 범위를 바꾸면 헤드가 사라진다. 선택 노드의 인용선도 헤드의 해까지만 그려진다.
@@ -48,7 +49,7 @@ const MIN_CELL_PX = 2,
   LINK_OUT = "rgb(57 135 229)",
   LINK_IN = "rgb(230 103 103)",
   LABEL_MIN_PX = 24,
-  PLAY_MS = 1000;
+  PLAY_FULL_MS = 20000;
 export function YearRange() {
   const a = useAnalysis(),
     { state, update } = useExploration();
@@ -277,18 +278,24 @@ export function YearRange() {
     live.current = { from, to, edges, lo };
   }, [from, to, edges, lo]);
   const headEl = useRef<HTMLDivElement>(null);
-  // 헤드의 폭을 그린다(라벨은 정수 연도라 스토어가 바뀔 때 React가 그린다). 소수 연도
-  // → x는 `yearAtX`의 역함수. ref만 읽으므로 항상 같은 함수.
+  // 소수 연도 ↔ x. `yearAtX`와 같은 계산이지만 ref의 최신 축을 읽어 rAF 루프에서 쓴다.
+  const xAt = useCallback((y: number) => {
+    const { edges, lo } = live.current,
+      k = Math.min(Math.max(Math.floor(y) - lo, 0), edges.length - 2);
+    return edges[k] + (y - lo - k) * (edges[k + 1] - edges[k]);
+  }, []);
+  const yearAtPx = useCallback((x: number) => {
+    const { edges, lo } = live.current;
+    let k = 0;
+    while (k < edges.length - 2 && edges[k + 1] <= x) k++;
+    return lo + k + (x - edges[k]) / Math.max(1e-6, edges[k + 1] - edges[k]);
+  }, []);
+  // 헤드의 폭을 그린다(라벨은 정수 연도라 스토어가 바뀔 때 React가 그린다).
   const drawHead = useCallback(() => {
     const el = headEl.current;
     if (!el) return;
-    const { edges, lo, from } = live.current;
-    const xAt = (y: number) => {
-      const k = Math.min(Math.max(Math.floor(y) - lo, 0), edges.length - 2);
-      return edges[k] + (y - lo - k) * (edges[k + 1] - edges[k]);
-    };
-    el.style.width = `${Math.max(0, xAt(head.current) - xAt(from))}px`;
-  }, []);
+    el.style.width = `${Math.max(0, xAt(head.current) - xAt(live.current.from))}px`;
+  }, [xAt]);
   const stopPlay = useCallback(() => {
     setPlaying(false);
     setPlayhead(undefined);
@@ -298,8 +305,14 @@ export function YearRange() {
     let id = 0,
       last = performance.now();
     const tick = (now: number) => {
-      const { from, to } = live.current;
-      head.current = Math.min(to + 1, head.current + (now - last) / PLAY_MS);
+      const { from, to, edges } = live.current;
+      // 축 위 픽셀로 일정한 속도: 전체 축 폭을 PLAY_FULL_MS에 건넌다.
+      const track = edges[edges.length - 1];
+      if (track > 0)
+        head.current = Math.min(
+          to + 1,
+          yearAtPx(xAt(head.current) + ((now - last) * track) / PLAY_FULL_MS),
+        );
       last = now;
       drawHead();
       if (head.current >= to + 1) {
@@ -312,7 +325,7 @@ export function YearRange() {
     };
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
-  }, [playing, stopPlay, drawHead]);
+  }, [playing, stopPlay, drawHead, xAt, yearAtPx]);
   // 처음 그릴 때와 트랙 폭이 바뀔 때 헤드 자리를 맞춘다.
   useLayoutEffect(drawHead);
   // 범위가 바뀌면(손잡이·URL·run) 헤드는 의미를 잃는다. 사라질 때도 스토어를 비운다.
