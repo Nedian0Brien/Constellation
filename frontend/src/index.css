@@ -1220,10 +1220,17 @@ input:focus-visible,
   }
 }
 .region-name[data-active="true"] {
+  /* 처음 만들어질 때(연도 재생으로 첫 논문이 생길 때)도 켜짐과 같은 240ms 페이드인. */
+  animation: region-name-in 240ms var(--ease);
   pointer-events: auto;
   /* 이름 위에서도 지도처럼 끌 수 있다. 터치는 브라우저 스크롤에 넘기지 않는다. */
   cursor: grab;
   touch-action: none;
+}
+@keyframes region-name-in {
+  from {
+    opacity: 0;
+  }
 }
 .map-labels[data-dragging] .region-name {
   cursor: grabbing;

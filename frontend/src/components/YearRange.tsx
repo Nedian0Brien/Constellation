@@ -306,7 +306,8 @@ export function YearRange() {
         stopPlay();
         return;
       }
-      setPlayhead(Math.min(to, Math.max(from, Math.floor(head.current))));
+      // `head < to + 1`이라 `floor(head) ≤ to`. 소수 값은 지도의 점이 서서히 나타나는 데 쓴다.
+      setPlayhead(Math.max(from, head.current));
       id = requestAnimationFrame(tick);
     };
     id = requestAnimationFrame(tick);
