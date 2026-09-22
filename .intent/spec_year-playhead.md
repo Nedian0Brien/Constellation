@@ -31,14 +31,14 @@ date: 2026-09-22
 **YearRange 재생 로직.** 기존 `setInterval` + `commit(f+1, t+1)`을 지운다. `PLAY_WINDOW` 상수도 지운다.
 - `head` ref(소수 연도), `playing` state, 스토어의 `year`(정수)가 헤드의 세 얼굴이다. 헤드가 보이는 조건은 `store.year !== undefined`.
 - 시작(`togglePlay`, 헤드 없음): `head = from`, `setPlayhead(from)`, `playing = true`. 헤드 있음(일시정지 중): `playing = true`만. 재생 중: `playing = false`(헤드 유지).
-- 루프(`useEffect([playing])`): `requestAnimationFrame` 재귀. 프레임마다 `head += dt / PLAY_MS`; `head >= to + 1`이면 `head = to + 1`로 그리고 멈춤(`playing=false`, `setPlayhead(undefined)`). 아니면 `.year-playhead` 요소의 `style.width = xAt(head) - xOf(from)`과 라벨 `textContent`를 ref로 직접 쓰고, `floor(head)`가 바뀌었을 때만 `setPlayhead(floor)`. `xAt(y)`는 `yearAtX`의 역함수(소수 연도 → x): `edges[k] + frac × (edges[k+1] − edges[k])`. `edges`·`from`·`to`는 ref로 최신값을 읽는다(`range` ref 확장).
-- 멈추는 지점: `startDrag`, `onTrackPointerDown`, 더블클릭, `YearLabel.onChange`, `onKey`에서 `stopPlay()`(`playing=false` + `setPlayhead(undefined)`). `useEffect([from, to, lo, hi])`에서도 헤드가 있으면 지운다 — 마운트 직후는 헤드가 없어 아무 일도 없다. 언마운트 정리에서 `setPlayhead(undefined)`.
+- 루프(`useEffect([playing])`): `requestAnimationFrame` 재귀. 프레임마다 `head += dt / PLAY_MS`; `head >= to + 1`이면 `head = to + 1`로 그리고 멈춤(`playing=false`, `setPlayhead(undefined)`). 아니면 `.year-playhead` 요소의 `style.width = xAt(head) - xOf(from)`을 ref로 직접 쓰고, `floor(head)`가 바뀌었을 때만 `setPlayhead(floor)` — 라벨은 정수 연도라 그 갱신으로 React가 그린다. `xAt(y)`는 `yearAtX`의 역함수(소수 연도 → x): `edges[k] + frac × (edges[k+1] − edges[k])`. `edges`·`from`·`to`는 ref로 최신값을 읽는다(`range` ref 확장).
+- 멈추는 지점: `startDrag`, `onTrackPointerDown`, 더블클릭에서 `stopPlay()`(`playing=false` + `setPlayhead(undefined)`). `YearLabel.onChange`·`onKey`·URL 변경은 `commit`으로 범위를 바꾸므로 `useEffect([from, to, lo, hi])`가 헤드가 있을 때 지운다 — 마운트 직후는 헤드가 없어 아무 일도 없다. 언마운트 정리에서 `setPlayhead(undefined)`.
 - `commit`의 `frame` ref는 URL 갱신 합치기용이라 건드리지 않고, 재생 루프는 별도 ref를 쓴다.
 
 **렌더.** `.year-track` 안, `.year-line-in` 뒤·손잡이 앞에 헤드가 있을 때만:
 ```
 <div class="year-playhead" ref style={{ left: xOf(from) }} aria-hidden>
-  <span class="year-playhead-year" ref>{year}</span>
+  <span class="year-playhead-year">{year}</span>
 </div>
 ```
 폭은 React가 쓰지 않는다(첫 폭은 `useLayoutEffect`가 ref로). 빨간 채움은 요소의 `border-bottom`(2px, `.year-line-in`과 같은 자리), 세로선은 `::after`(오른쪽 끝, 2px × 22px, `.year-thumb`와 같은 치수·자리), 라벨은 오른쪽 끝 위 가운데 정렬(`.year-label`과 같은 10px 모노 글꼴·텍스트 그림자). `pointer-events: none`.

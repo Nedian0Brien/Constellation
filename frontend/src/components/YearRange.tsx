@@ -276,9 +276,9 @@ export function YearRange() {
   useLayoutEffect(() => {
     live.current = { from, to, edges, lo };
   }, [from, to, edges, lo]);
-  const headEl = useRef<HTMLDivElement>(null),
-    headLabel = useRef<HTMLSpanElement>(null);
-  // 헤드를 그린다. 소수 연도 → x는 `yearAtX`의 역함수. ref만 읽으므로 항상 같은 함수.
+  const headEl = useRef<HTMLDivElement>(null);
+  // 헤드의 폭을 그린다(라벨은 정수 연도라 스토어가 바뀔 때 React가 그린다). 소수 연도
+  // → x는 `yearAtX`의 역함수. ref만 읽으므로 항상 같은 함수.
   const drawHead = useCallback(() => {
     const el = headEl.current;
     if (!el) return;
@@ -288,8 +288,6 @@ export function YearRange() {
       return edges[k] + (y - lo - k) * (edges[k + 1] - edges[k]);
     };
     el.style.width = `${Math.max(0, xAt(head.current) - xAt(from))}px`;
-    if (headLabel.current)
-      headLabel.current.textContent = String(Math.floor(head.current));
   }, []);
   const stopPlay = useCallback(() => {
     setPlaying(false);
@@ -481,9 +479,7 @@ export function YearRange() {
             aria-hidden="true"
             style={{ left: xOf(from) }}
           >
-            <span ref={headLabel} className="year-playhead-year">
-              {headYear}
-            </span>
+            <span className="year-playhead-year">{headYear}</span>
           </div>
         )}
         {/* 가운데 구간: 폭을 유지한 채 이동. */}
