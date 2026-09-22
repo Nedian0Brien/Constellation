@@ -560,3 +560,48 @@ test("agent chat: canned stream renders, runs a frontend tool, and survives relo
   await expect(page.getByTestId("agent-chat")).toContainText("무엇을 찾아볼까요?");
   await expect(page.getByTestId("agent-chat")).not.toContainText("확대했습니다.");
 });
+test("year playhead runs between the thumbs and leaves the range alone", async ({
+  page,
+}) => {
+  await page.goto("/?from=2010&to=2014");
+  const range = page.getByTestId("year-range");
+  await expect(range).toHaveAttribute("data-to", "2014");
+  await expect(page.locator(".workspace-status")).toContainText("10,604");
+  const status = page.locator(".workspace-status");
+  const full = (await status.textContent())!;
+  const play = page.getByRole("button", { name: "연도 재생", exact: true });
+  await play.click();
+  // 헤드는 from에서 출발한다. 손잡이(URL)는 그대로고, 지도의 편수는 헤드의 해까지다.
+  await expect(range).toHaveAttribute("data-playing", "true");
+  await expect(range).toHaveAttribute("data-head", "2010");
+  await expect(range).toHaveAttribute("data-from", "2010");
+  await expect(range).toHaveAttribute("data-to", "2014");
+  await expect(page.locator(".year-playhead")).toBeVisible();
+  await expect(status).not.toHaveText(full);
+  expect(new URL(page.url()).searchParams.get("to")).toBe("2014");
+  await expect
+    .poll(async () => Number(await range.getAttribute("data-head")))
+    .toBeGreaterThanOrEqual(2011);
+  // 일시정지하면 헤드가 남고, 다시 누르면 이어 간다.
+  await page.getByRole("button", { name: "재생 멈춤", exact: true }).click();
+  await expect(range).not.toHaveAttribute("data-playing", "true");
+  const paused = (await range.getAttribute("data-head"))!;
+  await page.waitForTimeout(1200);
+  await expect(range).toHaveAttribute("data-head", paused);
+  await play.click();
+  await expect(range).toHaveAttribute("data-playing", "true");
+  // to 손잡이에 닿으면 멈추고 헤드가 사라지며 지도는 [from, to] 전체로 돌아온다.
+  await expect(range).not.toHaveAttribute("data-head", /.+/, {
+    timeout: 8000,
+  });
+  await expect(range).not.toHaveAttribute("data-playing", "true");
+  await expect(range).toHaveAttribute("data-to", "2014");
+  await expect(status).toHaveText(full);
+  // 범위를 바꾸면 헤드가 사라진다.
+  await play.click();
+  await expect(range).toHaveAttribute("data-head", "2010");
+  // 트랙 한가운데는 표식(툴팁)이 가로챌 수 있어 왼쪽 끝 빈 곳을 누른다.
+  await page.locator(".year-track").dblclick({ position: { x: 3, y: 30 } });
+  await expect(range).not.toHaveAttribute("data-head", /.+/);
+  await expect(range).not.toHaveAttribute("data-playing", "true");
+});

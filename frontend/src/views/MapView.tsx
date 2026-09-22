@@ -624,24 +624,26 @@ export default function MapView() {
     [map],
   );
   // 발행연도 범위 밖의 논문은 그리지 않는다(옅게가 아니라 아예). 연도가 없는 논문은
-  // 서버 필터와 같이 통과시킨다. 인용 그래프의 이웃도 같은 규칙.
+  // 서버 필터와 같이 통과시킨다. 인용 그래프의 이웃도 같은 규칙. 상한은 재생 중이면
+  // 재생 헤드가 지나는 해(`a.yearTo`).
+  const yearTo = a.yearTo;
   const inYears = useCallback(
     (i: number) => {
       const y = map.year[i];
       return (
         y === null ||
         ((state.from === undefined || y >= state.from) &&
-          (state.to === undefined || y <= state.to))
+          (yearTo === undefined || y <= yearTo))
       );
     },
-    [map, state.from, state.to],
+    [map, state.from, yearTo],
   );
   const shownPoints = useMemo(
     () =>
-      state.from === undefined && state.to === undefined
+      state.from === undefined && yearTo === undefined
         ? points
         : points.filter((p) => inYears(p.i)),
-    [points, inYears, state.from, state.to],
+    [points, inYears, state.from, yearTo],
   );
   const nodeClusters = useMemo(
     () =>
