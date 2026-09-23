@@ -37,17 +37,17 @@ import {
   paperTitleOpacity,
   PAPER_LABEL_ZOOM,
   paperLabelOpacity,
-  clampRegionLabel,
+  placeRegionLabels,
   regionRadii,
   regionLabels,
   revealZooms,
-  truncateTitle,
   wrapTitle,
   homeCamera,
   fitCamera,
   descendants,
 } from "./map/labels";
 import { placeLabels, type LabelBox } from "./map/active-labels";
+import { titleCharacterSet, titleMeasure, titleMetrics } from "./map/titles";
 import {
   clusterColor,
   ordinalColor,
@@ -758,43 +758,20 @@ export default function MapView() {
     () => regionRadii(map, a.tree.data, a.clusters.data ?? []),
     [map, a.tree.data, a.clusters.data],
   );
-  // 영역 라벨 배치. 배율 단계마다 한 묶음만 켜진다. 중심이 화면 안이면 그 자리에,
-  // 중심은 밖이지만 화면 중앙이 영역 안(반지름 이내)이면 가장자리에 붙인다.
-  // 그래서 영역을 확대해 들어가도 이름이 남는다. 겹치는 라벨은 큰 영역이 이긴다.
+  // 영역 라벨 배치(`placeRegionLabels`). 배율 단계마다 한 묶음만 켜진다.
   const regionSet = level === "field" ? top : relativeZoom < 2 ? sub : leaves;
-  const shownRegions = useMemo(() => {
-    const boxes: { x: number; y: number; w: number; h: number }[] = [];
-    const out = new Map<string, [number, number]>();
-    // 문턱을 넘어도 반 단계까지는 영역 이름이 옅어지며 남는다.
-    if (relativeZoom >= PAPER_LABEL_ZOOM + 0.5) return out;
-    const [cx, cy] = viewport.unproject([size.width / 2, size.height / 2]);
-    for (const n of [...regionSet].sort((a, b) => b.size - a.size)) {
-      if (!regionAlive.has(n.id)) continue;
-      let [x, y] = viewport.project([n.x, n.y, 0]);
-      const w = Math.min(205, n.label.length * 10),
-        h = Math.ceil(n.label.length / 20) * 23;
-      const inside =
-        x > w / 2 &&
-        x < size.width - w / 2 &&
-        y > 55 + h / 2 &&
-        y < size.height - 75 - h / 2;
-      const covering = Math.hypot(cx - n.x, cy - n.y) <= (radii.get(n.id) ?? 0);
-      if (!inside && !covering) continue;
-      if (!inside)
-        [x, y] = clampRegionLabel(x, y, w, h, size.width, size.height);
-      if (
-        boxes.some(
-          (b) =>
-            Math.abs(x - b.x) < (w + b.w) / 2 + 12 &&
-            Math.abs(y - b.y) < (h + b.h) / 2 + 10,
-        )
-      )
-        continue;
-      boxes.push({ x, y, w, h });
-      out.set(n.id, [x, y]);
-    }
-    return out;
-  }, [relativeZoom, regionSet, viewport, size, radii, regionAlive]);
+  const shownRegions = useMemo(
+    () =>
+      placeRegionLabels(
+        regionSet,
+        viewport,
+        size,
+        radii,
+        regionAlive,
+        relativeZoom,
+      ),
+    [relativeZoom, regionSet, viewport, size, radii, regionAlive],
+  );
   // 논문 제목의 바닥 배율(절대 zoom). 겹치지 않는 제목은 여기서부터 진해진다.
   // 상위 분야 단계에서는 안 켠다. 하위 분야 단계인데 화면에 영역 이름이 하나도
   // 없으면(영역 사이 빈 곳) 바닥을 없애 겹치지 않는 제목을 바로 켠다 — 그 순간
@@ -815,13 +792,7 @@ export default function MapView() {
   // 영역 이름은 같은 곡선을 거꾸로 따라 옅어진다.
   const regionOpacity = 1 - paperLabelOpacity(relativeZoom);
   const typo = useMemo(() => titleTypography(), []);
-  // TextLayer의 글꼴 아틀라스에 넣을 글자. 제목에 나오는 글자 전부와 말줄임표(133자).
-  // 'auto'로 두면 새 글자가 화면에 들어올 때마다 아틀라스를 다시 만든다.
-  const characterSet = useMemo(
-    () =>
-      [...new Set(map.title.join("").toUpperCase() + "0123456789…")].join(""),
-    [map],
-  );
+  const characterSet = useMemo(() => titleCharacterSet(map), [map]);
   // 글꼴 아틀라스는 실제로 그려질 크기(11px × 기기 픽셀 비율)로, 1:1로 표본한다.
   // 기본값(64px SDF)은 22px로 줄여 그릴 때 i의 점·따옴표·마침표 같은 작은 획이
   // 사라졌다. 글리프는 `titleFontRenderer`가 DOM과 같은 11px 글꼴로 그린다.
@@ -834,48 +805,13 @@ export default function MapView() {
     () => () => titleFontRenderer(typo.fontFamily, dpr),
     [typo, dpr],
   );
-  // 글자 폭 표로 글 폭을 잰다. TextLayer는 글자마다 잰 폭을 더해 글을 놓으므로(커닝
-  // 없음) 이 합이 실제 그려지는 폭이다. 제목 상자 폭과 말줄임이 모두 이 표를 쓴다.
-  const measure = useMemo(() => {
-    const table = new Map<string, number>();
-    for (const ch of characterSet) table.set(ch, typo.measureChar(ch));
-    const missing = typo.measureChar("M");
-    return (text: string) => {
-      let w = 0;
-      for (const ch of text) w += table.get(ch) ?? missing;
-      return w;
-    };
-  }, [characterSet, typo]);
-  // 제목 상자 폭과 한 줄로 줄인 제목(`…`). 지도마다 한 번(1만 편에 약 70ms). 필터가
-  // 바뀌어도 다시 재지 않는다.
-  const displays = useMemo(
-    () =>
-      map.title.map((t) =>
-        truncateTitle(
-          measure,
-          t.toUpperCase(),
-          TITLE_MAX_WIDTH - TITLE_PADDING,
-        ),
-      ),
+  const measure = useMemo(
+    () => titleMeasure(characterSet, typo),
+    [characterSet, typo],
+  );
+  const { displays, values, valueDx, widths } = useMemo(
+    () => titleMetrics(map, measure),
     [map, measure],
-  );
-  const values = useMemo(
-    () => map.year.map((y) => (y === null ? "" : String(y))),
-    [map],
-  );
-  // 값의 가로 오프셋과, 겹침 계산용 상자 폭(점 중심 대칭: 오른쪽 라벨 끝까지의 두 배).
-  const valueDx = useMemo(
-    () => displays.map((d) => TITLE_OFFSET_X + measure(d) + VALUE_GAP),
-    [displays, measure],
-  );
-  const widths = useMemo(
-    () =>
-      displays.map(
-        (_, i) =>
-          2 * (valueDx[i] + measure(values[i]) + TITLE_PADDING / 2) +
-          TITLE_GAP_X,
-      ),
-    [displays, values, valueDx, measure],
   );
   // 제목 상자: 필터에 든 논문만. 필터 밖 논문은 자리를 차지하지 않는다.
   const boxes = useMemo(
