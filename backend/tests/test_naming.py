@@ -43,6 +43,17 @@ class CheckNamesTests(unittest.TestCase):
         self.assertEqual(ok, {1: ("Computer Vision", True)})
         self.assertEqual(bad, [2, 3])
 
+    def test_ancestor_and_descendant_may_share_a_name(self):
+        # 20은 10의 부모, 30은 10과 무관하다.
+        parent = {10: 20}
+        related = lambda a, b: parent.get(a) == b or parent.get(b) == a
+        ok, bad = naming.check_names([20, 30], {"names": [
+            {"id": 20, "name": "Robot Locomotion", "coherent": True},
+            {"id": 30, "name": "Robot Locomotion", "coherent": True},
+        ]}, taken={10: "Robot Locomotion"}, related=related)
+        self.assertEqual(ok, {20: ("Robot Locomotion", True)})
+        self.assertEqual(bad, [30])
+
 
 class SplitLevelsTests(unittest.TestCase):
     #        6
@@ -114,11 +125,11 @@ class RunTests(unittest.TestCase):
                            {"id": 1, "name": "Music Information Retrieval", "coherent": True},
                            {"id": 2, "name": "신문 검색", "coherent": True}]},
                 {"names": [{"id": 2, "name": "Arabic Text Processing", "coherent": True}]},
-                {"names": [{"id": 3, "name": "Music Information Retrieval · Arabic Text Processing",
-                            "coherent": False},
+                # 4는 잎 0의 조상이라 같은 이름을 가져도 된다. 3은 0과 무관해서 재요청된다.
+                {"names": [{"id": 3, "name": "Dense Retrieval", "coherent": True},
                            {"id": 4, "name": "Dense Retrieval", "coherent": True}]},
-                # 4는 잎 0과 같은 이름이라 재요청된다
-                {"names": [{"id": 4, "name": "Broken", "coherent": True, "extra": 1}]},
+                {"names": [{"id": 3, "name": "Music Information Retrieval · Arabic Text Processing",
+                            "coherent": False, "extra": 1}]},
             ])
             with mock.patch.object(store, "DB_PATH", db):
                 r = naming.run(run_id="r", namer=namer, log=lambda s: None)
@@ -139,7 +150,7 @@ class RunTests(unittest.TestCase):
                 "SELECT node_id, label FROM cluster_tree WHERE run_id='r'").fetchall())
             self.assertEqual(rows[2], "Arabic Text Processing")
             self.assertEqual(rows[3], "Music Information Retrieval · Arabic Text Processing")
-            self.assertEqual(rows[4], "Broken")
+            self.assertEqual(rows[4], "Dense Retrieval")
             self.assertEqual(
                 c.execute("SELECT label FROM cluster_meta WHERE cluster_id=0").fetchone()[0],
                 "Dense Retrieval")

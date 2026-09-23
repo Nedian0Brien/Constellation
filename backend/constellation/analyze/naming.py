@@ -43,7 +43,8 @@ Progress = Callable[[str], None]
 
 DEFAULT_BACKEND = "codex"
 # 모델 slug는 ~/.codex/models_cache.json 과 `claude --help`(별칭)에서 확인했다.
-DEFAULT_MODELS = {"codex": "gpt-5.6-luna", "claude": "opus"}
+# codex 기본은 gpt-6-luna(2026-09-24 사용자 지시, models_cache.json에 있음).
+DEFAULT_MODELS = {"codex": "gpt-6-luna", "claude": "opus"}
 CLI_TIMEOUT = 600
 
 # 영어로 뽑는다.
@@ -248,15 +249,26 @@ def is_malformed(name: str, coherent: bool = True) -> str | None:
 
 def check_names(
     ids: list[int], response: dict[str, Any], taken: dict[int, str] | None = None,
+    related: Callable[[int, int], bool] | None = None,
 ) -> tuple[dict[int, tuple[str, bool]], list[int]]:
     """응답에서 쓸 수 있는 이름을 고른다. (ok: id → (name, coherent), bad: 재요청할 id).
 
     같은 이름이 둘 이상에 붙으면(`taken`의 다른 노드 이름 포함) 처음 것만 남기고
     나머지는 bad — 겹치는 이름은 적어도 한쪽에는 너무 넓은 이름이다.
+    `related(a, b)`가 참인 두 노드(조상과 자손)는 같은 이름을 가져도 된다. 지도의
+    한 레벨은 서로 겹치지 않는 노드로 나뉘므로 같은 레벨 안에서는 여전히 겹치지 않는다.
+    자식 하나가 대부분인 부모는 그 자식과 같은 분야라 같은 이름이 맞다(2026-09-24
+    사용자 결정 — 피지컬 AI 코퍼스에서 내부 노드 31개가 이 규칙으로 거절됐다).
     """
     ok: dict[int, tuple[str, bool]] = {}
     want = set(ids)
-    used = {v.lower() for k, v in (taken or {}).items() if k not in want}
+    used: dict[str, list[int]] = {}
+    for k, v in (taken or {}).items():
+        if k not in want:
+            used.setdefault(v.lower(), []).append(k)
+
+    def clashes(i: int, name: str) -> bool:
+        return any(not (related and related(i, j)) for j in used.get(name, []))
     for e in response.get("names", []) or []:
         try:
             i = int(e.get("id"))
@@ -266,9 +278,9 @@ def check_names(
             continue
         coherent = bool(e.get("coherent", True))
         name = _clean(str(e.get("name", "")))
-        if is_malformed(name, coherent) or name.lower() in used:
+        if is_malformed(name, coherent) or clashes(i, name.lower()):
             continue
-        used.add(name.lower())
+        used.setdefault(name.lower(), []).append(i)
         ok[i] = (name, coherent)
     return ok, [i for i in ids if i not in ok]
 
@@ -428,6 +440,7 @@ def name_batch(
     build: Callable[[list[int]], str],
     log: Progress,
     taken: dict[int, str] | None = None,
+    related: Callable[[int, int], bool] | None = None,
 ) -> tuple[dict[int, tuple[str, bool]], dict[int, str]]:
     """한 묶음을 짓고, 빠지거나 불량이거나 이름이 겹치는 것만 한 번 더 묻는다.
 
@@ -437,12 +450,12 @@ def name_batch(
     taken = dict(taken or {})
     prompt = build(ids)
     prompts = {i: prompt for i in ids}
-    ok, bad = check_names(ids, namer.complete(prompt), taken)
+    ok, bad = check_names(ids, namer.complete(prompt), taken, related)
     if bad:
         log("    형식 불량·누락·중복 %d개 — 재요청: %s" % (len(bad), bad))
         taken.update({i: n for i, (n, _) in ok.items()})
         prompt2 = build(bad) + RETRY_NOTE % "; ".join(sorted(set(taken.values())))
-        ok2, bad2 = check_names(bad, namer.complete(prompt2), taken)
+        ok2, bad2 = check_names(bad, namer.complete(prompt2), taken, related)
         for i in bad:
             prompts[i] = prompt2
         ok.update(ok2)
@@ -550,8 +563,18 @@ def run(
                 items.append({"id": i, "size": by_id[i][3], "keywords": kws[i],
                               "parent": parent.get(i), "groups": groups})
             return node_batch_prompt(items, phrases)
-        # 잎 이름은 이미 정해졌다. 부모가 잎과 같은 이름을 갖지 않게 넘긴다.
-        ok, ps = name_batch(namer, inner_ids, build_inner, log, leaf_name)
+        # 잎 이름은 이미 정해졌다. 조상·자손이 아닌 노드끼리 이름이 겹치지 않게 넘긴다.
+        def ancestors(node: int) -> set[int]:
+            out: set[int] = set()
+            while node in parent:
+                node = parent[node]
+                out.add(node)
+            return out
+
+        def related(a: int, b: int) -> bool:
+            return a in ancestors(b) or b in ancestors(a)
+
+        ok, ps = name_batch(namer, inner_ids, build_inner, log, leaf_name, related)
         named.update(ok)
         prompts.update(ps)
 
