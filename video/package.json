@@ -1,0 +1,32 @@
+{
+  "name": "constellation-video",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "snapshot": "node scripts/snapshot.mjs",
+    "studio": "remotion studio",
+    "render": "remotion render MapDive out/map-dive.mp4",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@deck.gl/core": "9.3.10",
+    "@deck.gl/extensions": "9.3.10",
+    "@deck.gl/layers": "9.3.10",
+    "@deck.gl/react": "9.3.10",
+    "@remotion/cli": "4.0.527",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "4.0.527"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "typescript": "~6.0.2"
+  },
+  "overrides": {
+    "@luma.gl/core": "9.3.6",
+    "@luma.gl/engine": "9.3.6",
+    "@luma.gl/shadertools": "9.3.6",
+    "@luma.gl/webgl": "9.3.6"
+  }
+}

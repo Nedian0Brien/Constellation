@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    // frontend/의 지도 모듈도 이 패키지의 deck.gl 한 벌로 타입을 푼다(remotion.config.ts의
+    // alias와 같은 규칙). api.ts가 값으로 import하는 tauri는 frontend의 설치본에서 찾는다.
+    "paths": {
+      "@deck.gl/*": ["./node_modules/@deck.gl/*"],
+      "@tauri-apps/api/*": ["../frontend/node_modules/@tauri-apps/api/*"]
+    }
+  },
+  "include": ["src", "remotion.config.ts"]
+}
