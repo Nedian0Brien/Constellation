@@ -1155,6 +1155,12 @@ input:focus-visible,
 .map-wrap {
   outline-offset: -3px;
 }
+/* 지도와 연도 축 위의 드래그는 이동과 범위 조절이다. 라벨·캡션·눈금 글자가
+   텍스트 선택으로 잡혀 화면 전체가 파랗게 칠해지지 않게 한다. */
+.map-wrap,
+.year-range {
+  user-select: none;
+}
 .map-labels {
   position: absolute;
   inset: 0;
