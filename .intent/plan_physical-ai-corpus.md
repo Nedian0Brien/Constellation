@@ -17,10 +17,10 @@ date: 2026-09-24
 | `backend/constellation/queries.py` | `PHYSICAL_AI` 수집어·`per_year`·facets 수정, `PHYSICAL_AI_DRIVING` 추가·등록 |
 | `backend/constellation/devices.py` | 새 파일. `pick_device(torch)` |
 | `backend/constellation/embed/encoder.py` | 장치 선택을 `pick_device`로 |
-| `backend/constellation/analyze/naming.py` | `device_map`을 `pick_device`로, 메모리 로그는 CUDA일 때만 |
+| ~~`backend/constellation/analyze/naming.py`~~ | (취소) PR #13(naming-cli)이 로컬 LLM을 codex·claude CLI로 바꿔 장치 분기가 필요 없어졌다. main 병합 때 main 쪽을 택했다(2026-09-24) |
 | `backend/tests/test_devices.py` | 새 파일. 가짜 torch로 세 분기 |
 | `backend/tests/test_queries.py` | 새 파일. 두 세트의 필터 문자열·target |
-| `pyproject.toml` | `embed` extra에 `accelerate` |
+| ~~`pyproject.toml`~~ | (취소) `accelerate`는 로컬 LLM 이름 짓기에만 필요했다 |
 | `docs/PHYSICAL-AI-RESULTS.md` | 새 파일. 수집·분석 결과 |
 | `README.md` | "수집과 분석"에 별도 코퍼스 만드는 법 |
 

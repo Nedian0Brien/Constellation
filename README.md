@@ -70,6 +70,8 @@ Windows에서는 Python 경로를 `.venv/Scripts/python.exe`, CLI 경로를 `.ve
 
 다른 데이터 폴더를 사용하려면 환경변수 또는 저장소 루트 `.env`에 `CONSTELLATION_DATA_DIR`을 설정한다. 상대 경로는 저장소 루트를 기준으로 해석한다. 데이터는 Git에 포함되지 않는다.
 
+영역 이름은 `constellation name`이 붙인다. 로컬 모델 대신 기계에 로그인된 `codex`(기본, `gpt-5.6-luna`) 또는 `claude`(`--backend claude`, `opus`) CLI를 부르므로 API 키가 필요 없다. 잎 45개와 내부 노드 44개를 각각 한 호출로 짓고, 서로 다른 분야가 지도에서 이웃이라는 이유로 한 노드에 묶인 경우는 `A · B` 이름을 주고 지도 레벨에서 자식 둘로 갈라 보인다(`tree_levels`). 원래 절단으로 되돌리려면 `constellation hierarchy`를 다시 돌린다. 프롬프트와 출력은 `naming_audit` 테이블에 남는다.
+
 ## 지도 조작
 
 - 점 클릭: 논문 상세. 목록에서 같은 논문을 선택할 수도 있다.
@@ -103,7 +105,7 @@ uv pip install --python .venv/bin/python -e '.[embed]'
 
 API 조회에는 GPU가 필요 없다. 재수집·임베딩·분석은 명시적으로 실행하며 기존 데이터를 자동 변경하지 않는다. Scopus 어댑터는 후속 작업이다.
 
-임베딩과 `name`(LLM 분야 이름)은 CUDA, Apple GPU(MPS), CPU 순으로 장치를 고른다.
+임베딩은 CUDA, Apple GPU(MPS), CPU 순으로 장치를 고른다.
 
 ### 코퍼스를 하나 더 만들기
 
@@ -126,7 +128,7 @@ export PYTORCH_ENABLE_MPS_FALLBACK=1              # MPS가 지원하지 않는 �
 cargo run -p constellation-serve -- --db data/physical-ai/constellation.duckdb --port 8003
 ```
 
-`name`은 `accelerate`가 필요하다(`embed` extra에 들어 있다). 데스크톱 앱에서는 **데이터베이스 열기**로 `data/physical-ai/constellation.duckdb`를 고른다.
+데스크톱 앱에서는 **데이터베이스 열기**로 `data/physical-ai/constellation.duckdb`를 고른다.
 
 ## 검증
 
