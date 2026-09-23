@@ -14,8 +14,10 @@ const rec = await read("../src/recording/agent-thread.json");
 // 좌표: 지도 범위를 가로세로 같은 배율로 0–10000 정수에 담는다(y는 아래로 +, 지도와 같다).
 const xs = map.x.filter(Number.isFinite),
   ys = map.y.filter(Number.isFinite);
+const zs = map.z.filter(Number.isFinite);
 const x0 = Math.min(...xs),
-  y0 = Math.min(...ys);
+  y0 = Math.min(...ys),
+  z0 = Math.min(...zs);
 const span = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0);
 const q = (v, o) => Math.round(((v - o) / span) * 10000);
 
@@ -70,11 +72,19 @@ const DATA = {
   n: map.n,
   x: map.x.map((v) => (Number.isFinite(v) ? q(v, x0) : -1)),
   y: map.y.map((v) => (Number.isFinite(v) ? q(v, y0) : -1)),
+  // 3D 좌표(3D UMAP 투영, 지도 x·y와 같은 투영). 같은 배율로 담는다.
+  z: map.z.map((v) => (Number.isFinite(v) ? q(v, z0) : -1)),
   cluster: map.cluster,
   region: map.cluster.map((c) => regionOf.get(c) ?? -1),
   year: map.year.map((y) => y ?? 0),
   big: map.cited.map((c, i) => (c >= cut && c > 0 ? i : -1)).filter((i) => i >= 0),
-  regions: top.map((n) => ({ label: n.label, x: q(n.x, x0), y: q(n.y, y0), size: n.size })),
+  // 분야 이름의 3D 자리: 트리 노드의 x·y와 소속 논문 z의 평균.
+  regions: top.map((n, k) => {
+    let sz = 0, c = 0;
+    for (let i = 0; i < map.n; i++)
+      if (regionOf.get(map.cluster[i]) === k && Number.isFinite(map.z[i])) { sz += map.z[i]; c++; }
+    return { label: n.label, x: q(n.x, x0), y: q(n.y, y0), z: q(sz / Math.max(1, c), z0), size: n.size };
+  }),
   yearFrom: 2014, // 수집 범위(코퍼스 정의). backfill은 그 이전 논문도 들어 있다.
   yearTo: Math.max(...years),
   rt1: { i: rt, title: map.title[rt], year: map.year[rt], refs, citedBy },

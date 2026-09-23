@@ -158,6 +158,14 @@ npm --prefix video run render:teaser   # 합성 사운드 + video/out/teaser.mp4
 
 스냅샷(`video/public/data/`)과 사운드(`video/public/audio/`)는 git 밖이다. 사운드 스크립트는 `src/timeline.ts`를 직접 import하므로 Node 23.6 이상(TS 타입 제거 기본 지원)이 필요하다. 채팅 장면은 실제 에이전트 대화 기록(`video/src/recording/agent-thread.json`)을 재생한다. `npm --prefix video run typecheck`는 frontend 파일의 타입을 `frontend/node_modules`에서 읽는다. 장면 구성과 앱과 다르게 그린 부분은 [스토리보드](video/STORYBOARD.md)에 있다. 개인·3인 이하 조직은 Remotion을 무료로 쓰고, 그보다 큰 회사는 [회사 라이선스](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md)가 필요하다.
 
+`video/motion/`은 같은 데이터로 만든 캔버스 모션그래픽 티저다. 논문 16,554편을 3D UMAP 좌표에 별로 띄우고 카메라가 분야와 RT-1 인용망 사이를 난다. `video.html` 하나를 브라우저로 열면 재생된다(엔진과 `data.js` 포함). 추출은 js-motion-video 스킬의 `render.mjs`(헤드리스 Chrome → ffmpeg)로 한다.
+
+```sh
+node video/motion/build-data.mjs          # 스냅샷·대화 기록 → video/motion/data.js
+python3 video/motion/src/assemble.py      # src/video.js → video/motion/video.html
+node ~/.claude/skills/js-motion-video/tool/render.mjs video/motion/video.html video   # video/motion/video.mp4
+```
+
 ## 문서
 
 - [디자인 시스템](docs/design-system/index.html) · [CSS 토큰](docs/design-system/constellation-tokens.css)
