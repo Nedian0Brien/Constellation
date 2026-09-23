@@ -7,7 +7,7 @@
 - **규모:** 16,554편(2014–2026년 수집 15,409편 + backfill 1,145편)
 - **초록 비율:** 88.1%
 - **코퍼스 안 인용:** 136,442개, 논문 한 편당 8.2개(RAG 코퍼스는 5.9개)
-- **분류:** 클러스터 78개, 미분류 4,887편(30%). 계층 트리는 상위 분야 8개, 하위 분야 18개, 주제 78개이고, 이름 155개는 모두 LLM이 지었다.
+- **분류:** 클러스터 78개, 미분류 4,887편(30%). 지도 레벨은 상위 27개 / 하위 31개 / 주제 78개다. 이름은 155개 중 151개를 LLM(`gpt-6-luna`)이 지었다.
 - **대표 논문:** 19편 중 16편이 들어왔다.
 - **소요 시간:** 수집부터 계보까지 약 15분. 모델 다운로드 약 3분이 포함된다.
 
@@ -59,55 +59,61 @@
 
 ## 분야 구성
 
-상위 분야 8개(편수): Legged Robot Locomotion 3,293 · Mixed: Point Cloud and Object Detection 1,513 · Imitation and Reinforcement Learning 1,465 · Social Robotics and Care 1,263 · Embodied Intelligence and Ethics 1,190 · Edge Traffic Intelligence 1,159 · Soft Tactile Manipulation 953 · Mixed: Ethical Mobility and Security Networks 831
+- 계층 트리는 `--levels 8,18`로 잘랐다.
+- 이름 짓기가 성격이 섞인 노드를 자식 둘로 갈라, 지도 레벨은 상위 27개 / 하위 31개 / 주제 78개다. RAG 코퍼스는 20 / 32 / 45개다.
+- 편수 100편 이상인 상위 분야(레벨 0): Robot Locomotion 3,293 · Automotive Scene Understanding 1,513 · Robot Learning 1,465 · Autonomous Driving 1,159 · Human-Robot Interaction 1,019 · Soft Robotics 474 · Embodied Cognition 339 · Automotive Cybersecurity 291 · Autonomous Vehicle Human Factors 289 · Adversarial Computer Vision 251 · Embodied Language Agents 246 · Autonomous Scientific Discovery 191 · Robot Grasping 155 · Humanoid Robotics 128 · Neuromorphic Computing 123 · Autonomous Robot Navigation 107 · Medical Robotics 101 · AI Ethics · Mental Health 101
 
-하위 분야 18개를 들어온 경로별로 나눴다. 미분류 논문은 뺐다.
+하위 분야(레벨 1) 가운데 200편 이상인 것을 들어온 경로별로 나눴다. 미분류 논문은 뺐다.
 
-| 하위 분야 | 편수 | 로봇 세트 | 자율주행 세트 | backfill |
-|---|---:|---:|---:|---:|
-| Legged Robot Locomotion | 3,293 | 3,070 | 14 | 209 |
-| Social Robotics and Trust | 1,019 | 946 | 20 | 53 |
-| Imitation and Reinforcement Learning | 994 | 907 | 8 | 79 |
-| Semantic Point Cloud Understanding | 694 | 52 | 532 | 110 |
-| Mixed: Embodied Cognition and Ethical Discovery | 631 | 381 | 214 | 36 |
-| Reinforcement Learning and LLMs for Traffic | 623 | 54 | 546 | 23 |
-| Mixed: Object Detection and Automotive Sensing | 595 | 28 | 500 | 67 |
-| Mixed: Embodied Intelligence and Spiking Systems | 559 | 422 | 110 | 27 |
-| Vehicular Edge Intelligence | 536 | 22 | 495 | 19 |
-| Soft Tactile Actuation | 474 | 431 | 16 | 27 |
-| Manipulation and Motion Planning | 471 | 384 | 11 | 76 |
-| Manipulation in Humanoid Robots | 378 | 353 | 0 | 25 |
-| Federated Vehicle Security | 291 | 21 | 268 | 2 |
-| Ethical Mobility in Vehicles | 289 | 5 | 272 | 12 |
-| Mixed: Adversarial and Convolutional Neural Networks | 251 | 25 | 131 | 95 |
-| Mixed: HCI and Educational Robotics | 244 | 225 | 15 | 4 |
-| Urban Localization and SLAM | 224 | 38 | 154 | 32 |
-| Robot-Assisted Surgical Learning | 101 | 100 | 1 | 0 |
+| 노드 | 하위 분야 | 편수 | 로봇 세트 | 자율주행 세트 | backfill |
+|---:|---|---:|---:|---:|---:|
+| 128 | Robot Locomotion | 3,293 | 3,070 | 14 | 209 |
+| 137 | Human-Robot Interaction | 1,019 | 946 | 20 | 53 |
+| 124 | Robot Learning | 994 | 907 | 8 | 79 |
+| 134 | object detection · point cloud · segmentation(키워드 라벨) | 694 | 52 | 532 | 110 |
+| 131 | Autonomous Driving | 623 | 54 | 546 | 23 |
+| 135 | Automotive Vision | 595 | 28 | 500 | 67 |
+| 130 | Automotive Systems | 536 | 22 | 495 | 19 |
+| 117 | Soft Robotics | 474 | 431 | 16 | 27 |
+| 125 | Robot Motion Planning | 471 | 384 | 11 | 76 |
+| 104 | Embodied Cognition | 339 | 308 | 12 | 19 |
+| 116 | Automotive Cybersecurity | 291 | 21 | 268 | 2 |
+| 111 | Autonomous Vehicle Human Factors | 289 | 5 | 272 | 12 |
+| 120 | Adversarial Computer Vision | 251 | 25 | 131 | 95 |
+| 71 | Embodied Language Agents | 246 | 223 | 8 | 15 |
+| 99 | Localization and Mapping | 224 | 38 | 154 | 32 |
 
 - 인용 계보의 메인 패스는 26편이다. 사족 보행 연구가 이어져 온 길이 나왔다: "Learning quadrupedal locomotion over challenging terrain"(2020) → "ANYmal parkour"(2024) → 이족 보행 월드 모델(2026).
 - 갈래 흐름은 창 4개(2014–2016, 2017–2019, 2020–2022, 2023–2026), 클러스터 30개, 흐름 72개다. 흐름 72개 중 69개(96%)는 인용 근거가 있다.
 
 ## 주제 밖 논문
 
-수집어가 다른 분야의 말과 겹쳐 들어온 덩어리가 있다. LLM이 지은 이름, 수집 세트로 들어온 논문 중 피인용 상위 6편, 경로별 수를 보고 판단했다.
+수집어가 다른 분야의 말과 겹쳐 들어온 덩어리가 있다. 판단에는 세 가지를 봤다: LLM이 지은 이름, 수집 세트로 들어온 논문 중 피인용 상위 6편, 경로별 수. 판단은 Qwen으로 처음 이름을 지었을 때 했고, 노드 id로 새 이름에 옮겼다.
 
-| 하위 분야 | 편수 | 판단 | 근거 |
-|---|---:|---|---|
-| Federated Vehicle Security | 291 | 대부분 주제 밖 | 차량 사이버보안, 블록체인, 전기차 충전. 자율주행을 언급하는 보안·에너지 논문 |
-| Mixed: Embodied Cognition and Ethical Discovery | 631 | 대부분 주제 밖 | AI 윤리·거버넌스, 화학공학 AI, 체화 인지 철학 같은 일반 AI 논의. 로봇 세트로 381편, 자율주행 세트로 214편이 들어왔다. 어느 수집어에 걸렸는지는 따로 확인하지 않았다 |
-| Vehicular Edge Intelligence | 536 | 절반가량 주제 밖 | 모바일 엣지 컴퓨팅, 6G IoT와 자율주행 모션 플래닝이 섞였다 |
-| Ethical Mobility in Vehicles | 289 | 주변 | 자율주행차 수용성·운전자 행동 연구(인간 요인). 기술 논문은 아니다 |
-| Social Robotics and Trust | 1,019 | 주변 | 소셜 로봇·HRI. 로보틱스지만 제어·학습 중심의 피지컬 AI와 거리가 있다 |
+| 노드 | 하위 분야 | 편수 | 판단 | 근거 |
+|---:|---|---:|---|---|
+| 116 | Automotive Cybersecurity | 291 | 대부분 주제 밖 | 차량 사이버보안, 블록체인, 전기차 충전. 자율주행을 언급하는 보안·에너지 논문 |
+| 104, 1, 40 | Embodied Cognition · Autonomous Scientific Discovery · AI Ethics · Mental Health | 339 + 191 + 101 | 대부분 주제 밖 | AI 윤리·거버넌스, 화학공학 AI, 체화 인지 철학 같은 일반 AI 논의. 로봇 세트로 381편, 자율주행 세트로 214편이 들어왔다. 어느 수집어에 걸렸는지는 따로 확인하지 않았다 |
+| 130 | Automotive Systems | 536 | 절반가량 주제 밖 | 모바일 엣지 컴퓨팅, 6G IoT와 자율주행 모션 플래닝이 섞였다 |
+| 111 | Autonomous Vehicle Human Factors | 289 | 주변 | 자율주행차 수용성·운전자 행동 연구(인간 요인). 기술 논문은 아니다 |
+| 137 | Human-Robot Interaction | 1,019 | 주변 | 소셜 로봇·HRI. 로보틱스지만 제어·학습 중심의 피지컬 AI와 거리가 있다 |
 
-- 앞의 세 덩어리를 합치면 약 1,460편(수집 논문의 9%)이 핵심 밖이다. RAG 코퍼스의 20%(M2-RESULTS.md)보다 적다.
+- 앞의 세 줄을 합치면 약 1,460편(수집 논문의 9%)이 핵심 밖이다. RAG 코퍼스의 20%(M2-RESULTS.md)보다 적다.
 - 미분류 4,887편은 로봇 세트 2,913편, 자율주행 세트 1,726편, backfill 248편이다. RAG 코퍼스의 미분류(14%)보다 비율이 높다. 클러스터 설정은 RAG와 같은 `umap10 / eom / min_cluster_size=30`으로 두었다.
 - 이번에는 규모만 보고하고 걸러 내지 않았다(intent 범위 밖).
 
 ## 분야 이름
 
-- `name`은 Qwen3-4B-Instruct-2507을 MPS(bf16)에서 돌려 155개 노드에 이름을 붙였다. 생성에 걸린 시간은 106초(개당 0.7초)다.
-- 16개 이름이 "Mixed: A and B" 형식이다. 이름 짓기 프롬프트는 성격이 섞인 덩어리에 이 형식을 쓰라고 지시한다(`analyze/naming.py:56`). 앱은 이 이름을 그대로 보여 준다.
-- RAG 코퍼스의 이름은 이 CLI가 아니라 `codex/gpt-5.6-luna`로 지은 것이라(`naming_audit.model`), "Mixed" 이름이 하나도 없다. 두 코퍼스의 이름 품질을 맞추려면 같은 방식으로 다시 지어야 한다.
+- **최종 이름:** `constellation name`(codex 백엔드, `gpt-6-luna`)으로 155개 노드에 이름을 붙였다.
+  - 걸린 시간은 61초다.
+  - 키워드(c-TF-IDF) 라벨로 남은 노드는 4개다. 지도 레벨에 보이는 것은 레벨 1의 노드 134(694편) 하나다.
+  - "Mixed:" 이름은 없고, 같은 레벨 안의 중복 이름도 없다.
+- **이름 중복 규칙:** 처음에는 트리 전체에서 이름이 겹치지 않아야 했다. 이 규칙에서는 내부 노드 31개가 거절돼 키워드 라벨로 남았다.
+  - 원인: 자식 하나가 대부분인 부모를 모델이 자식과 같은 이름으로 불렀다. 거절 사유는 모두 이름 중복이었고, 형식 불량은 0건이었다.
+  - 조상·자손 사이에는 같은 이름을 허용하도록 규칙을 바꿨다(사용자 결정, PR #20). 이 규칙에서도 같은 레벨 안의 중복은 막힌다.
+  - 이름을 다시 짓기 전에 `hierarchy`를 다시 돌려 원래 절단(8 / 18 / 78)에서 시작했다.
+- **처음 이름(Qwen3-4B, 로컬 MPS):** 16개가 "Mixed: A and B" 형식이었다. 그 DB는 `constellation.duckdb.bak-qwen`으로 남겨 두었다.
+- **모델 응답의 비결정성:** 같은 입력으로 두 번 돌리면 모델 응답이 조금씩 달라, 불응집으로 가르는 노드도 달라진다.
 
 ## 단계별 시간
 
@@ -121,7 +127,8 @@
 | project | 34초 |
 | cluster | 19초 |
 | hierarchy | 1초 미만 |
-| name (Qwen3-4B, MPS) | 298초 (다운로드 포함, 생성 106초) |
+| name (Qwen3-4B, MPS, 처음) | 298초 (다운로드 포함, 생성 106초) |
+| hierarchy + name (codex gpt-6-luna, 최종) | 62초 |
 | flow | 21초 |
 | lineage | 1초 |
 
