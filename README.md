@@ -129,7 +129,7 @@ npm --prefix video run studio     # 미리보기
 npm --prefix video run render     # video/out/map-dive.mp4
 ```
 
-장면 구성과 남은 작업은 [스토리보드](video/STORYBOARD.md)에 있다. 개인·3인 이하 조직은 Remotion을 무료로 쓰고, 그보다 큰 회사는 [회사 라이선스](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md)가 필요하다.
+`npm --prefix video run typecheck`는 frontend 파일의 타입(tauri·zustand)을 `frontend/node_modules`에서 읽으므로 `npm --prefix frontend ci`가 먼저 필요하다. 장면 구성과 남은 작업은 [스토리보드](video/STORYBOARD.md)에 있다. 개인·3인 이하 조직은 Remotion을 무료로 쓰고, 그보다 큰 회사는 [회사 라이선스](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md)가 필요하다.
 
 ## 문서
 
