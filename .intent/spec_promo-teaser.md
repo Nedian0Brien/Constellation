@@ -27,7 +27,7 @@ date: 2026-09-24
 
 - [ ] 채팅 장면의 대화는 실제 기록이다.
   - 로컬 에이전트 서버(8787)와 이 코퍼스를 연 앱(5182)에서 다음 질문을 보낸다: **"RT-1을 지도에서 보여 주고, RT-1을 인용한 논문 중 확산 정책(diffusion policy) 연구 두 편에 라벨을 달아 줘."**
-  - 앱 localStorage에 저장된 대화(`agent/history.ts` 형식)를 `video/src/data/agent-thread.json`으로 커밋한다.
+  - 앱 localStorage에 저장된 대화(`agent/history.ts` 형식)를 `video/src/recording/agent-thread.json`으로 커밋한다.
   - 영상은 이 기록의 텍스트와 도구 호출(이름·인자)을 그대로 쓴다. 문장을 고치거나 더하지 않는다. 길면 앞부분을 보이고 뒷부분은 패널 밖으로 흘려보낸다.
 - [ ] 지도·뷰는 앱과 같은 값으로 그린다.
   - 연도 재생: 앱의 `DataFilterExtension` 필터와 영역 배경의 비율 알파(`clusterShare`)를 따른다.

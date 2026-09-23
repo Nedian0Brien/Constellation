@@ -1,0 +1,855 @@
+{
+ "source": "실제 에이전트 기록(claude-opus-5, 2026-09-24) — 피지컬 AI 코퍼스 run project-scincl-20260923T165703Z. 화면에 나오지 않는 세션 메타데이터(data 파트)만 뺐다.",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "RT-1을 지도에서 보여 주고, RT-1을 인용한 논문 중 확산 정책(diffusion policy) 연구 두 편에 라벨을 달아 줘."
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "RT-1을 먼저 코퍼스에서 찾겠습니다.",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     }
+    },
+    {
+     "type": "tool-call",
+     "state": "result",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     },
+     "toolCallId": "toolu_018o9RcKgy1Qf4kwY1ZJ86EU",
+     "toolName": "search_papers",
+     "argsText": "{\"query\": \"RT-1: Robotics Transformer\"}",
+     "args": {
+      "query": "RT-1: Robotics Transformer"
+     },
+     "timing": {
+      "startedAt": 1790189071469,
+      "completedAt": 1790189072392
+     },
+     "result": {
+      "total": 1,
+      "shown": 1,
+      "items": [
+       {
+        "id": "openalex:W4385430679",
+        "title": "RT-1: Robotics Transformer for Real-World Control at Scale",
+        "year": 2023,
+        "cited": 625
+       }
+      ]
+     },
+     "isError": false
+    },
+    {
+     "type": "tool-call",
+     "state": "result",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     },
+     "toolCallId": "toolu_01C8rz11KurEYxrcpxzQ2WPw",
+     "toolName": "search_papers",
+     "argsText": "{\"query\": \"diffusion policy\"}",
+     "args": {
+      "query": "diffusion policy"
+     },
+     "timing": {
+      "startedAt": 1790189072100,
+      "completedAt": 1790189072574
+     },
+     "result": {
+      "total": 46,
+      "shown": 25,
+      "items": [
+       {
+        "id": "openalex:W4403337227",
+        "title": "Diffusion policy: Visuomotor policy learning via action diffusion",
+        "year": 2024,
+        "cited": 536
+       },
+       {
+        "id": "openalex:W4385403811",
+        "title": "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion",
+        "year": 2023,
+        "cited": 498
+       },
+       {
+        "id": "openalex:W4402354045",
+        "title": "3D Diffusion Policy: Generalizable Visuomotor Policy Learning via Simple 3D Representations",
+        "year": 2024,
+        "cited": 202
+       },
+       {
+        "id": "openalex:W4401417422",
+        "title": "NoMaD: Goal Masked Diffusion Policies for Navigation and Exploration",
+        "year": 2024,
+        "cited": 125
+       },
+       {
+        "id": "openalex:W4407874080",
+        "title": "TinyVLA: Toward Fast, Data-Efficient Vision-Language-Action Models for Robotic Manipulation",
+        "year": 2025,
+        "cited": 84
+       },
+       {
+        "id": "openalex:W4413147287",
+        "title": "DiffusionDrive: Truncated Diffusion Model for End-to-End Autonomous Driving",
+        "year": 2025,
+        "cited": 83
+       },
+       {
+        "id": "openalex:W4414050921",
+        "title": "Fine-Tuning Vision-Language-Action Models: Optimizing Speed and Success",
+        "year": 2025,
+        "cited": 60
+       },
+       {
+        "id": "openalex:W4402727783",
+        "title": "Hierarchical Diffusion Policy for Kinematics-Aware Multi-Task Robotic Manipulation",
+        "year": 2024,
+        "cited": 54
+       },
+       {
+        "id": "openalex:W4402354007",
+        "title": "Consistency Policy: Accelerated Visuomotor Policies via Consistency Distillation",
+        "year": 2024,
+        "cited": 50
+       },
+       {
+        "id": "openalex:W4399695759",
+        "title": "OpenVLA: An Open-Source Vision-Language-Action Model",
+        "year": 2024,
+        "cited": 43
+       },
+       {
+        "id": "openalex:W4416749759",
+        "title": "Generalizable Humanoid Manipulation with 3D Diffusion Policies",
+        "year": 2025,
+        "cited": 17
+       },
+       {
+        "id": "openalex:W7123340428",
+        "title": "PointVLA: Injecting the 3D World Into Vision-Language-Action Models",
+        "year": 2026,
+        "cited": 14
+       },
+       {
+        "id": "openalex:W4323651335",
+        "title": "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion",
+        "year": 2023,
+        "cited": 13
+       },
+       {
+        "id": "openalex:W4413925959",
+        "title": "PolyTouch: A Robust Multi-Modal Tactile Sensor for Contact-Rich Manipulation Using Tactile-Diffusion Policies",
+        "year": 2025,
+        "cited": 13
+       },
+       {
+        "id": "openalex:W4392004031",
+        "title": "Learning Playing Piano with Bionic-Constrained Diffusion Policy for Anthropomorphic Hand",
+        "year": 2024,
+        "cited": 12
+       },
+       {
+        "id": "openalex:W4408166072",
+        "title": "Hierarchical Diffusion Policy: Manipulation Trajectory Generation via Contact Guidance",
+        "year": 2025,
+        "cited": 12
+       },
+       {
+        "id": "openalex:W4412701539",
+        "title": "LLM-driven symbolic planning and hierarchical imitation learning for long-horizon deformable object assembly",
+        "year": 2025,
+        "cited": 12
+       },
+       {
+        "id": "openalex:W4413926164",
+        "title": "Diff-Dagger: Uncertainty Estimation With Diffusion Policy for Robotic Manipulation",
+        "year": 2025,
+        "cited": 10
+       },
+       {
+        "id": "openalex:W4405784923",
+        "title": "SculptDiff: Learning Robotic Clay Sculpting from Humans with Goal Conditioned Diffusion Policy",
+        "year": 2024,
+        "cited": 9
+       },
+       {
+        "id": "openalex:W4413926128",
+        "title": "Scaling Diffusion Policy in Transformer to 1 Billion Parameters for Robotic Manipulation",
+        "year": 2025,
+        "cited": 7
+       },
+       {
+        "id": "openalex:W4411589372",
+        "title": "Memory-gated diffusion policy: Advancing robotic behaviour learning with memory-oriented architectures",
+        "year": 2025,
+        "cited": 6
+       },
+       {
+        "id": "openalex:W4413924986",
+        "title": "Fast Policy Synthesis with Variable Noise Diffusion Models",
+        "year": 2025,
+        "cited": 6
+       },
+       {
+        "id": "openalex:W4413925251",
+        "title": "SPOT: SE(3) Pose Trajectory Diffusion for Object-Centric Manipulation",
+        "year": 2025,
+        "cited": 6
+       },
+       {
+        "id": "openalex:W4413946182",
+        "title": "Learning force-conditioned visuomotor diffusion policy from human demonstrations for complex robotic assembly tasks",
+        "year": 2025,
+        "cited": 6
+       },
+       {
+        "id": "openalex:W7154467967",
+        "title": "A careful examination of large behavior models for multitask dexterous manipulation",
+        "year": 2026,
+        "cited": 6
+       }
+      ]
+     },
+     "isError": false
+    },
+    {
+     "type": "text",
+     "text": "RT-1을 인용한 논문 목록을 확인하겠습니다.",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     }
+    },
+    {
+     "type": "tool-call",
+     "state": "result",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     },
+     "toolCallId": "toolu_01Pkn5NKXsei7447Km2SgV22",
+     "toolName": "get_citations",
+     "argsText": "{\"id\": \"openalex:W4385430679\", \"direction\": \"cited_by\", \"limit\": 60}",
+     "args": {
+      "id": "openalex:W4385430679",
+      "direction": "cited_by",
+      "limit": 60
+     },
+     "timing": {
+      "startedAt": 1790189073944,
+      "completedAt": 1790189074757
+     },
+     "result": {
+      "id": "openalex:W4385430679",
+      "ref_total": 34,
+      "cited_by_total": 135,
+      "references": [],
+      "cited_by": [
+       {
+        "id": "openalex:W4385430674",
+        "title": "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware",
+        "year": 2023,
+        "cited": 601,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4394828156",
+        "title": "ChatGPT for Robotics: Design Principles and Model Abilities",
+        "year": 2024,
+        "cited": 471,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4385431115",
+        "title": "ConceptFusion: Open-set multimodal 3D mapping",
+        "year": 2023,
+        "cited": 212,
+        "cluster": 71,
+        "cluster_label": "Embodied Language Agents"
+       },
+       {
+        "id": "openalex:W4388660746",
+        "title": "Text2Motion: from natural language instructions to feasible plans",
+        "year": 2023,
+        "cited": 211,
+        "cluster": 75,
+        "cluster_label": "Language-Conditioned Robot Planning"
+       },
+       {
+        "id": "openalex:W4402890475",
+        "title": "Foundation models in robotics: Applications, challenges, and the future",
+        "year": 2024,
+        "cited": 208,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4390771941",
+        "title": "Embodied intelligence in manufacturing: leveraging large language models for autonomous industrial robotics",
+        "year": 2024,
+        "cited": 169,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4401415287",
+        "title": "Open X-Embodiment: Robotic Learning Datasets and RT-X Models : Open X-Embodiment Collaboration 0",
+        "year": 2024,
+        "cited": 167,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4405910844",
+        "title": "Large language models for robotics: Opportunities, challenges, and perspectives",
+        "year": 2024,
+        "cited": 135,
+        "cluster": 71,
+        "cluster_label": "Embodied Language Agents"
+       },
+       {
+        "id": "openalex:W4401417422",
+        "title": "NoMaD: Goal Masked Diffusion Policies for Navigation and Exploration",
+        "year": 2024,
+        "cited": 125,
+        "cluster": 71,
+        "cluster_label": "Embodied Language Agents"
+       },
+       {
+        "id": "openalex:W4412722243",
+        "title": "Aligning Cyber Space With Physical World: A Comprehensive Survey on Embodied AI",
+        "year": 2025,
+        "cited": 115,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4412124433",
+        "title": "SRT-H: A hierarchical framework for autonomous surgery via language-conditioned imitation learning",
+        "year": 2025,
+        "cited": 99,
+        "cluster": 7,
+        "cluster_label": "Surgical Robot Learning"
+       },
+       {
+        "id": "openalex:W4402727730",
+        "title": "ManipLLM: Embodied Multimodal Large Language Model for Object-Centric Robotic Manipulation",
+        "year": 2024,
+        "cited": 82,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4401416041",
+        "title": "RoboAgent: Generalization and Efficiency in Robot Manipulation via Semantic Augmentations and Action Chunking",
+        "year": 2024,
+        "cited": 80,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4405784982",
+        "title": "GELLO: A General, Low-Cost, and Intuitive Teleoperation Framework for Robot Manipulators",
+        "year": 2024,
+        "cited": 80,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4385430538",
+        "title": "Scaling Robot Learning with Semantically Imagined Experience",
+        "year": 2023,
+        "cited": 72,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4401415042",
+        "title": "RH20T: A Comprehensive Robotic Dataset for Learning Diverse Skills in One-Shot",
+        "year": 2024,
+        "cited": 70,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4403074774",
+        "title": "A Survey of Robot Intelligence with Large Language Models",
+        "year": 2024,
+        "cited": 68,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4413362511",
+        "title": "Precise and dexterous robotic manipulation via human-in-the-loop reinforcement learning",
+        "year": 2025,
+        "cited": 63,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4414198610",
+        "title": "Vision-Language-Action Models for Robotics: A Review Towards Real-World Applications",
+        "year": 2025,
+        "cited": 60,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4413156213",
+        "title": "CoT-VLA: Visual Chain-of-Thought Reasoning for Vision-Language-Action Models",
+        "year": 2025,
+        "cited": 58,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4390778533",
+        "title": "Multistage Cable Routing Through Hierarchical Imitation Learning",
+        "year": 2024,
+        "cited": 57,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4390480962",
+        "title": "Deep Imitation Learning for Humanoid Loco-manipulation Through Human Teleoperation",
+        "year": 2023,
+        "cited": 52,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4402545715",
+        "title": "Transfer learning in robotics: An upcoming breakthrough? A review of promises and challenges",
+        "year": 2024,
+        "cited": 40,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4408757728",
+        "title": "Robot learning in the era of foundation models: a survey",
+        "year": 2025,
+        "cited": 36,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4413788337",
+        "title": "Multimodal fusion and vision–language models: A survey for robot vision",
+        "year": 2025,
+        "cited": 35,
+        "cluster": 71,
+        "cluster_label": "Embodied Language Agents"
+       },
+       {
+        "id": "openalex:W4385430451",
+        "title": "Structured World Models from Human Videos",
+        "year": 2023,
+        "cited": 34,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4385430559",
+        "title": "Robotic Skill Acquisition via Instruction Augmentation with Vision-Language Models",
+        "year": 2023,
+        "cited": 32,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4402726973",
+        "title": "Embodied Multi-Modal Agent trained by an LLM from a Parallel TextWorld",
+        "year": 2024,
+        "cited": 32,
+        "cluster": 71,
+        "cluster_label": "Embodied Language Agents"
+       },
+       {
+        "id": "openalex:W4405785353",
+        "title": "RISE: 3D Perception Makes Real-World Robot Imitation Simple and Effective",
+        "year": 2024,
+        "cited": 31,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4414219384",
+        "title": "Diffusion models for robotic manipulation: a survey",
+        "year": 2025,
+        "cited": 30,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4411206891",
+        "title": "Empowering natural human–robot collaboration through multimodal language models and spatial intelligence: Pathways and perspectives",
+        "year": 2025,
+        "cited": 29,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4385430633",
+        "title": "FurnitureBench: Reproducible Real-World Benchmark for Long-Horizon Complex Manipulation",
+        "year": 2023,
+        "cited": 28,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4405211168",
+        "title": "A Comprehensive Survey on Embodied Intelligence: Advancements, Challenges, and Future Perspectives",
+        "year": 2024,
+        "cited": 27,
+        "cluster": 45,
+        "cluster_label": "Embodied Cognition"
+       },
+       {
+        "id": "openalex:W4401415428",
+        "title": "SG-Bot: Object Rearrangement via Coarse-to-Fine Robotic Imagination on Scene Graphs",
+        "year": 2024,
+        "cited": 26,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4401417065",
+        "title": "Decomposing the Generalization Gap in Imitation Learning for Visual Robotic Manipulation",
+        "year": 2024,
+        "cited": 26,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4399073783",
+        "title": "Delving Into Multi-Modal Multi-Task Foundation Models for Road Scene Understanding: From Learning Paradigm Perspectives",
+        "year": 2024,
+        "cited": 25,
+        "cluster": 20,
+        "cluster_label": "Language-Model Autonomous Driving"
+       },
+       {
+        "id": "openalex:W4402739608",
+        "title": "FMB: A functional manipulation benchmark for generalizable robotic learning",
+        "year": 2024,
+        "cited": 25,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4406420619",
+        "title": "Benchmark Evaluations, Applications, and Challenges of Large Vision Language Models: A Survey",
+        "year": 2025,
+        "cited": 25,
+        "cluster": 71,
+        "cluster_label": "Embodied Language Agents"
+       },
+       {
+        "id": "openalex:W4389523655",
+        "title": "Open-Ended Instructable Embodied Agents with Memory-Augmented Large Language Models",
+        "year": 2023,
+        "cited": 24,
+        "cluster": 75,
+        "cluster_label": "Language-Conditioned Robot Planning"
+       },
+       {
+        "id": "openalex:W4405786713",
+        "title": "DoReMi: Grounding Language Model by Detecting and Recovering from Plan-Execution Misalignment",
+        "year": 2024,
+        "cited": 24,
+        "cluster": 75,
+        "cluster_label": "Language-Conditioned Robot Planning"
+       },
+       {
+        "id": "openalex:W4413144615",
+        "title": "RoboTwin: Dual-Arm Robot Benchmark with Generative Digital Twins",
+        "year": 2025,
+        "cited": 24,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4413147456",
+        "title": "RoboBrain: A Unified Brain Model for Robotic Manipulation from Abstract to Concrete",
+        "year": 2025,
+        "cited": 21,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4401413701",
+        "title": "Gen2Sim: Scaling up Robot Learning in Simulation with Generative Models",
+        "year": 2024,
+        "cited": 20,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4401416612",
+        "title": "Kinematic-aware Prompting for Generalizable Articulated Object Manipulation with LLMs",
+        "year": 2024,
+        "cited": 20,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4403534849",
+        "title": "Embodied AI with Large Language Models: A Survey and New HRI Framework",
+        "year": 2024,
+        "cited": 20,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4401417165",
+        "title": "Crossway Diffusion: Improving Diffusion-based Visuomotor Policy via Self-supervised Learning",
+        "year": 2024,
+        "cited": 19,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4414559264",
+        "title": "Embodied AI: A Survey on the Evolution from Perceptive to Behavioral Intelligence",
+        "year": 2025,
+        "cited": 19,
+        "cluster": 45,
+        "cluster_label": "Embodied Cognition"
+       },
+       {
+        "id": "openalex:W4385430535",
+        "title": "Behavior Retrieval: Few-Shot Imitation Learning by Querying Unlabeled Datasets",
+        "year": 2023,
+        "cited": 18,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4401417162",
+        "title": "Towards Generalizable Zero-Shot Manipulation via Translating Human Interaction Plans",
+        "year": 2024,
+        "cited": 18,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4413925370",
+        "title": "Improving Vision-Language-Action Model with Online Reinforcement Learning",
+        "year": 2025,
+        "cited": 18,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4412423276",
+        "title": "Integrating Large Language Models into Robotic Autonomy: A Review of Motion, Voice, and Training Pipelines",
+        "year": 2025,
+        "cited": 17,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4416749759",
+        "title": "Generalizable Humanoid Manipulation with 3D Diffusion Policies",
+        "year": 2025,
+        "cited": 17,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W7140452175",
+        "title": "Humanoid Locomotion and Manipulation: Current Progress and Challenges in Control, Planning, and Learning",
+        "year": 2026,
+        "cited": 17,
+        "cluster": 11,
+        "cluster_label": "Legged Robot Locomotion"
+       },
+       {
+        "id": "openalex:W4392646028",
+        "title": "CognitiveDog: Large Multimodal Model Based System to Translate Vision and Language into Action of Quadruped Robot",
+        "year": 2024,
+        "cited": 16,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4403715721",
+        "title": "ILBiT: Imitation Learning for Robot Using Position and Torque Information based on Bilateral Control with Transformer",
+        "year": 2024,
+        "cited": 16,
+        "cluster": 77,
+        "cluster_label": "Robot Imitation Learning"
+       },
+       {
+        "id": "openalex:W4413147465",
+        "title": "MoManipVLA: Transferring Vision-language-action Models for General Mobile Manipulation",
+        "year": 2025,
+        "cited": 16,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4416749901",
+        "title": "Bunny-VisionPro: Real-Time Bimanual Dexterous Teleoperation for Imitation Learning",
+        "year": 2025,
+        "cited": 16,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4402704543",
+        "title": "CyberDemo: Augmenting Simulated Human Demonstration for Real-World Dexterous Manipulation",
+        "year": 2024,
+        "cited": 15,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       },
+       {
+        "id": "openalex:W4413146350",
+        "title": "OmniManip: Towards General Robotic Manipulation via Object-Centric Interaction Primitives as Spatial Constraints",
+        "year": 2025,
+        "cited": 15,
+        "cluster": -1,
+        "cluster_label": null
+       },
+       {
+        "id": "openalex:W4413925041",
+        "title": "DexMimicGen: Automated Data Generation for Bimanual Dexterous Manipulation via Imitation Learning",
+        "year": 2025,
+        "cited": 15,
+        "cluster": 76,
+        "cluster_label": "Reinforcement Learning"
+       }
+      ]
+     },
+     "isError": false
+    },
+    {
+     "type": "reasoning",
+     "text": "I'm considering three diffusion policy papers for robotics manipulation—3D Diffusion Policies, Crossway Diffusion, and NoMaD—and need to narrow it down to two.\n\n",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     }
+    },
+    {
+     "type": "text",
+     "text": "RT-1으로 지도를 이동하고 라벨을 달겠습니다.",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     }
+    },
+    {
+     "type": "tool-call",
+     "state": "result",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     },
+     "toolCallId": "toolu_013VWLeNpWp7j8WQCi8kHbJs",
+     "toolName": "fly_to",
+     "argsText": "{\"paper_id\": \"openalex:W4385430679\", \"level\": \"paper\"}",
+     "args": {
+      "paper_id": "openalex:W4385430679",
+      "level": "paper"
+     },
+     "timing": {
+      "startedAt": 1790189079387,
+      "completedAt": 1790189079938
+     },
+     "result": {
+      "moved_to": "RT-1: Robotics Transformer for Real-World Control at Scale",
+      "x": 4.622434139251709,
+      "y": 3.911238670349121,
+      "level": "paper"
+     },
+     "isError": false
+    },
+    {
+     "type": "tool-call",
+     "state": "result",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     },
+     "toolCallId": "toolu_01YYSoEmzjCMZ6jspMEDb72Q",
+     "toolName": "annotate",
+     "argsText": "{\"items\": [{\"paper_id\":\"openalex:W4385430679\",\"label\":\"RT-1 (2023, 피인용 625) — 코퍼스 내 135편이 인용\"},{\"paper_id\":\"openalex:W4401417165\",\"label\":\"확산 정책 ① Crossway Diffusion (2024)\"},{\"paper_id\":\"openalex:W4416749759\",\"label\":\"확산 정책 ② Generalizable Humanoid Manipulation with 3D Diffusion Policies (2025)\"}]}",
+     "args": {
+      "items": [
+       {
+        "paper_id": "openalex:W4385430679",
+        "label": "RT-1 (2023, 피인용 625) — 코퍼스 내 135편이 인용"
+       },
+       {
+        "paper_id": "openalex:W4401417165",
+        "label": "확산 정책 ① Crossway Diffusion (2024)"
+       },
+       {
+        "paper_id": "openalex:W4416749759",
+        "label": "확산 정책 ② Generalizable Humanoid Manipulation with 3D Diffusion Policies (2025)"
+       }
+      ]
+     },
+     "timing": {
+      "startedAt": 1790189080803,
+      "completedAt": 1790189082914
+     },
+     "result": {
+      "drawn": [
+       {
+        "id": "paper:openalex:W4385430679",
+        "label": "RT-1 (2023, 피인용 625) — 코퍼스 내 135편이 인용",
+        "x": 4.622434139251709,
+        "y": 3.911238670349121
+       },
+       {
+        "id": "paper:openalex:W4401417165",
+        "label": "확산 정책 ① Crossway Diffusion (2024)",
+        "x": 4.51898193359375,
+        "y": 3.0716419219970703
+       },
+       {
+        "id": "paper:openalex:W4416749759",
+        "label": "확산 정책 ② Generalizable Humanoid Manipulation with 3D Diffusion Policies (2025)",
+        "x": 3.7508926391601562,
+        "y": 3.2631523609161377
+       }
+      ],
+      "total": 3
+     },
+     "isError": false
+    },
+    {
+     "type": "text",
+     "text": "지도를 RT-1 위치로 옮기고 라벨 3개를 달았습니다.\n\n**중심 논문**\n- **RT-1: Robotics Transformer for Real-World Control at Scale** (2023, 피인용 625) — 코퍼스 안에서 135편이 인용, 참고문헌은 34편. 지도 좌표 (4.62, 3.91), 주변은 \"Reinforcement Learning\"·\"Embodied Language Agents\" 주제 밀집 지대입니다.\n\n**RT-1을 인용한 확산 정책 연구 두 편**\n- **Crossway Diffusion: Improving Diffusion-based Visuomotor Policy via Self-supervised Learning** (2024, 피인용 19) — 자기지도 학습으로 확산 기반 시각운동 정책을 개선. RT-1 바로 아래쪽 (4.52, 3.07)로 거리가 가깝습니다.\n- **Generalizable Humanoid Manipulation with 3D Diffusion Policies** (2025, 피인용 17) — 3D 표현 기반 확산 정책을 휴머노이드 조작으로 확장. (3.75, 3.26)로 조금 더 떨어져 있습니다.\n\n둘 다 주제 클러스터는 76번 \"Reinforcement Learning\"으로, RT-1과 같은 로봇 학습 계열 안에 놓여 있습니다. 참고로 같은 인용 목록에 **NoMaD: Goal Masked Diffusion Policies for Navigation and Exploration** (2024, 피인용 125)도 있는데, 이쪽은 조작이 아니라 내비게이션 쪽이라 제외했습니다. 원하시면 NoMaD까지 포함해 세 편을 비교해 드릴까요?",
+     "status": {
+      "type": "complete",
+      "reason": "unknown"
+     }
+    }
+   ]
+  }
+ ]
+}

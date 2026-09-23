@@ -14,7 +14,7 @@ date: 2026-09-24
 
 | 파일 | 무엇을 |
 |---|---|
-| `video/src/data/agent-thread.json` | 새 파일. 실제 에이전트 대화 기록(앱 localStorage 형식) |
+| `video/src/recording/agent-thread.json` | 새 파일. 실제 에이전트 대화 기록(앱 localStorage 형식) |
 | `video/scripts/snapshot.mjs` | 기본 run·API를 인자로, `flow`·`lineage`(씨앗 RT-1) 추가 |
 | `video/scripts/sound.mjs` | 새 파일. 합성 사운드 WAV |
 | `video/src/timeline.ts` | 새 파일. 장면 경계 프레임, 자막 문구 |
