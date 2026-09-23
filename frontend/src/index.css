@@ -1220,10 +1220,17 @@ input:focus-visible,
   }
 }
 .region-name[data-active="true"] {
+  /* 처음 만들어질 때(연도 재생으로 첫 논문이 생길 때)도 켜짐과 같은 240ms 페이드인. */
+  animation: region-name-in 240ms var(--ease);
   pointer-events: auto;
   /* 이름 위에서도 지도처럼 끌 수 있다. 터치는 브라우저 스크롤에 넘기지 않는다. */
   cursor: grab;
   touch-action: none;
+}
+@keyframes region-name-in {
+  from {
+    opacity: 0;
+  }
 }
 .map-labels[data-dragging] .region-name {
   cursor: grabbing;
@@ -1393,9 +1400,10 @@ input:focus-visible,
   background: var(--foreground);
 }
 .year-window {
+  /* 축 위 전체(표식 위 빈 줄까지). 표식이 빽빽한 시대에도 그 위를 눌러 탐색할 수 있다. */
   position: absolute;
+  top: 0;
   bottom: 14px;
-  height: 22px;
   cursor: grab;
 }
 .year-range[data-dragging="window"] .year-window {
@@ -1439,9 +1447,43 @@ input:focus-visible,
 .year-thumb[data-kind="to"] .year-label {
   left: 3px;
 }
-.year-range[data-dragging] .year-label,
-.year-range[data-playing] .year-label {
+.year-range[data-dragging] .year-label {
   color: var(--warn);
+}
+/* 재생 헤드: from에서 지나는 자리까지 빨간 채움(범위 선 자리), 오른쪽 끝이 손잡이와
+   같은 치수의 빨간 세로선, 그 위에 지나는 해. 헤드가 있는 동안 손잡이 라벨은 겹치니
+   숨긴다. 폭은 YearRange가 프레임마다 직접 쓴다. */
+.year-playhead {
+  position: absolute;
+  bottom: 13px;
+  height: 19px;
+  box-sizing: border-box;
+  border-bottom: 2px solid var(--destructive);
+  pointer-events: none;
+}
+.year-playhead::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -3px;
+  width: 2px;
+  height: 22px;
+  background: var(--destructive);
+}
+.year-playhead-year {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 2px;
+  transform: translateX(50%);
+  font: 10px var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--destructive);
+  white-space: nowrap;
+  text-shadow: 0 0 4px var(--map-ground, #0c1118);
+}
+.year-range[data-head] .year-thumb .year-label {
+  display: none;
 }
 /* 주제 표식: 축 선 위에 선 주제 색 눈금. 범위 밖은 옅고, 호버·선택은 길어진다. */
 .year-markers {
