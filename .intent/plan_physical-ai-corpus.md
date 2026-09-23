@@ -29,7 +29,7 @@ date: 2026-09-24
 ## 작업 순서
 
 1. **코드.** 세트 정의, `devices.py`, 두 호출부, 테스트를 고친다.
-   - 확인: `PYTHONPATH=backend ../../.venv/bin/python -m unittest discover -s backend/tests -v` 통과
+   - 확인: `PYTHONPATH=$PWD/backend ../../.venv/bin/python -m unittest discover -s backend/tests -v` 통과
    - 확인: `constellation sets`에 두 세트가 보인다
    - 단독 커밋
 2. **의존성.** `uv pip install --python ../../.venv/bin/python sentence-transformers umap-learn hdbscan scikit-learn accelerate`
@@ -55,8 +55,8 @@ date: 2026-09-24
 ## 검증
 
 ```
-PYTHONPATH=backend ../../.venv/bin/python -m unittest discover -s backend/tests -v
-CONSTELLATION_DATA_DIR=/Users/minjaepark/code/Constellation/data/physical-ai PYTHONPATH=backend ../../.venv/bin/python -m constellation.cli stats
+PYTHONPATH=$PWD/backend ../../.venv/bin/python -m unittest discover -s backend/tests -v
+CONSTELLATION_DATA_DIR=/Users/minjaepark/code/Constellation/data/physical-ai PYTHONPATH=$PWD/backend ../../.venv/bin/python -m constellation.cli stats
 ../../target/debug/constellation-serve --db /Users/minjaepark/code/Constellation/data/physical-ai/constellation.duckdb --port 8003
 stat -f "%Sm %N" ../../data/constellation.duckdb ../../data/embeddings/* ../../data/models/*
 ```

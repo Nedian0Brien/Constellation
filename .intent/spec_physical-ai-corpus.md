@@ -59,7 +59,7 @@ date: 2026-09-24
 **실행 환경.**
 - `.venv`는 main 체크아웃과 같이 쓴다. `uv pip install -e .`를 워크트리에서 돌리면 editable 설치가 워크트리를 가리키게 되므로 하지 않는다.
 - 필요한 패키지만 설치한다: `sentence-transformers umap-learn hdbscan scikit-learn accelerate`
-- 파이프라인은 `PYTHONPATH=backend ../../.venv/bin/python -m constellation.cli …`로 워크트리 코드를 실행한다. `CONSTELLATION_DATA_DIR`는 명령마다 절대 경로로 준다.
+- 파이프라인은 `PYTHONPATH=$PWD/backend ../../.venv/bin/python -m constellation.cli …`로 워크트리 코드를 실행한다. `CONSTELLATION_DATA_DIR`는 명령마다 절대 경로로 준다.
 - `accelerate`는 `device_map`에 필요하다. pyproject의 `embed` extra에 추가한다.
 
 **실행 순서.** 명령은 모두 `CONSTELLATION_DATA_DIR=…/data/physical-ai`로 실행한다.

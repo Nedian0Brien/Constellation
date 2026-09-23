@@ -150,12 +150,14 @@ class LocalNamer:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        from ..devices import pick_device
+
         self.model_id = model_id
         log("모델 로딩: %s%s" % (model_id, " (4bit)" if load_4bit else ""))
         self.tok = AutoTokenizer.from_pretrained(model_id)
         kw: dict[str, Any] = {
             "dtype": torch.bfloat16,
-            "device_map": "cuda" if torch.cuda.is_available() else "cpu",
+            "device_map": pick_device(torch),
         }
         if load_4bit:
             # 14B를 bf16으로 올리면 28GB라 16GB 카드에 안 들어간다.
@@ -170,7 +172,10 @@ class LocalNamer:
         self.model = AutoModelForCausalLM.from_pretrained(model_id, **kw)
         self.model.eval()
         dev = next(self.model.parameters()).device
-        log("  장치 %s · %.1fGB" % (dev, torch.cuda.memory_allocated() / 1e9))
+        if dev.type == "cuda":
+            log("  장치 %s · %.1fGB" % (dev, torch.cuda.memory_allocated() / 1e9))
+        else:
+            log("  장치 %s" % dev)
 
     def name(self, prompt: str) -> str:
         import torch

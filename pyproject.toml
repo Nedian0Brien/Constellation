@@ -18,6 +18,8 @@ embed = [
     "umap-learn>=0.5.6",
     "hdbscan>=0.8.38",
     "scikit-learn>=1.5",
+    # LLM 이름 짓기(`name`)의 device_map에 필요하다.
+    "accelerate>=1.0",
 ]
 
 [project.scripts]
