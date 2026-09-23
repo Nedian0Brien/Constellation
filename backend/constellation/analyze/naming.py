@@ -43,7 +43,8 @@ Progress = Callable[[str], None]
 
 DEFAULT_BACKEND = "codex"
 # 모델 slug는 ~/.codex/models_cache.json 과 `claude --help`(별칭)에서 확인했다.
-DEFAULT_MODELS = {"codex": "gpt-5.6-luna", "claude": "opus"}
+# codex 기본은 gpt-6-luna(2026-09-24 사용자 지시, models_cache.json에 있음).
+DEFAULT_MODELS = {"codex": "gpt-6-luna", "claude": "opus"}
 CLI_TIMEOUT = 600
 
 # 영어로 뽑는다.
