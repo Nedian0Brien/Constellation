@@ -15,17 +15,19 @@ date: 2026-09-24
 | 파일 | 무엇을 |
 |---|---|
 | `video/package.json`, `video/package-lock.json` | 새 파일. remotion·@remotion/cli 4.0.527, react 19, deck.gl 9.3.10. `overrides`로 `@luma.gl/*`를 frontend lockfile과 같은 9.3.6에 고정한다(새로 풀면 `@luma.gl/webgl`만 9.4.2로 올라가 번들이 깨졌다). 스크립트는 `snapshot`·`studio`·`render`·`typecheck` |
-| `video/tsconfig.json` | 새 파일. `../frontend/src/views/map`·`../frontend/src/api.ts`·`../frontend/src/store.ts`를 include |
+| `video/tsconfig.json` | 새 파일. `paths`로 `@deck.gl/*`를 이 패키지 설치본에, `@tauri-apps/api/*`를 frontend 설치본에 묶는다(frontend 파일은 import로 따라 들어온다) |
 | `video/remotion.config.ts` | 새 파일. ANGLE, scale 1.5, `@deck.gl/*` alias |
 | `video/.gitignore` | 새 파일. `public/data/`, `out/`, `node_modules/` |
 | `video/scripts/snapshot.mjs` | 새 파일. API JSON을 `public/data/`에 저장 |
 | `video/src/index.ts`, `video/src/Root.tsx` | 새 파일. 컴포지션 등록 |
 | `video/src/map/frame-sync.ts` | 새 파일. 프레임마다 `delayRender` → `redraw` → `onAfterRender`에서 해제 |
-| `video/src/data.ts` | 새 파일. `staticFile` JSON 로드(`useDelayRender`), 대상 분야·논문 선택 |
+| `video/src/data.ts` | 새 파일. `staticFile` JSON 로드(`useDelayRender`) |
+| `video/src/map/model.ts` | 새 파일. 프레임과 무관한 값(점·제목 치수·reveal·영역·인용 색인)과 `pickTargets` |
 | `video/src/map/MapScene.tsx` | 새 파일. deck.gl 장면과 영역 이름 오버레이, 프레임 동기화 |
-| `video/src/scenes/MapDive.tsx` | 새 파일. 프레임 → 카메라·인용선 앞머리 |
+| `video/src/scenes/MapDive.tsx` | 새 파일. 프레임 → 카메라·인용선 앞머리. props `paperId` |
 | `video/src/styles.css` | 새 파일. `tokens.css` import, `.region-name` 값(transition 없음) |
 | `video/STORYBOARD.md` | 새 파일. 30초 티저 장면 구성 초안 |
+| `frontend/src/views/map/placement.test.ts` | 새 파일. `placeRegionLabels`·`titleMetrics` 단위 테스트 |
 | `frontend/src/views/map/style.ts` | 새 파일. `MapView.tsx`의 점·인용선·제목 상수와 `titleTypography`·`titleFontRenderer`를 그대로 옮긴다 |
 | `frontend/src/views/map/titles.ts` | 새 파일. `titleMetrics(map, measure, characterSet)` |
 | `frontend/src/views/map/labels.ts` | `placeRegionLabels` 추가 |

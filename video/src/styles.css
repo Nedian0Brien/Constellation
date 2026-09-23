@@ -1,0 +1,74 @@
+/* 앱의 디자인 토큰(순수 CSS)을 그대로 쓴다. titleTypography()가 body의 글자색과
+   --font-mono를 읽는다. */
+@import "../../frontend/src/styles/tokens.css";
+
+html,
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* 아래 두 규칙은 frontend/src/index.css(tailwind라 영상 번들에서 읽지 못한다)의
+   값을 옮긴 것이다. 실행 중인 앱에서 getComputedStyle로 잰 값과 같다(2026-09-24).
+   앱에서 바꾸면 여기도 바꾼다. */
+
+/* index.css `.map-wrap`: 남색 바탕, 480×400 칸마다 십자, 모서리 크롭 마크. */
+.map-ground {
+  position: absolute;
+  inset: 0;
+  --map-ground: #0c1118;
+  --map-mark: rgb(255 255 255 / 0.16);
+  background-color: var(--map-ground);
+  background-image:
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='400'%3E%3Cg stroke='rgba(255,255,255,0.16)'%3E%3Cpath d='M220 200.5h40M240.5 180v40'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat:
+    no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat,
+    no-repeat, repeat;
+  background-size:
+    56px 1px,
+    1px 56px,
+    56px 1px,
+    1px 56px,
+    56px 1px,
+    1px 56px,
+    56px 1px,
+    1px 56px,
+    480px 400px;
+  background-position:
+    18px 18px,
+    18px 18px,
+    right 18px top 18px,
+    right 18px top 18px,
+    18px bottom 18px,
+    18px bottom 18px,
+    right 18px bottom 18px,
+    right 18px bottom 18px,
+    center;
+}
+
+/* index.css `.region-name`(1197행)과 뒤의 덮어쓰기(1776행): Georgia 20px/1.15,
+   최대 폭 205px. 영상에서는 transition·animation을 뺀다 — 불투명도는 프레임에서
+   계산한다. */
+.region-name {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: 205px;
+  width: max-content;
+  padding: 4px;
+  color: var(--foreground);
+  font: 20px/1.15 var(--font-region);
+  text-align: center;
+  text-shadow:
+    0 1px 5px var(--background),
+    0 0 12px var(--background);
+  pointer-events: none;
+}

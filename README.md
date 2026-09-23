@@ -117,6 +117,20 @@ npm --prefix frontend run test:e2e
 
 브라우저 검사는 기존 SciNCL 데이터와 다른 모델의 투영 결과를 사용한다. API 테스트는 임시 DB에서 실행한다. 상세 결과는 [검증 기록](docs/PRODUCT-FOUNDATION-QA.md)에 남긴다.
 
+## 홍보 영상
+
+`video/`는 Remotion 프로젝트다. 연구 지도를 앱과 같은 렌더링 코드(`frontend/src/views/map/`)로 프레임마다 그려 MP4로 낸다. 1280×720 컴포지션을 기기 픽셀 비율 1.5로 렌더해 1920×1080이 나온다.
+
+```sh
+npm --prefix video ci
+cargo run -p constellation-serve -- --db data/constellation.duckdb   # 스냅샷을 받을 API
+npm --prefix video run snapshot   # /api 응답을 video/public/data/에 저장(git 밖)
+npm --prefix video run studio     # 미리보기
+npm --prefix video run render     # video/out/map-dive.mp4
+```
+
+장면 구성과 남은 작업은 [스토리보드](video/STORYBOARD.md)에 있다. 개인·3인 이하 조직은 Remotion을 무료로 쓰고, 그보다 큰 회사는 [회사 라이선스](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md)가 필요하다.
+
 ## 문서
 
 - [디자인 시스템](docs/design-system/index.html) · [CSS 토큰](docs/design-system/constellation-tokens.css)

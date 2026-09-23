@@ -17,7 +17,9 @@ async function get(path) {
 
 const runs = await get("/runs");
 if (!runs.some((r) => r.run_id === run))
-  throw new Error(`run ${run}이 없다. 있는 run: ${runs.map((r) => r.run_id).join(", ")}`);
+  throw new Error(
+    `run ${run}이 없다. 있는 run: ${runs.map((r) => r.run_id).join(", ")}`,
+  );
 const q = "?run=" + encodeURIComponent(run);
 await mkdir(out, { recursive: true });
 for (const [name, path] of [
