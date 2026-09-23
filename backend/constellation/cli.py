@@ -209,7 +209,7 @@ def name(
     model: str = typer.Option("scincl", "--model", "-m", help="임베딩 모델(run 선택용)"),
     backend: str = typer.Option("codex", "--backend", help="codex 또는 claude CLI"),
     llm: str | None = typer.Option(None, "--llm",
-                                   help="모델. 기본 codex=gpt-5.6-luna, claude=opus"),
+                                   help="모델. 기본 codex=gpt-6-luna, claude=opus"),
     internal_only: bool = typer.Option(False, "--internal-only",
                                        help="내부 노드만. 잎은 현재 라벨 유지"),
 ) -> None:
