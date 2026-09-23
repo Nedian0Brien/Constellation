@@ -1,0 +1,1263 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Constellation</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@400;800&display=swap">
+<script src="../data.js"></script>
+<script src="src/common.js"></script>
+</head>
+<body>
+<script>
+/* BEGIN MOTION ENGINE v2 — js-motion-video/engine/motion.js. Replace with `node tool/new.mjs --update <file>` */
+(function (global) {
+'use strict';
+
+// Every frame is a pure function of t (seconds). Nothing here reads the wall clock
+// while drawing, and every random number comes from a seeded generator, so the
+// live player and the frame-by-frame export produce the same picture.
+//
+// The engine is style-neutral: it provides mechanisms only. Colour, type, blend,
+// effect strength, easing and every other aesthetic value must be passed by the
+// caller; a missing one throws an error that names it.
+
+const TAU = Math.PI * 2;
+const RENDER = typeof location !== 'undefined' && new URLSearchParams(location.search).has('render');
+
+function fail(where, msg) { throw new Error(`${where}: ${msg}`); }
+function need(o, names, where) {
+  for (const n of names) {
+    const v = n.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o);
+    if (v === undefined || v === null) fail(where, `${n} 값이 필요합니다. 이 도구는 미적 기본값을 두지 않습니다 (references/engine.md).`);
+  }
+}
+// ─── Math ───────────────────────────────────────────────────────────────
+const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (t) => t * t * (3 - 2 * t);
+const ease = {
+  linear: (t) => t,
+  inQuad: (t) => t * t,
+  outQuad: (t) => 1 - (1 - t) * (1 - t),
+  inOutQuad: (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2,
+  inCubic: (t) => t * t * t,
+  outCubic: (t) => 1 - Math.pow(1 - t, 3),
+  inOutCubic: (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
+  outQuart: (t) => 1 - Math.pow(1 - t, 4),
+  inOutQuart: (t) => t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2,
+  outExpo: (t) => t >= 1 ? 1 : 1 - Math.pow(2, -10 * t),
+  inOutExpo: (t) => t <= 0 ? 0 : t >= 1 ? 1 : t < 0.5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2,
+  inOutSine: (t) => -(Math.cos(Math.PI * t) - 1) / 2,
+  smooth,
+};
+const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+
+function rng(seed) {
+  let a = seed | 0;
+  const next = () => {
+    a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+  next.gauss = () => { const u = 1 - next(), v = next(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v); };
+  return next;
+}
+
+const mixVal = (a, b, e) => Array.isArray(a) ? a.map((v, j) => lerp(v, b[j], e)) : lerp(a, b, e);
+
+// keys(t, [[t0, v0], [t1, v1], ...], easeFn) — values are numbers or arrays.
+function keys(t, frames, e) {
+  if (typeof e !== 'function') fail('M.keys', 'ease 함수가 필요합니다 (예: M.ease.linear). 이 도구는 미적 기본값을 두지 않습니다.');
+  if (t <= frames[0][0]) return frames[0][1];
+  const last = frames[frames.length - 1];
+  if (t >= last[0]) return last[1];
+  let k = 0;
+  while (t >= frames[k + 1][0]) k++;
+  const A = frames[k], B = frames[k + 1];
+  return mixVal(A[1], B[1], e((t - A[0]) / (B[0] - A[0])));
+}
+
+// spline(t, frames, easeFn) — Catmull-Rom through the key values, so a camera path
+// passes every key without stopping. easeFn reshapes time inside each segment.
+function spline(t, frames, e = ease.linear) {
+  if (t <= frames[0][0]) return frames[0][1];
+  const n = frames.length;
+  if (t >= frames[n - 1][0]) return frames[n - 1][1];
+  let k = 0;
+  while (t >= frames[k + 1][0]) k++;
+  const u = e((t - frames[k][0]) / (frames[k + 1][0] - frames[k][0]));
+  const P = (j) => frames[clamp(j, 0, n - 1)][1];
+  const cr = (p0, p1, p2, p3) => 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u + (-p0 + 3 * p1 - 3 * p2 + p3) * u * u * u);
+  const p0 = P(k - 1), p1 = P(k), p2 = P(k + 1), p3 = P(k + 2);
+  return Array.isArray(p1) ? p1.map((_, j) => cr(p0[j], p1[j], p2[j], p3[j])) : cr(p0, p1, p2, p3);
+}
+
+// span(t, tin, tout, { inDur, outDur, easeIn, easeOut }) — visibility 0..1 of an element
+// that enters at tin and leaves at tout (tout null = stays).
+function span(t, tin, tout, o = {}) {
+  need(o, ['inDur', 'easeIn'], 'M.span');
+  if (tout != null) need(o, ['outDur', 'easeOut'], 'M.span');
+  const a = o.easeIn(clamp((t - tin) / o.inDur));
+  const b = tout == null ? 0 : o.easeOut(clamp((t - tout) / o.outDur));
+  return a * (1 - b);
+}
+
+// shake(t, amp, seed) — handheld drift from incommensurate sines. Deterministic.
+function shake(t, amp, seed = 1) {
+  if (amp == null) fail('M.shake', 'amp 값이 필요합니다.');
+  const s = seed * 17.3;
+  return amp * (Math.sin(t * 1.31 + s) + 0.5 * Math.sin(t * 3.73 + s * 1.7) + 0.25 * Math.sin(t * 7.19 + s * 2.3)) / 1.75;
+}
+
+const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
+
+
+// stagger(i, n, { order, seed }) → 0..1 position of item i in the chosen order.
+const permCache = new Map();
+function stagger(i, n, o = {}) {
+  need(o, ['order'], 'M.stagger');
+  if (n <= 1) return 0;
+  const u = i / (n - 1);
+  switch (o.order) {
+    case 'start': return u;
+    case 'end': return 1 - u;
+    case 'center': return Math.abs(u - 0.5) * 2;
+    case 'edges': return 1 - Math.abs(u - 0.5) * 2;
+    case 'random': {
+      const key = n + ':' + (o.seed | 0);
+      let perm = permCache.get(key);
+      if (!perm) {
+        const r = rng(o.seed | 0); perm = Array.from({ length: n }, (_, k) => k);
+        for (let k = n - 1; k > 0; k--) { const j = Math.floor(r() * (k + 1)); [perm[k], perm[j]] = [perm[j], perm[k]]; }
+        permCache.set(key, perm);
+      }
+      return perm[i] / (n - 1);
+    }
+    default: return fail('M.stagger', `order는 start · end · center · edges · random 중 하나입니다 (${o.order}).`);
+  }
+}
+
+// count(v, { decimals, separator }) — number → string for counters.
+function count(v, { decimals = 0, separator = '' } = {}) {
+  const s = Math.abs(v).toFixed(decimals);
+  const [int, frac] = s.split('.');
+  const grouped = separator ? int.replace(/\B(?=(\d{3})+(?!\d))/g, separator) : int;
+  return (v < 0 ? '-' : '') + grouped + (frac ? '.' + frac : '');
+}
+
+// rot3(x, y, z, { yaw, pitch, roll }) → [x, y, z]; yaw about y, then pitch about x, then roll about z.
+function rot3(x, y, z, { yaw = 0, pitch = 0, roll = 0 } = {}) {
+  let c = Math.cos(yaw), s = Math.sin(yaw);
+  [x, z] = [x * c + z * s, -x * s + z * c];
+  c = Math.cos(pitch); s = Math.sin(pitch);
+  [y, z] = [y * c - z * s, y * s + z * c];
+  c = Math.cos(roll); s = Math.sin(roll);
+  [x, y] = [x * c - y * s, x * s + y * c];
+  return [x, y, z];
+}
+
+// noise(x, y, z, seed) — seeded 3D gradient (Perlin) noise, roughly −1..1.
+const noisePerm = new Map();
+function perm(seed) {
+  let p = noisePerm.get(seed);
+  if (p) return p;
+  const r = rng(seed), base = Array.from({ length: 256 }, (_, k) => k);
+  for (let k = 255; k > 0; k--) { const j = Math.floor(r() * (k + 1)); [base[k], base[j]] = [base[j], base[k]]; }
+  p = new Uint8Array(512); for (let k = 0; k < 512; k++) p[k] = base[k & 255];
+  noisePerm.set(seed, p);
+  return p;
+}
+const fadeN = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+function gradN(h, x, y, z) {
+  const u = (h & 15) < 8 ? x : y, v = (h & 15) < 4 ? y : ((h & 15) === 12 || (h & 15) === 14) ? x : z;
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+function noise(x, y = 0, z = 0, seed = 0) {
+  const p = perm(seed | 0);
+  const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+  x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+  const u = fadeN(x), v = fadeN(y), w = fadeN(z);
+  const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z, B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+  return lerp(lerp(lerp(gradN(p[AA], x, y, z), gradN(p[BA], x - 1, y, z), u),
+    lerp(gradN(p[AB], x, y - 1, z), gradN(p[BB], x - 1, y - 1, z), u), v),
+  lerp(lerp(gradN(p[AA + 1], x, y, z - 1), gradN(p[BA + 1], x - 1, y, z - 1), u),
+    lerp(gradN(p[AB + 1], x, y - 1, z - 1), gradN(p[BB + 1], x - 1, y - 1, z - 1), u), v), w);
+}
+// fbm(x, y, z, { octaves, lacunarity, gain, seed }) — layered noise.
+function fbm(x, y, z, o = {}) {
+  need(o, ['octaves'], 'M.fbm');
+  const lac = o.lacunarity ?? 2, gain = o.gain ?? 0.5;
+  let sum = 0, amp = 1, freq = 1, norm = 0;
+  for (let k = 0; k < o.octaves; k++) { sum += amp * noise(x * freq, y * freq, z * freq, (o.seed | 0) + k); norm += amp; amp *= gain; freq *= lac; }
+  return sum / norm;
+}
+
+// grid({ cols, rows, x, y, w, h, gutter }) — cells of a layout grid; x, y is the top-left.
+function grid(o) {
+  need(o, ['cols', 'rows', 'x', 'y', 'w', 'h'], 'M.grid');
+  const g = o.gutter || 0, cw = (o.w - g * (o.cols - 1)) / o.cols, ch = (o.h - g * (o.rows - 1)) / o.rows, out = [];
+  for (let r = 0; r < o.rows; r++) for (let c = 0; c < o.cols; c++) {
+    const x = o.x + c * (cw + g), y = o.y + r * (ch + g);
+    out.push({ i: out.length, col: c, row: r, x, y, w: cw, h: ch, cx: x + cw / 2, cy: y + ch / 2 });
+  }
+  return out;
+}
+// ─── Paths and shapes ───────────────────────────────────────────────────
+// path(svgD | [[x, y], …], { step, closed }) — flattened lazily (needs the DOM) into
+// polylines with cumulative lengths. Absolute M commands start new subpaths.
+function path(src, { step = 2, closed = false } = {}) {
+  let subs = null, total = 0, p2d = null;
+  const build = () => {
+    if (subs) return;
+    let lines;
+    if (typeof src === 'string') {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      lines = src.split(/(?=M)/).filter((d) => d.trim()).map((d) => {
+        el.setAttribute('d', d);
+        const L = el.getTotalLength(), n = Math.max(2, Math.ceil(L / step) + 1), pts = [];
+        for (let k = 0; k < n; k++) { const q = el.getPointAtLength(L * k / (n - 1)); pts.push([q.x, q.y]); }
+        return pts;
+      });
+    } else {
+      lines = [closed ? [...src, src[0]] : src.slice()];
+    }
+    subs = lines.map((pts) => {
+      const cum = [0];
+      for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+      return { pts, cum, len: cum[cum.length - 1] };
+    });
+    total = subs.reduce((a, s) => a + s.len, 0);
+  };
+  const locate = (d) => {
+    build();
+    d = clamp(d, 0, total);
+    for (const s of subs) {
+      if (d <= s.len || s === subs[subs.length - 1]) {
+        let lo = 0, hi = s.cum.length - 1;
+        while (hi - lo > 1) { const m = (lo + hi) >> 1; if (s.cum[m] <= d) lo = m; else hi = m; }
+        const seg = s.cum[hi] - s.cum[lo] || 1, f = (d - s.cum[lo]) / seg, A = s.pts[lo], B = s.pts[hi];
+        return { x: lerp(A[0], B[0], f), y: lerp(A[1], B[1], f), angle: Math.atan2(B[1] - A[1], B[0] - A[0]) };
+      }
+      d -= s.len;
+    }
+  };
+  const P = {
+    get length() { build(); return total; },
+    closed,
+    at(u) { return locate(u * P.length); },
+    // slice(a, b) → polylines covering the fraction range [a, b] of the total length.
+    slice(a, b) {
+      build();
+      const out = []; let off = 0; const A = clamp(a) * total, B = clamp(b) * total;
+      for (const s of subs) {
+        const s0 = Math.max(A, off), s1 = Math.min(B, off + s.len);
+        if (s1 > s0) {
+          const line = [], la = s0 - off, lb = s1 - off, at = (d) => {
+            let k = 1; while (k < s.cum.length - 1 && s.cum[k] < d) k++;
+            const f = (d - s.cum[k - 1]) / ((s.cum[k] - s.cum[k - 1]) || 1);
+            return [lerp(s.pts[k - 1][0], s.pts[k][0], f), lerp(s.pts[k - 1][1], s.pts[k][1], f)];
+          };
+          line.push(at(la));
+          for (let k = 0; k < s.pts.length; k++) if (s.cum[k] > la && s.cum[k] < lb) line.push(s.pts[k]);
+          line.push(at(lb));
+          out.push(line);
+        }
+        off += s.len;
+      }
+      return out;
+    },
+    resample(n) {
+      const out = [];
+      for (let k = 0; k < n; k++) { const q = locate(P.length * k / (closed ? n : Math.max(1, n - 1))); out.push([q.x, q.y]); }
+      return out;
+    },
+    path2d() {
+      if (p2d) return p2d;
+      if (typeof src === 'string') return (p2d = new Path2D(src));
+      build(); p2d = new Path2D();
+      for (const s of subs) s.pts.forEach(([x, y], k) => (k ? p2d.lineTo(x, y) : p2d.moveTo(x, y)));
+      if (closed) p2d.closePath();
+      return p2d;
+    },
+  };
+  return P;
+}
+
+// morph(a, b, e, { n }) — interpolate two paths resampled to the same point count.
+// Works best with single outlines whose start points sit in similar places.
+function morph(a, b, e, { n = 240 } = {}) {
+  const key = '_rs' + n;
+  const A = a[key] || (a[key] = a.resample(n)), B = b[key] || (b[key] = b.resample(n));
+  return path(A.map((p, k) => [lerp(p[0], B[k][0], e), lerp(p[1], B[k][1], e)]), { closed: a.closed && b.closed });
+}
+
+const f6 = (v) => +v.toFixed(3);
+const shape = {
+  rect: ({ cx = 0, cy = 0, w, h }) => { need({ w, h }, ['w', 'h'], 'M.shape.rect'); const x = cx - w / 2, y = cy - h / 2; return path(`M${f6(x)} ${f6(y)}H${f6(x + w)}V${f6(y + h)}H${f6(x)}Z`, { closed: true }); },
+  roundRect: ({ cx = 0, cy = 0, w, h, r }) => {
+    need({ w, h, r }, ['w', 'h', 'r'], 'M.shape.roundRect');
+    const x = cx - w / 2, y = cy - h / 2, R = Math.min(r, w / 2, h / 2);
+    return path(`M${f6(x + R)} ${f6(y)}H${f6(x + w - R)}A${R} ${R} 0 0 1 ${f6(x + w)} ${f6(y + R)}V${f6(y + h - R)}A${R} ${R} 0 0 1 ${f6(x + w - R)} ${f6(y + h)}H${f6(x + R)}A${R} ${R} 0 0 1 ${f6(x)} ${f6(y + h - R)}V${f6(y + R)}A${R} ${R} 0 0 1 ${f6(x + R)} ${f6(y)}Z`, { closed: true });
+  },
+  ellipse: ({ cx = 0, cy = 0, rx, ry, rotation = 0 }) => {
+    need({ rx, ry }, ['rx', 'ry'], 'M.shape.ellipse');
+    const deg = rotation * 180 / Math.PI, c = Math.cos(rotation), s = Math.sin(rotation);
+    const x1 = cx + rx * c, y1 = cy + rx * s, x2 = cx - rx * c, y2 = cy - rx * s;
+    return path(`M${f6(x1)} ${f6(y1)}A${rx} ${ry} ${f6(deg)} 1 1 ${f6(x2)} ${f6(y2)}A${rx} ${ry} ${f6(deg)} 1 1 ${f6(x1)} ${f6(y1)}Z`, { closed: true });
+  },
+  circle: ({ cx = 0, cy = 0, r }) => { need({ r }, ['r'], 'M.shape.circle'); return shape.ellipse({ cx, cy, rx: r, ry: r }); },
+  polygon: ({ cx = 0, cy = 0, r, sides, rotation = 0 }) => {
+    need({ r, sides }, ['r', 'sides'], 'M.shape.polygon');
+    return path(Array.from({ length: sides }, (_, k) => { const a = rotation - Math.PI / 2 + k * TAU / sides; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; }), { closed: true });
+  },
+  star: ({ cx = 0, cy = 0, r1, r2, points: n, rotation = 0 }) => {
+    need({ r1, r2, n }, ['r1', 'r2', 'n'], 'M.shape.star');
+    return path(Array.from({ length: n * 2 }, (_, k) => { const a = rotation - Math.PI / 2 + k * Math.PI / n, r = k % 2 ? r2 : r1; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; }), { closed: true });
+  },
+};
+
+// ─── Paint ──────────────────────────────────────────────────────────────
+// gradient(ctx, { type, stops, … }) — linear {x0,y0,x1,y1} · radial {x0,y0,r0,x1,y1,r1} · conic {angle,x,y}
+function gradient(ctx, o) {
+  need(o, ['type', 'stops'], 'M.gradient');
+  let g;
+  if (o.type === 'linear') { need(o, ['x0', 'y0', 'x1', 'y1'], 'M.gradient(linear)'); g = ctx.createLinearGradient(o.x0, o.y0, o.x1, o.y1); }
+  else if (o.type === 'radial') { need(o, ['x0', 'y0', 'r0', 'x1', 'y1', 'r1'], 'M.gradient(radial)'); g = ctx.createRadialGradient(o.x0, o.y0, o.r0, o.x1, o.y1, o.r1); }
+  else if (o.type === 'conic') { need(o, ['angle', 'x', 'y'], 'M.gradient(conic)'); g = ctx.createConicGradient(o.angle, o.x, o.y); }
+  else fail('M.gradient', `type은 linear · radial · conic 중 하나입니다 (${o.type}).`);
+  for (const [off, c] of o.stops) g.addColorStop(off, c);
+  return g;
+}
+const toPath2D = (p) => (p instanceof Path2D ? p : p.path2d());
+// fill(ctx, path, paint) — paint is a CSS colour or a gradient.
+function fill(ctx, p, paint) {
+  if (paint == null) fail('M.fill', 'paint 값이 필요합니다. 이 도구는 미적 기본값을 두지 않습니다 (references/materials.md).');
+  ctx.save(); ctx.fillStyle = paint; ctx.fill(toPath2D(p)); ctx.restore();
+}
+// stroke(ctx, path, { from, to, width, color, cap, join, dash, dashOffset }) — draw-on
+// by trimming the path to the length fraction [from, to].
+function stroke(ctx, p, o = {}) {
+  need(o, ['width', 'color'], 'M.stroke');
+  const a = o.from ?? 0, b = o.to ?? 1;
+  if (b <= a) return;
+  ctx.save();
+  ctx.lineWidth = o.width; ctx.strokeStyle = o.color;
+  if (o.cap) ctx.lineCap = o.cap;
+  if (o.join) ctx.lineJoin = o.join;
+  if (o.dash) { ctx.setLineDash(o.dash); ctx.lineDashOffset = o.dashOffset || 0; }
+  if (p instanceof Path2D) ctx.stroke(p);
+  else if (a <= 0 && b >= 1) ctx.stroke(p.path2d());
+  else {
+    for (const line of p.slice(a, b)) { ctx.beginPath(); line.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); }
+  }
+  ctx.restore();
+}
+
+// image(ctx, img, { cx, cy, w, h, fit, crop, alpha }) — draw an image into a box.
+function image(ctx, img, o = {}) {
+  need(o, ['w', 'h', 'fit'], 'M.image');
+  const cx = o.cx || 0, cy = o.cy || 0;
+  const cr = o.crop || { x: 0, y: 0, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height };
+  let w = o.w, h = o.h;
+  if (o.fit !== 'fill') {
+    const k = (o.fit === 'cover' ? Math.max : Math.min)(o.w / cr.w, o.h / cr.h);
+    if (o.fit !== 'cover' && o.fit !== 'contain') fail('M.image', `fit은 cover · contain · fill 중 하나입니다 (${o.fit}).`);
+    w = cr.w * k; h = cr.h * k;
+  }
+  ctx.save();
+  if (o.alpha != null) ctx.globalAlpha *= o.alpha;
+  if (o.fit === 'cover') { ctx.beginPath(); ctx.rect(cx - o.w / 2, cy - o.h / 2, o.w, o.h); ctx.clip(); }
+  ctx.drawImage(img, cr.x, cr.y, cr.w, cr.h, cx - w / 2, cy - h / 2, w, h);
+  ctx.restore();
+}
+
+// Wipes return mask painters for film.layer({ mask }). Coordinates are film units.
+const wipe = {
+  // linear({ angle, progress, soft, box }) — a straight edge sweeping along angle across
+  // the frame, or across box { x, y, w, h } (film units, current transform) when given.
+  linear(o) {
+    need(o, ['angle', 'progress'], 'M.wipe.linear');
+    return (m) => {
+      const T = m.getTransform(), k = Math.hypot(T.a, T.b), soft = (o.soft || 0) * k;
+      let cx = m.canvas.width / 2, cy = m.canvas.height / 2, D = Math.hypot(m.canvas.width, m.canvas.height) / 2;
+      if (o.box) { const q = T.transformPoint(new DOMPoint(o.box.x + o.box.w / 2, o.box.y + o.box.h / 2)); cx = q.x; cy = q.y; D = Math.hypot(o.box.w, o.box.h) / 2 * k; }
+      const s = -D - soft / 2 + clamp(o.progress) * (2 * D + soft);
+      m.save(); m.setTransform(1, 0, 0, 1, cx, cy); m.rotate(o.angle);
+      if (soft > 0) { const g = m.createLinearGradient(s - soft / 2, 0, s + soft / 2, 0); g.addColorStop(0, '#000'); g.addColorStop(1, 'rgba(0,0,0,0)'); m.fillStyle = g; }
+      else m.fillStyle = '#000';
+      m.fillRect(-D - soft, -D - soft, (s + (soft > 0 ? soft / 2 : 0)) + D + soft, 2 * (D + soft));
+      m.restore();
+    };
+  },
+  // iris({ x, y, progress, soft, box }) — a circle growing from (x, y) until it covers the
+  // frame, or box { x, y, w, h } when given.
+  iris(o) {
+    need(o, ['x', 'y', 'progress'], 'M.wipe.iris');
+    return (m) => {
+      const T = m.getTransform(), k = Math.hypot(T.a, T.b), q = T.transformPoint(new DOMPoint(o.x, o.y));
+      const corners = o.box
+        ? [[o.box.x, o.box.y], [o.box.x + o.box.w, o.box.y], [o.box.x, o.box.y + o.box.h], [o.box.x + o.box.w, o.box.y + o.box.h]].map(([x, y]) => T.transformPoint(new DOMPoint(x, y)))
+        : [[0, 0], [m.canvas.width, 0], [0, m.canvas.height], [m.canvas.width, m.canvas.height]].map(([x, y]) => ({ x, y }));
+      const R = Math.max(...corners.map((c) => Math.hypot(c.x - q.x, c.y - q.y)));
+      const soft = (o.soft || 0) * k, r = clamp(o.progress) * (R + soft);
+      m.save(); m.setTransform(1, 0, 0, 1, 0, 0);
+      if (soft > 0) { const g = m.createRadialGradient(q.x, q.y, Math.max(0, r - soft), q.x, q.y, Math.max(0.01, r)); g.addColorStop(0, '#000'); g.addColorStop(1, 'rgba(0,0,0,0)'); m.fillStyle = g; }
+      else m.fillStyle = '#000';
+      m.beginPath(); m.arc(q.x, q.y, Math.max(0, r), 0, TAU); m.fill();
+      m.restore();
+    };
+  },
+  // shape(path, scale, { cx, cy }) — a shape scaled about (cx, cy); scale 0 hides everything.
+  shape(p, scale, { cx = 0, cy = 0 } = {}) {
+    if (scale == null) fail('M.wipe.shape', 'scale 값이 필요합니다.');
+    return (m) => { m.save(); m.translate(cx, cy); m.scale(scale, scale); m.translate(-cx, -cy); m.fillStyle = '#000'; m.fill(toPath2D(p)); m.restore(); };
+  },
+};
+// ─── Text ───────────────────────────────────────────────────────────────
+const layoutCache = new Map();
+function layout(ctx, segs) {
+  const key = segs.map((s) => s.font + '|' + (s.track || 0) + '|' + s.text).join('§');
+  let L = layoutCache.get(key);
+  if (L) return L;
+  const chars = []; let w = 0, lastTrack = 0, asc = 0, desc = 0;
+  ctx.save();
+  for (const s of segs) {
+    if (!s.font) fail('M.text', 'segs의 각 항목에 font가 필요합니다.');
+    ctx.font = s.font; ctx.letterSpacing = (s.track || 0) + 'px';
+    const cps = [...s.text];
+    for (let j = 0; j < cps.length; j++) {
+      // Prefix widths keep the font's kerning even though characters are drawn one by one.
+      chars.push({ ch: cps[j], x: w + ctx.measureText(cps.slice(0, j).join('')).width, s });
+    }
+    const m = ctx.measureText(s.text);
+    asc = Math.max(asc, m.fontBoundingBoxAscent || 0); desc = Math.max(desc, m.fontBoundingBoxDescent || 0);
+    w += m.width; lastTrack = s.track || 0;
+  }
+  ctx.restore();
+  chars.forEach((c, k) => { c.w = (k + 1 < chars.length ? chars[k + 1].x : w) - c.x; });
+  L = { chars, w: w - lastTrack, asc, desc, units: {} };
+  layoutCache.set(key, L);
+  return L;
+}
+function unitsOf(L, split) {
+  if (L.units[split]) return L.units[split];
+  let u;
+  if (split === 'char') u = L.chars.map((_, k) => [k]);
+  else if (split === 'line') u = [L.chars.map((_, k) => k)];
+  else if (split === 'word') {
+    u = []; let cur = [];
+    L.chars.forEach((c, k) => { if (/\s/.test(c.ch)) { if (cur.length) u.push(cur); cur = []; } else cur.push(k); });
+    if (cur.length) u.push(cur);
+  } else fail('M.text', `split은 char · word · line 중 하나입니다 (${split}).`);
+  return (L.units[split] = u);
+}
+// seg(text, font, color, tracking) — one run of text. Mix runs in an array for multi-font lines.
+const seg = (text, font, color, track = 0) => [{ text, font, color, track }];
+const textWidth = (ctx, segs) => layout(ctx, segs).w;
+
+// text(ctx, segs, x, y, t, { split, enter, exit, transform, align, path, offset })
+//   split: 'char' | 'word' | 'line'
+//   enter / exit: { at, dur, ease, stagger (s per unit), order }
+//   transform(e, x, unit) → { dx, dy, scale, rotate, alpha, blur, clip: { l, r, t, b } }
+//     e = eased entrance progress 0..1, x = eased exit progress 0..1 (0 when no exit)
+//   path: a M.path — characters follow it; offset = start distance along the path
+function text(ctx, segs, x, y, t, o = {}) {
+  need(o, ['split', 'enter.at', 'enter.dur', 'enter.ease', 'transform'], 'M.text');
+  if (o.exit) need(o, ['exit.at', 'exit.dur', 'exit.ease'], 'M.text(exit)');
+  for (const s of segs) if (!s.color) fail('M.text', `'${s.text}'에 color가 필요합니다. 이 도구는 미적 기본값을 두지 않습니다.`);
+  const L = layout(ctx, segs), U = unitsOf(L, o.split), n = U.length;
+  const align = o.align || 'left';
+  const x0 = align === 'center' ? x - L.w / 2 : align === 'right' ? x - L.w : x;
+  const delay = (spec, k) => (spec.stagger || 0) * (spec.order ? stagger(k, n, { order: spec.order, seed: spec.seed }) * (n - 1) : k);
+  const baseAlpha = ctx.globalAlpha;
+  let pathStart = 0;
+  if (o.path) pathStart = (o.offset || 0) + (align === 'center' ? (o.path.length - L.w) / 2 : align === 'right' ? o.path.length - L.w : 0);
+  ctx.save();
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  let curFont = null;
+  const setFont = (c) => { if (c.s.font !== curFont) { ctx.font = curFont = c.s.font; ctx.letterSpacing = (c.s.track || 0) + 'px'; } };
+  U.forEach((idx, k) => {
+    const E = o.enter, X = o.exit;
+    const e = E.ease(clamp((t - E.at - delay(E, k)) / E.dur));
+    const xq = X ? X.ease(clamp((t - X.at - delay(X, k)) / X.dur)) : 0;
+    const first = L.chars[idx[0]], last = L.chars[idx[idx.length - 1]];
+    const box = { x: first.x, w: last.x + last.w - first.x, asc: L.asc, desc: L.desc };
+    const tr = o.transform(e, xq, { index: k, count: n, text: idx.map((j) => L.chars[j].ch).join(''), box }) || {};
+    const a = (tr.alpha ?? 1) * baseAlpha;
+    if (a < 0.004) return;
+    const b = tr.blur || 0;
+    ctx.filter = b > 0.3 ? `blur(${b.toFixed(2)}px)` : 'none';
+    ctx.globalAlpha = a;
+    const dx = tr.dx || 0, dy = tr.dy || 0;
+    if (o.path) {
+      for (const j of idx) {
+        const c = L.chars[j], q = o.path.at((pathStart + c.x + c.w / 2) / o.path.length);
+        setFont(c); ctx.fillStyle = c.s.color;
+        ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.angle + (tr.rotate || 0));
+        if (tr.scale != null) ctx.scale(tr.scale, tr.scale);
+        ctx.fillText(c.ch, -c.w / 2 + dx, dy); ctx.restore();
+      }
+      return;
+    }
+    const clipped = !!tr.clip, fancy = tr.scale != null || !!tr.rotate;
+    if (clipped || fancy) ctx.save();
+    if (clipped) {
+      const c = tr.clip, bx = x0 + box.x, by = y - L.asc, bh = L.asc + L.desc;
+      ctx.beginPath(); ctx.rect(bx + (c.l ?? 0) * box.w, by + (c.t ?? 0) * bh, ((c.r ?? 1) - (c.l ?? 0)) * box.w, ((c.b ?? 1) - (c.t ?? 0)) * bh); ctx.clip();
+    }
+    if (fancy) {
+      const ox = x0 + box.x + box.w / 2, oy = y - (L.asc - L.desc) / 2;
+      ctx.translate(ox + dx, oy + dy); if (tr.rotate) ctx.rotate(tr.rotate); if (tr.scale != null) ctx.scale(tr.scale, tr.scale);
+      for (const j of idx) { const c = L.chars[j]; setFont(c); ctx.fillStyle = c.s.color; ctx.fillText(c.ch, x0 + c.x - ox, y - oy); }
+    } else {
+      for (const j of idx) { const c = L.chars[j]; setFont(c); ctx.fillStyle = c.s.color; ctx.fillText(c.ch, x0 + c.x + dx, y + dy); }
+    }
+    if (clipped || fancy) { ctx.restore(); curFont = null; }
+  });
+  ctx.restore();
+}
+// ─── Camera ─────────────────────────────────────────────────────────────
+// The camera sits at (x, y, z) looking down +z; a point at depth d in front of it is drawn
+// at scale fov / d. Defaults (z = -1000, fov = 1000) draw the z = 0 plane at scale 1, so
+// 2D scenes look the same with or without a camera.
+// yaw > 0 looks right, pitch > 0 looks up, roll rotates the frame.
+const CAM_DEFAULT = { x: 0, y: 0, z: -1000, yaw: 0, pitch: 0, roll: 0, fov: 1000, near: 20 };
+function camera(fn = () => ({})) {
+  const cam = {
+    at(t) {
+      const s = Object.assign({}, CAM_DEFAULT);
+      const v = fn(t) || {};
+      for (const k in v) if (v[k] !== undefined) s[k] = v[k];
+      s.cy = Math.cos(s.yaw); s.sy = Math.sin(s.yaw);
+      s.cp = Math.cos(s.pitch); s.sp = Math.sin(s.pitch);
+      s.cr = Math.cos(s.roll); s.sr = Math.sin(s.roll);
+      return s;
+    },
+    // project(state, x, y, z, out) → scale (0 when behind the near plane).
+    project(s, wx, wy, wz, o) {
+      let x = wx - s.x, y = wy - s.y, z = wz - s.z;
+      if (s.yaw) { const x1 = x * s.cy - z * s.sy; z = x * s.sy + z * s.cy; x = x1; }
+      if (s.pitch) { const y1 = y * s.cp + z * s.sp; z = -y * s.sp + z * s.cp; y = y1; }
+      if (z < s.near) return 0;
+      const k = s.fov / z;
+      x *= k; y *= k;
+      if (s.roll) { const x1 = x * s.cr + y * s.sr; y = -x * s.sr + y * s.cr; x = x1; }
+      o.x = x; o.y = y;
+      return k;
+    },
+    // plane(ctx, t, z) — transform ctx so drawing at (x, y) lands on the plane at depth z.
+    // Exact for pan, dolly, zoom and roll; the plane always faces the camera (billboard).
+    plane(ctx, t, z = 0) {
+      const s = typeof t === 'object' ? t : cam.at(t);
+      const o = {};
+      const k = cam.project(s, 0, 0, z, o);
+      if (!k) return 0;
+      ctx.translate(o.x, o.y);
+      if (s.roll) ctx.rotate(-s.roll);
+      ctx.scale(k, k);
+      return k;
+    },
+  };
+  return cam;
+}
+const staticCamera = camera();
+
+// lookAt([x,y,z], [tx,ty,tz]) → { yaw, pitch } aiming the camera at a target.
+function lookAt(p, q) {
+  const dx = q[0] - p[0], dy = q[1] - p[1], dz = q[2] - p[2];
+  return { yaw: Math.atan2(dx, dz), pitch: Math.atan2(-dy, Math.hypot(dx, dz)) };
+}
+
+
+// ─── Particles ──────────────────────────────────────────────────────────
+// A formation is f(p, i, t, o, ps): given particle constants p and index i at time t,
+// write world position o.x/o.y/o.z, size o.s, alpha o.al and two free channels
+// o.u/o.w (their meaning is yours — e.g. a colour mix read back in draw's color()).
+// p holds seeded constants: a b c d e h (uniform 0..1) and g1 g2 g3 (normal).
+function particles(opts = {}) {
+  need(opts, ['count', 'seed'], 'M.particles');
+  const { count, seed } = opts;
+  const r = rng(seed);
+  const P = [];
+  for (let i = 0; i < count; i++) {
+    P.push({ a: r(), b: r(), c: r(), d: r(), e: r(), g1: r.gauss(), g2: r.gauss(), g3: r.gauss(), h: r() });
+  }
+  let forms = null;
+  const reset = (o) => { o.x = 0; o.y = 0; o.z = 0; o.s = 1; o.al = 1; o.u = 0; o.w = 0; return o; };
+  const tmp = reset({}), A = reset({}), B = reset({});
+  const pa = {}, pb = {};
+  const ps = {
+    count, P,
+    // timeline([{ t0, dur, f, ease, spread, swirl }]) — the first entry is the starting formation.
+    // Later entries morph from the previous one: each particle starts at a time spread across
+    // [t0, t0 + dur * spread] and bends sideways by up to `swirl` px on the way.
+    timeline(list) {
+      list.forEach((F, k) => {
+        if (typeof F.f !== 'function') fail('particles.timeline', `${k}번 항목에 f(형태 함수)가 필요합니다.`);
+        if (k > 0) need(F, ['t0', 'dur', 'ease'], `particles.timeline[${k}]`);
+      });
+      forms = list; return ps;
+    },
+    at(i, t, o) {
+      if (!forms) fail('particles', 'timeline([...])을 먼저 정하세요.');
+      let k = 0;
+      for (let j = forms.length - 1; j >= 0; j--) if (t >= (forms[j].t0 || 0)) { k = j; break; }
+      const p = P[i], F = forms[k];
+      reset(o); F.f(p, i, t, o, ps);
+      if (k === 0) return o;
+      const spread = F.spread || 0;
+      const lt = (t - F.t0 - p.d * F.dur * spread) / (F.dur * (1 - spread));
+      if (lt >= 1) return o;
+      const e = F.ease(clamp(lt));
+      reset(tmp); forms[k - 1].f(p, i, t, tmp, ps);
+      const dx = o.x - tmp.x, dy = o.y - tmp.y, len = Math.hypot(dx, dy) || 1;
+      const sw = Math.sin(e * Math.PI) * p.g3 * Math.min(F.swirl || 0, len * 0.35);
+      o.x = lerp(tmp.x, o.x, e) - dy / len * sw;
+      o.y = lerp(tmp.y, o.y, e) + dx / len * sw;
+      o.z = lerp(tmp.z, o.z, e);
+      o.s = lerp(tmp.s, o.s, e); o.al = lerp(tmp.al, o.al, e);
+      o.u = lerp(tmp.u, o.u, e); o.w = lerp(tmp.w, o.w, e);
+      return o;
+    },
+    // draw(ctx, t, { color, width, blend, alpha, cam, shutter, maxTrail, nearFade, maxSize })
+    //   color(p, o, i) → [r, g, b]; width = stroke width at size 1; blend = canvas composite op.
+    //   shutter > 0 draws each particle as a stroke from its position at t - shutter (motion blur).
+    draw(ctx, t, opt = {}) {
+      need(opt, ['color', 'width', 'blend'], 'particles.draw');
+      const ga = opt.alpha ?? 1;
+      if (ga <= 0.001) return;
+      const cam = opt.cam || staticCamera;
+      const shutter = opt.shutter || 0, width = opt.width, maxTrail = opt.maxTrail ?? Infinity;
+      const nearFade = opt.nearFade || 0, maxSize = opt.maxSize ?? Infinity;
+      const sA = cam.at(t), sB = cam.at(Math.max(0, t - shutter));
+      ctx.save();
+      ctx.globalCompositeOperation = opt.blend;
+      ctx.lineCap = 'round';
+      for (let i = 0; i < count; i++) {
+        ps.at(i, t, A);
+        let al = A.al * ga;
+        if (al < 0.01) continue;
+        const k = cam.project(sA, A.x, A.y, A.z, pa);
+        if (!k) continue;
+        if (nearFade > 0) { al *= clamp((sA.fov / k - sA.near) / nearFade); if (al < 0.01) continue; }
+        ps.at(i, Math.max(0, t - shutter), B);
+        const kb = cam.project(sB, B.x, B.y, B.z, pb);
+        const c = opt.color(P[i], A, i);
+        ctx.strokeStyle = `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${al.toFixed(3)})`;
+        ctx.lineWidth = Math.min(width * A.s * k, maxSize);
+        // Canvas prunes zero-length segments, so a resting particle gets a minimal stub.
+        const d = kb ? Math.hypot(pa.x - pb.x, pa.y - pb.y) : 0, trail = d > 0.4 && d < maxTrail;
+        ctx.beginPath();
+        ctx.moveTo(trail ? pb.x : pa.x - 0.4, trail ? pb.y : pa.y);
+        ctx.lineTo(pa.x, pa.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    },
+  };
+  return ps;
+}
+
+// points(src, { extras, motion }) — particles settle onto points ({x, y, z?, s?, al?, u?, w?}
+// or [x, y, z?]). src may be a function (evaluated lazily, after fonts load).
+// extras: 'wrap' (surplus particles double up) or 'hide'. With more points than particles
+// an even sample of the points is used. motion(p, i, t, o, pt) may adjust o afterwards.
+function points(src, opts = {}) {
+  need(opts, ['extras'], 'M.forms.points');
+  let list = null;
+  return (p, i, t, o, ps) => {
+    if (!list) { list = typeof src === 'function' ? src() : src; if (!list.length) fail('M.forms.points', '점 목록이 비어 있습니다.'); }
+    let j = list.length > ps.count ? Math.floor(i * list.length / ps.count) : i;
+    if (j >= list.length) { if (opts.extras === 'hide') { o.al = 0; j = j % list.length; } else j = j % list.length; }
+    const pt = list[j];
+    if (Array.isArray(pt)) { o.x = pt[0]; o.y = pt[1]; o.z = pt[2] || 0; }
+    else { o.x = pt.x; o.y = pt.y; o.z = pt.z || 0; if (pt.s != null) o.s = pt.s; if (pt.al != null && o.al) o.al = pt.al; if (pt.u != null) o.u = pt.u; if (pt.w != null) o.w = pt.w; }
+    if (opts.motion) opts.motion(p, i, t, o, pt);
+  };
+}
+
+// Samplers → point lists for points(). Text and path samplers are lazy functions.
+const sample = {
+  // text(str, font, { step, threshold }) — glyph pixels, centred on 0,0.
+  text(str, font, o = {}) {
+    need(o, ['step'], 'M.sample.text');
+    return () => {
+      const px = +(/(\d+(?:\.\d+)?)px/.exec(font) || [0, 100])[1];
+      const c = document.createElement('canvas'), x = c.getContext('2d');
+      x.font = font;
+      const w = Math.ceil(x.measureText(str).width) + 40, h = Math.ceil(px * 1.6);
+      c.width = w; c.height = h;
+      x.font = font; x.fillStyle = '#fff'; x.textBaseline = 'alphabetic';
+      x.fillText(str, 20, Math.round(h * 0.72));
+      const d = x.getImageData(0, 0, w, h).data, out = [];
+      for (let yy = 0; yy < h; yy += o.step) for (let xx = 0; xx < w; xx += o.step) {
+        if (d[(yy * w + xx) * 4 + 3] > (o.threshold ?? 128)) out.push({ x: xx - w / 2, y: yy - h / 2 });
+      }
+      return out;
+    };
+  },
+  // path(p, { n }) — n points evenly along a M.path.
+  path(p, o = {}) { need(o, ['n'], 'M.sample.path'); return () => p.resample(o.n).map(([x, y]) => ({ x, y })); },
+  grid(o = {}) {
+    need(o, ['cols', 'rows', 'w', 'h'], 'M.sample.grid');
+    const out = [];
+    for (let r = 0; r < o.rows; r++) for (let c = 0; c < o.cols; c++) {
+      out.push({ x: (o.cx || 0) - o.w / 2 + (o.cols > 1 ? c * o.w / (o.cols - 1) : o.w / 2), y: (o.cy || 0) - o.h / 2 + (o.rows > 1 ? r * o.h / (o.rows - 1) : o.h / 2), z: o.z || 0 });
+    }
+    return out;
+  },
+  circle(o = {}) {
+    need(o, ['r', 'n'], 'M.sample.circle');
+    return Array.from({ length: o.n }, (_, k) => { const a = (o.start || 0) + k * TAU / o.n; return { x: (o.cx || 0) + Math.cos(a) * o.r, y: (o.cy || 0) + Math.sin(a) * o.r, z: o.z || 0 }; });
+  },
+  // sphere({ R, n }) — Fibonacci lattice.
+  sphere(o = {}) {
+    need(o, ['R', 'n'], 'M.sample.sphere');
+    return Array.from({ length: o.n }, (_, i) => {
+      const yy = 1 - 2 * (i + 0.5) / o.n, r = Math.sqrt(1 - yy * yy), phi = i * 2.399963;
+      return { x: (o.cx || 0) + Math.cos(phi) * r * o.R, y: (o.cy || 0) + yy * o.R, z: (o.cz || 0) + Math.sin(phi) * r * o.R };
+    });
+  },
+  // box({ w, h, d, n, seed }) — uniform random points in a box.
+  box(o = {}) {
+    need(o, ['w', 'h', 'n', 'seed'], 'M.sample.box');
+    const r = rng(o.seed);
+    return Array.from({ length: o.n }, () => ({ x: (o.cx || 0) + (r() - 0.5) * o.w, y: (o.cy || 0) + (r() - 0.5) * o.h, z: (o.cz || 0) + (r() - 0.5) * (o.d || 0) }));
+  },
+};
+// ─── Audio ──────────────────────────────────────────────────────────────
+// synth(build, opts): build(ac, A) schedules nodes at absolute times on an
+// OfflineAudioContext. The same buffer drives live playback and the export.
+function makeKit(ac, opts) {
+  const master = ac.createGain(); master.gain.value = opts.gain ?? 0.9;
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -14; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.25;
+  master.connect(comp).connect(ac.destination);
+  const bus = ac.createGain(); bus.connect(master);
+  const rv = opts.reverb === false ? null : Object.assign({ seconds: 2.8, mix: 0.28, seed: 11 }, opts.reverb || {});
+  if (rv) {
+    const len = Math.ceil(ac.sampleRate * rv.seconds), ir = ac.createBuffer(2, len, ac.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const r = rng(rv.seed + ch), data = ir.getChannelData(ch);
+      for (let j = 0; j < len; j++) data[j] = (r() * 2 - 1) * Math.pow(1 - j / len, 3.2);
+    }
+    const conv = ac.createConvolver(); conv.buffer = ir;
+    const wet = ac.createGain(); wet.gain.value = rv.mix;
+    bus.connect(conv).connect(wet).connect(master);
+  }
+  const noiseCache = new Map();
+  const noise = (seconds, seed = 1) => {
+    const key = seconds + ':' + seed;
+    if (noiseCache.has(key)) return noiseCache.get(key);
+    const len = Math.ceil(ac.sampleRate * seconds), buf = ac.createBuffer(1, len, ac.sampleRate), r = rng(seed), d = buf.getChannelData(0);
+    for (let j = 0; j < len; j++) d[j] = r() * 2 - 1;
+    noiseCache.set(key, buf);
+    return buf;
+  };
+  const hz = (n) => n < 128 ? midi(n) : n;
+  const A = {
+    ac, out: bus, midi, noise,
+    // pad — sustained chord. notes are MIDI numbers or Hz.
+    pad({ t0, t1, notes, gain = 0.05, attack = 1.6, release = 2.2, type = 'sawtooth', cutoff = 900, detune = 7, pan = 0 }) {
+      const env = ac.createGain(), lp = ac.createBiquadFilter(), pn = ac.createStereoPanner();
+      lp.type = 'lowpass'; lp.frequency.value = cutoff; lp.Q.value = 0.6; pn.pan.value = pan;
+      env.gain.setValueAtTime(0, t0);
+      env.gain.linearRampToValueAtTime(gain, t0 + attack);
+      env.gain.setValueAtTime(gain, Math.max(t0 + attack, t1 - release));
+      env.gain.linearRampToValueAtTime(0, t1);
+      lp.connect(env).connect(pn).connect(bus);
+      for (const n of notes) for (const d of [-detune, detune]) {
+        const osc = ac.createOscillator(); osc.type = type; osc.frequency.value = hz(n); osc.detune.value = d;
+        osc.connect(lp); osc.start(t0); osc.stop(t1 + 0.05);
+      }
+    },
+    // whoosh — filtered noise sweep for transitions; peaks at t + dur * peak.
+    whoosh({ t, dur = 1.2, gain = 0.2, from = 300, to = 3200, peak = 0.62, q = 1.1, pan = [-0.5, 0.5], seed = 3 }) {
+      const src = ac.createBufferSource(); src.buffer = noise(dur + 0.1, seed);
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
+      bp.frequency.setValueAtTime(from, t);
+      bp.frequency.exponentialRampToValueAtTime(to, t + dur * peak);
+      bp.frequency.exponentialRampToValueAtTime(Math.max(from, to * 0.4), t + dur);
+      const env = ac.createGain();
+      env.gain.setValueAtTime(0.0001, t);
+      env.gain.exponentialRampToValueAtTime(gain, t + dur * peak);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      const pn = ac.createStereoPanner();
+      pn.pan.setValueAtTime(pan[0], t); pn.pan.linearRampToValueAtTime(pan[1], t + dur);
+      src.connect(bp).connect(env).connect(pn).connect(bus);
+      src.start(t); src.stop(t + dur + 0.05);
+    },
+    // hit — low impact: sine with a pitch drop plus a short noise click.
+    hit({ t, gain = 0.5, freq = 46, drop = 150, decay = 1.8, click = 0.25, seed = 5 }) {
+      const osc = ac.createOscillator(); osc.type = 'sine';
+      osc.frequency.setValueAtTime(drop, t); osc.frequency.exponentialRampToValueAtTime(freq, t + 0.18);
+      const env = ac.createGain();
+      env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+      osc.connect(env).connect(bus); osc.start(t); osc.stop(t + decay + 0.05);
+      if (click > 0) {
+        const n = ac.createBufferSource(); n.buffer = noise(0.2, seed);
+        const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+        const ce = ac.createGain();
+        ce.gain.setValueAtTime(gain * click, t); ce.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+        n.connect(lp).connect(ce).connect(bus); n.start(t); n.stop(t + 0.2);
+      }
+    },
+    // chime — bell-like partials with exponential decay.
+    chime({ t, note = 81, gain = 0.08, decay = 2.6, partials = [1, 2.01, 3.02], weights = [1, 0.3, 0.1], pan = 0 }) {
+      const f = hz(note), pn = ac.createStereoPanner(); pn.pan.value = pan; pn.connect(bus);
+      partials.forEach((m, j) => {
+        const osc = ac.createOscillator(); osc.type = 'sine'; osc.frequency.value = f * m;
+        const env = ac.createGain(), g = gain * (weights[j] ?? 0.1), d = decay / (1 + j * 0.6);
+        env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(g, t + 0.01);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + d);
+        osc.connect(env).connect(pn); osc.start(t); osc.stop(t + d + 0.05);
+      });
+    },
+  };
+  return A;
+}
+
+const audio = {
+  synth: (build, opts = {}) => ({ kind: 'synth', build, opts }),
+  // file(src, { offset, gain }) — src relative to the HTML file. offset = audio time at t = 0.
+  file: (src, opts = {}) => ({ kind: 'file', src, offset: opts.offset || 0, gain: opts.gain ?? 1 }),
+};
+
+async function renderSynth(spec, duration) {
+  const sr = spec.opts.sampleRate || 48000;
+  const oac = new OfflineAudioContext(2, Math.ceil(sr * duration), sr);
+  spec.build(oac, makeKit(oac, spec.opts));
+  return oac.startRendering();
+}
+
+function wavBase64(buf) {
+  const ch = buf.numberOfChannels, len = buf.length, sr = buf.sampleRate;
+  const bytes = new Uint8Array(44 + len * ch * 2), v = new DataView(bytes.buffer);
+  const str = (o, s) => { for (let j = 0; j < s.length; j++) v.setUint8(o + j, s.charCodeAt(j)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + len * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, len * ch * 2, true);
+  const data = []; for (let c = 0; c < ch; c++) data.push(buf.getChannelData(c));
+  let o = 44;
+  for (let j = 0; j < len; j++) for (let c = 0; c < ch; c++) { v.setInt16(o, clamp(data[c][j], -1, 1) * 32767, true); o += 2; }
+  let s = '';
+  for (let j = 0; j < bytes.length; j += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(j, j + 0x8000));
+  return btoa(s);
+}
+
+
+// ─── Film (canvas, player, render mode) ─────────────────────────────────
+const ICONS = {
+  play: '<path d="M4 2.2v11.6a.6.6 0 0 0 .9.5l9.4-5.8a.6.6 0 0 0 0-1L4.9 1.7a.6.6 0 0 0-.9.5z"/>',
+  pause: '<rect x="3" y="2" width="3.5" height="12" rx="1"/><rect x="9.5" y="2" width="3.5" height="12" rx="1"/>',
+  replay: '<path d="M8 2.5a5.5 5.5 0 1 1-5.2 3.7l1.4.5A4 4 0 1 0 8 4v2L4.8 3.2 8 .5z"/>',
+  muted: '<path d="M2 6h2.5L8 3v10L4.5 10H2z"/><path d="M10.5 6l4 4m0-4l-4 4" stroke="currentColor" stroke-width="1.4" fill="none"/>',
+  sound: '<path d="M2 6h2.5L8 3v10L4.5 10H2z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.8a6 6 0 0 1 0 8.4" stroke="currentColor" stroke-width="1.3" fill="none"/>',
+};
+
+function css(W, H, bg) {
+  return `
+  html,body{margin:0;height:100%;background:${bg};overflow:hidden}
+  body{display:grid;place-items:center}
+  .mv-stage{position:relative;width:min(100vw,calc(100vh * ${W} / ${H}));aspect-ratio:${W} / ${H}}
+  .mv-stage canvas{display:block;width:100%;height:100%;cursor:pointer}
+  .mv-controls{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:12px;padding:28px 24px 20px;
+    background:linear-gradient(transparent,rgba(0,0,0,.6));opacity:0;transition:opacity .2s ease;font-family:ui-monospace,Menlo,monospace}
+  .mv-stage:hover .mv-controls,.mv-controls.mv-pinned{opacity:1}
+  .mv-controls button{width:36px;height:36px;flex:none;border:0;border-radius:50%;display:grid;place-items:center;
+    background:rgba(255,255,255,.12);color:#fff;cursor:pointer;transition:background .15s ease}
+  .mv-controls button:hover{background:rgba(255,255,255,.22)}
+  .mv-controls button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .mv-controls button[hidden]{display:none}
+  .mv-controls svg{width:14px;height:14px;fill:currentColor}
+  .mv-controls input{flex:1;accent-color:#fff;cursor:pointer}
+  .mv-controls .mv-time{font-size:12px;color:rgba(255,255,255,.6);font-variant-numeric:tabular-nums;min-width:96px;text-align:right}
+  body.mv-render{display:block}
+  body.mv-render .mv-stage{width:${W}px;height:${H}px}
+  body.mv-render .mv-controls{display:none}`;
+}
+
+
+// film({ duration, fps, width, height, background, style, fonts, assets, audio, draw, maxScale })
+// draw(ctx, t, film) is called with the origin at the frame centre (x right, y down).
+const nonEmpty = (v) => v != null && (typeof v === 'string' ? v.trim() !== '' : Array.isArray(v) ? v.length > 0 : typeof v === 'object' ? Object.keys(v).length > 0 : true);
+function checkStyle(st) {
+  if (!st) fail('M.film', 'style 선언이 필요합니다. 브리프에서 정한 palette · type · motion · materials · texture · sound를 적으세요 (references/style.md).');
+  for (const k of ['palette', 'type', 'motion', 'materials']) {
+    if (!nonEmpty(st[k])) fail('M.film', `style.${k}가 비어 있습니다. 브리프에서 정한 값을 적으세요 (references/style.md).`);
+  }
+  for (const k of ['texture', 'sound']) if (!(k in st)) fail('M.film', `style.${k} 키가 필요합니다. 쓰지 않으면 null로 적으세요.`);
+}
+function showError(e) {
+  const put = () => {
+    const pre = document.createElement('pre');
+    pre.textContent = String(e && e.message || e);
+    pre.style.cssText = 'position:fixed;inset:24px;margin:0;padding:24px;color:#fff;background:#300;font:14px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;z-index:9';
+    document.body.appendChild(pre);
+  };
+  if (document.body) put(); else document.addEventListener('DOMContentLoaded', put);
+}
+
+function film(opts) {
+  try {
+    checkStyle(opts.style);
+    need(opts, ['duration', 'width', 'height', 'background', 'draw'], 'M.film');
+  } catch (e) { if (typeof document !== 'undefined') showError(e); throw e; }
+  const W = opts.width, H = opts.height, D = opts.duration, FPS = opts.fps || 30;
+  const bg = opts.background;
+  const images = new Map();
+  const pool = [];
+  const acquire = () => {
+    const c = pool.pop() || document.createElement('canvas');
+    if (c.width !== f.canvas.width || c.height !== f.canvas.height) { c.width = f.canvas.width; c.height = f.canvas.height; }
+    const x = c.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, c.width, c.height);
+    x.globalAlpha = 1; x.globalCompositeOperation = 'source-over'; x.filter = 'none';
+    return c;
+  };
+  const f = {
+    W, H, duration: D, fps: FPS, style: opts.style, ctx: null, canvas: null, scale: 1, time: 0,
+    render(t) {
+      t = clamp(t, 0, D);
+      f.time = t;
+      const ctx = f.ctx;
+      f.screen(ctx);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none';
+      opts.draw(ctx, t, f);
+    },
+    // screen(ctx) — reset to the frame transform (centre origin), e.g. after cam.plane().
+    screen(ctx = f.ctx) { ctx.setTransform(f.scale, 0, 0, f.scale, (W / 2) * f.scale, (H / 2) * f.scale); },
+    clear(color = bg) { const c = f.ctx; c.save(); f.screen(c); c.fillStyle = color; c.fillRect(-W / 2, -H / 2, W, H); c.restore(); },
+    asset(name) { const img = images.get(name); if (!img) fail('film.asset', `'${name}' 자산이 없습니다. film({ assets })에 등록하세요.`); return img; },
+    // layer(draw, { blend, alpha, filter, mask }) — draw into an offscreen canvas with the
+    // current transform, optionally cut by mask(mctx)'s alpha, then composite it.
+    layer(draw, o = {}) {
+      need(o, ['blend'], 'film.layer');
+      const main = f.ctx, T = main.getTransform();
+      const L = acquire(), lc = L.getContext('2d');
+      lc.setTransform(T);
+      f.ctx = lc;
+      try { draw(lc); } finally { f.ctx = main; }
+      if (o.mask) {
+        const Mk = acquire(), mc = Mk.getContext('2d');
+        mc.setTransform(T); o.mask(mc);
+        lc.save(); lc.setTransform(1, 0, 0, 1, 0, 0); lc.globalAlpha = 1; lc.filter = 'none';
+        lc.globalCompositeOperation = 'destination-in'; lc.drawImage(Mk, 0, 0); lc.restore();
+        pool.push(Mk);
+      }
+      main.save(); main.setTransform(1, 0, 0, 1, 0, 0);
+      main.globalAlpha *= o.alpha ?? 1; main.globalCompositeOperation = o.blend; main.filter = o.filter || 'none';
+      main.drawImage(L, 0, 0); main.restore();
+      pool.push(L);
+    },
+    glow(x, y, r, rgb, a) {
+      need({ x, y, r, rgb, a }, ['x', 'y', 'r', 'rgb', 'a'], 'film.glow');
+      if (a <= 0) return;
+      const c = f.ctx, g = c.createRadialGradient(x, y, 0, x, y, r), [R, G, B] = rgb;
+      g.addColorStop(0, `rgba(${R},${G},${B},${a})`);
+      g.addColorStop(0.45, `rgba(${R},${G},${B},${a * 0.35})`);
+      g.addColorStop(1, `rgba(${R},${G},${B},0)`);
+      c.save(); c.fillStyle = g; c.fillRect(-W / 2, -H / 2, W, H); c.restore();
+    },
+    // vignette({ inner, outer, strength, color }) — radii as fractions of H (inner) and W (outer).
+    vignette(o = {}) {
+      need(o, ['inner', 'outer', 'strength', 'color'], 'film.vignette');
+      const c = f.ctx, v = c.createRadialGradient(0, 0, H * o.inner, 0, 0, W * o.outer), col = o.color.join(',');
+      v.addColorStop(0, `rgba(${col},0)`); v.addColorStop(1, `rgba(${col},${o.strength})`);
+      c.save(); c.fillStyle = v; c.fillRect(-W / 2, -H / 2, W, H); c.restore();
+    },
+    // grain(t, { alpha, rate, color }) — seeded noise tiles, a new tile `rate` times a second.
+    grain(t, o = {}) {
+      need(o, ['alpha', 'rate', 'color'], 'film.grain');
+      const c = f.ctx, n = Math.floor(t * o.rate);
+      c.save();
+      f.screen(c);
+      c.globalAlpha = o.alpha;
+      c.fillStyle = c.createPattern(grainTiles(o.color)[n % 3], 'repeat');
+      const off = hash(n) * 256;
+      c.translate(off, off * 0.7);
+      c.fillRect(-W / 2 - 256, -H / 2 - 256, W + 512, H + 512);
+      c.restore();
+    },
+    // fade(t, { in, out, color }) — from/to a solid colour at the ends of the film (seconds; 0 = none).
+    fade(t, o = {}) {
+      need(o, ['in', 'out', 'color'], 'film.fade');
+      const a = Math.max(o.in > 0 ? 1 - smooth(clamp(t / o.in)) : 0, o.out > 0 ? smooth(clamp((t - (D - o.out)) / o.out)) : 0);
+      if (a <= 0) return;
+      const c = f.ctx; c.save(); f.screen(c); c.fillStyle = `rgba(${o.color.join(',')},${a})`; c.fillRect(-W / 2, -H / 2, W, H); c.restore();
+    },
+  };
+
+  const tiles = new Map();
+  function grainTiles(color) {
+    const key = color.join(',');
+    if (tiles.has(key)) return tiles.get(key);
+    const set = [0, 1, 2].map((k) => {
+      const g = document.createElement('canvas'); g.width = g.height = 256;
+      const gx = g.getContext('2d'), img = gx.createImageData(256, 256), r = rng(99 + k);
+      for (let j = 0; j < img.data.length; j += 4) {
+        const v = r() * 255; img.data[j] = color[0]; img.data[j + 1] = color[1]; img.data[j + 2] = color[2]; img.data[j + 3] = v;
+      }
+      gx.putImageData(img, 0, 0);
+      return g;
+    });
+    tiles.set(key, set);
+    return set;
+  }
+
+  const boot = async () => {
+    const style = document.createElement('style'); style.textContent = css(W, H, bg); document.head.appendChild(style);
+    if (RENDER) document.body.classList.add('mv-render');
+    const stage = document.createElement('div'); stage.className = 'mv-stage';
+    stage.innerHTML = `<canvas aria-label="${(opts.title || document.title || 'video').replace(/"/g, '&quot;')}"></canvas>
+      <div class="mv-controls"><button class="mv-play" aria-label="재생/일시정지"><svg viewBox="0 0 16 16"></svg></button>
+      <button class="mv-mute" aria-label="소리 켜기/끄기" hidden><svg viewBox="0 0 16 16"></svg></button>
+      <input class="mv-seek" type="range" min="0" max="${D}" step="0.01" value="0" aria-label="재생 위치">
+      <span class="mv-time"></span></div>`;
+    document.body.appendChild(stage);
+    const canvas = f.canvas = stage.querySelector('canvas');
+    f.ctx = canvas.getContext('2d');
+    const resize = () => {
+      f.scale = RENDER ? 1 : clamp((global.devicePixelRatio || 1) * (canvas.clientWidth || W) / W, 0.5, opts.maxScale || 1.5);
+      canvas.width = Math.round(W * f.scale); canvas.height = Math.round(H * f.scale);
+      pool.length = 0;
+    };
+    resize();
+    try { await Promise.all((opts.fonts || []).map(([font, s]) => document.fonts.load(font, s))); } catch (e) { /* system fonts */ }
+    await document.fonts.ready;
+    layoutCache.clear();
+    await Promise.all(Object.entries(opts.assets || {}).map(([name, src]) => new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => { images.set(name, img); res(); };
+      img.onerror = () => rej(new Error(`film: 자산 '${name}'(${src})을 불러오지 못했습니다.`));
+      img.src = src;
+    }))).catch((e) => { showError(e); throw e; });
+
+    const spec = opts.audio || null;
+    if (RENDER) {
+      global.seek = (t) => { f.render(t); return true; };
+      global.__film = {
+        duration: D, fps: FPS, width: W, height: H,
+        audio: spec ? { kind: spec.kind, url: spec.kind === 'file' ? new URL(spec.src, location.href).href : null, offset: spec.offset || 0, gain: spec.gain ?? 1 } : null,
+        audioWav: async () => spec && spec.kind === 'synth' ? wavBase64(await renderSynth(spec, D)) : null,
+      };
+      f.render(0);
+      global.__ready = true;
+      return;
+    }
+    livePlayer(f, stage, spec, resize);
+  };
+  // Errors inside the async boot (first frame, assets) would otherwise vanish as an unhandled
+  // rejection: show them on the page and log them so render.mjs can print them.
+  const start = () => boot().catch((e) => { showError(e); console.error(e && e.message || e); });
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else setTimeout(start, 0);
+  }
+  return f;
+}
+function livePlayer(f, stage, spec, resize) {
+  const D = f.duration;
+  const $ = (s) => stage.querySelector(s);
+  const playBtn = $('.mv-play'), muteBtn = $('.mv-mute'), seekEl = $('.mv-seek'), timeEl = $('.mv-time'), controls = $('.mv-controls');
+  const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  let playing = false, cur = 0, anchor = 0, anchorT = 0, raf = 0;
+  const snd = { on: false, ac: null, buf: null, src: null, el: null, loading: null };
+
+  async function soundReady() {
+    if (!spec) return false;
+    if (spec.kind === 'synth') {
+      if (!snd.ac) snd.ac = new AudioContext();
+      if (!snd.buf) snd.buf = await (snd.loading ||= renderSynth(spec, D));
+      await snd.ac.resume();
+    } else if (!snd.el) {
+      snd.el = new Audio(spec.src); snd.el.preload = 'auto'; snd.el.volume = clamp(spec.gain ?? 1);
+    }
+    return true;
+  }
+  function soundStop() {
+    if (snd.src) { try { snd.src.stop(); } catch (e) { /* already stopped */ } snd.src = null; }
+    if (snd.el) snd.el.pause();
+  }
+  function soundStart(t) {
+    soundStop();
+    if (!snd.on || !playing) return;
+    if (spec.kind === 'synth' && snd.buf) {
+      const s = snd.ac.createBufferSource(); s.buffer = snd.buf; s.connect(snd.ac.destination); s.start(0, t); snd.src = s;
+    } else if (snd.el) { snd.el.currentTime = Math.max(0, t + (spec.offset || 0)); snd.el.play().catch(() => {}); }
+  }
+  function icons() {
+    playBtn.querySelector('svg').innerHTML = playing ? ICONS.pause : cur >= D ? ICONS.replay : ICONS.play;
+    muteBtn.querySelector('svg').innerHTML = snd.on ? ICONS.sound : ICONS.muted;
+    controls.classList.toggle('mv-pinned', !playing);
+  }
+  function show(t) {
+    cur = t;
+    try { f.render(t); } catch (e) { playing = false; cancelAnimationFrame(raf); showError(e); throw e; }
+    seekEl.value = t.toFixed(2); timeEl.textContent = `${fmt(t)} / ${fmt(D)}`;
+  }
+  function tick(now) {
+    const t = anchorT + (now - anchor) / 1000;
+    if (t >= D) { show(D); playing = false; soundStop(); icons(); return; }
+    show(t);
+    raf = requestAnimationFrame(tick);
+  }
+  function play() {
+    if (cur >= D) cur = 0;
+    playing = true; anchor = performance.now(); anchorT = cur; icons();
+    soundStart(cur);
+    raf = requestAnimationFrame(tick);
+  }
+  function pause() { playing = false; cancelAnimationFrame(raf); soundStop(); icons(); }
+  const toggle = () => (playing ? pause() : play());
+
+  if (spec) muteBtn.hidden = false;
+  muteBtn.addEventListener('click', async () => {
+    snd.on = !snd.on; icons();
+    if (snd.on) { await soundReady(); if (playing) { anchor = performance.now(); anchorT = cur; soundStart(cur); } }
+    else soundStop();
+  });
+  playBtn.addEventListener('click', toggle);
+  f.canvas.addEventListener('click', toggle);
+  seekEl.addEventListener('input', () => { pause(); show(parseFloat(seekEl.value)); });
+  global.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+    if (e.key === 'm' && spec) muteBtn.click();
+  });
+  global.addEventListener('resize', () => { resize(); layoutCache.clear(); show(cur); });
+  show(0);
+  play();
+}
+
+
+global.Motion = {
+  version: 2, TAU, clamp, lerp, smooth, ease, hash, rng, keys, spline, span, shake, midi,
+  stagger, count, rot3, noise, fbm, grid,
+  seg, text, textWidth,
+  path, morph, shape, gradient, fill, stroke, image, wipe,
+  camera, lookAt,
+  particles, forms: { points }, sample,
+  audio, film,
+};
+})(typeof window !== 'undefined' ? window : globalThis);
+/* END MOTION ENGINE */
+</script>
+<script>
+'use strict';
+const M = Motion;
+// ─── Facts ──────────────────────────────────────────────────────────────
+// source: 편수·인용 수·제목은 ../data.js(피지컬 AI 코퍼스 스냅샷, build-data.mjs)에서 읽는다.
+
+// ─── STYLE — 방향 b: 역동적이고 웅장한 빛의 지도 ─────────────────────────
+// 브리프: 톤 "역동·웅장" → 지도를 원근으로 기울인 은하처럼 두고 빛을 더한다. 이전 버전의 "움직임이
+// 밋밋함"을 풀려고 카메라가 계속 움직이고 선은 빛줄기로 튄다. 웹 랜딩이라 자막은 크고 짧게.
+const STYLE = {
+  palette: {
+    background: '#020205',
+    ink: '#ffffff',
+    sub: 'rgba(255,255,255,0.72)',
+    clusters: [[96, 180, 255], [170, 120, 255], [255, 120, 190], [255, 170, 80], [120, 230, 180], [90, 220, 240], [255, 220, 120], [200, 200, 220]],
+    other: [110, 120, 150],
+    refs: [90, 215, 255],     // 참조 — 청록 빛
+    cited: [255, 120, 70],    // 피인용 — 주황 빛
+    core: [255, 255, 255],
+  },
+  type: {
+    caption: (s) => `800 ${s}px "Gothic A1", sans-serif`,
+    sub: (s) => `400 ${s}px "Gothic A1", sans-serif`,
+  },
+  motion: {
+    split: 'char', enter: 0.55, exit: 0.4, stagger: 0.025,
+    easeIn: M.ease.outExpo, easeOut: M.ease.inCubic, camEase: M.ease.inOutCubic,
+    lineDur: 0.9, lineSpread: 1.2, rise: 40,
+  },
+  materials: ['additive glow', 'perspective plane', 'light beams'],
+  texture: { vignette: { inner: 0.35, outer: 1.05, strength: 0.8, color: [0, 0, 0] }, grain: { alpha: 0.04, rate: 24, color: [255, 255, 255] }, bloom: 'blur(6px)' },
+  sound: null,
+  layout: { mapBox: { cx: 0, cy: 0, w: 2400, h: 1800 }, pitch: 0.95, focal: 1400, dist: 1500, dot: 1.8, bigDot: 3.2, beam: 1.6, glowR: 220 },
+};
+
+const T = { cite: 14.2 };
+const CAPTION = '무엇을 인용했고, 누가 인용했는지';
+const film = M.film({
+  title: 'Constellation — b', duration: 20, fps: 30, width: 1920, height: 1080,
+  background: STYLE.palette.background, style: STYLE,
+  fonts: [[STYLE.type.caption(76), CAPTION], [STYLE.type.sub(24), `RT-1 참조 피인용 0123456789 ${D.rt1.title}`]],
+  assets: {}, audio: null, draw,
+});
+const MAP = fitMap(STYLE.layout.mapBox);
+const LINKS = citeLinks(MAP.X, MAP.Y);
+const BIG = new Set(D.big);
+const r = D.rt1.i;
+
+// 지도 평면을 기울여 원근으로 본다. 카메라는 RT-1 쪽으로 천천히 돈다(yaw).
+function projector(t) {
+  const L = STYLE.layout;
+  const yaw = M.keys(t, [[10, -0.35], [20, 0.25]], STYLE.motion.camEase);
+  const cx = MAP.X[r], cy = MAP.Y[r];
+  return (x, y) => {
+    const [X, Y, Z] = M.rot3(x - cx, y - cy, 0, { pitch: L.pitch, yaw });
+    const k = L.focal / (L.dist + Z);
+    return [X * k, Y * k + 60, k];
+  };
+}
+
+function draw(ctx, t) {
+  film.clear();
+  const L = STYLE.layout, P = STYLE.palette;
+  const pr = projector(t);
+  const lit = new Map();
+  for (const l of LINKS) lit.set(l.j, clamp01((t - (T.cite + l.order * STYLE.motion.lineSpread)) / STYLE.motion.lineDur));
+  const pts = (size) => {
+    for (let i = 0; i < D.n; i++) {
+      if (D.x[i] < 0) continue;
+      const [x, y, k] = pr(MAP.X[i], MAP.Y[i]);
+      if (k <= 0) continue;
+      const c = D.region[i] >= 0 ? P.clusters[D.region[i]] : P.other;
+      const on = lit.get(i) >= 1;
+      const a = (on ? 1 : t > T.cite ? 0.45 : 0.8) * Math.min(1, k);
+      ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+      const s = (BIG.has(i) ? L.bigDot : L.dot) * k * size;
+      ctx.fillRect(x - s / 2, y - s / 2, s, s);
+    }
+  };
+  // 빛 번짐 층 + 선명한 점
+  film.layer(() => pts(2.4), { blend: 'lighter', filter: STYLE.texture.bloom, alpha: 0.9 });
+  ctx.globalCompositeOperation = 'lighter';
+  pts(1);
+  // 빛줄기
+  const [rx, ry] = pr(MAP.X[r], MAP.Y[r]);
+  for (const l of LINKS) {
+    const e = STYLE.motion.easeIn(lit.get(l.j));
+    if (e <= 0) continue;
+    const [jx, jy] = pr(MAP.X[l.j], MAP.Y[l.j]);
+    const c = l.kind === 'ref' ? P.refs : P.cited;
+    const [ax, ay, bx, by] = l.kind === 'ref' ? [rx, ry, jx, jy] : [jx, jy, rx, ry];
+    const g = ctx.createLinearGradient(ax, ay, ax + (bx - ax) * e, ay + (by - ay) * e);
+    g.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},0.05)`);
+    g.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},0.95)`);
+    ctx.strokeStyle = g; ctx.lineWidth = L.beam;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + (bx - ax) * e, ay + (by - ay) * e); ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  const pulse = M.span(t, T.cite, null, { inDur: STYLE.motion.lineDur, easeIn: STYLE.motion.easeIn });
+  film.glow(rx, ry, L.glowR * (0.6 + 0.4 * pulse), P.core, 0.55 * pulse);
+  // 자막(가운데 아래, 크게)
+  M.text(ctx, M.seg(CAPTION, STYLE.type.caption(76), P.ink, 0), 0, 360, t, {
+    split: STYLE.motion.split, align: 'center',
+    enter: { at: T.cite - 0.4, dur: STYLE.motion.enter, ease: STYLE.motion.easeIn, stagger: STYLE.motion.stagger },
+    transform: (e) => ({ alpha: e, dy: (1 - e) * STYLE.motion.rise, blur: (1 - e) * 8 }),
+  });
+  const p = clamp01((t - T.cite) / (STYLE.motion.lineDur + STYLE.motion.lineSpread));
+  ctx.font = STYLE.type.sub(24); ctx.textAlign = 'center';
+  ctx.fillStyle = `rgb(${P.refs})`; ctx.fillText(`참조 ${Math.round(D.rt1.refs.length * p)}`, -110, 432);
+  ctx.fillStyle = `rgb(${P.cited})`; ctx.fillText(`피인용 ${Math.round(D.rt1.citedBy.length * p)}`, 110, 432);
+  ctx.fillStyle = P.sub; ctx.fillText(`RT-1 · ${D.rt1.year}`, rx, ry - 34);
+  ctx.textAlign = 'left';
+  film.vignette(STYLE.texture.vignette);
+  film.grain(t, STYLE.texture.grain);
+}
+</script>
+</body>
+</html>
