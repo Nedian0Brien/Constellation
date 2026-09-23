@@ -156,7 +156,7 @@ npm --prefix video run studio          # 미리보기
 npm --prefix video run render:teaser   # 합성 사운드 + video/out/teaser.mp4
 ```
 
-스냅샷(`video/public/data/`)과 사운드(`video/public/audio/`)는 git 밖이다. 채팅 장면은 실제 에이전트 대화 기록(`video/src/recording/agent-thread.json`)을 재생한다. `npm --prefix video run typecheck`는 frontend 파일의 타입을 `frontend/node_modules`에서 읽는다. 장면 구성과 앱과 다르게 그린 부분은 [스토리보드](video/STORYBOARD.md)에 있다. 개인·3인 이하 조직은 Remotion을 무료로 쓰고, 그보다 큰 회사는 [회사 라이선스](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md)가 필요하다.
+스냅샷(`video/public/data/`)과 사운드(`video/public/audio/`)는 git 밖이다. 사운드 스크립트는 `src/timeline.ts`를 직접 import하므로 Node 23.6 이상(TS 타입 제거 기본 지원)이 필요하다. 채팅 장면은 실제 에이전트 대화 기록(`video/src/recording/agent-thread.json`)을 재생한다. `npm --prefix video run typecheck`는 frontend 파일의 타입을 `frontend/node_modules`에서 읽는다. 장면 구성과 앱과 다르게 그린 부분은 [스토리보드](video/STORYBOARD.md)에 있다. 개인·3인 이하 조직은 Remotion을 무료로 쓰고, 그보다 큰 회사는 [회사 라이선스](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md)가 필요하다.
 
 ## 문서
 
