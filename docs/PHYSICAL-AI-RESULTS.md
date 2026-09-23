@@ -130,4 +130,7 @@
 - `constellation-serve --db data/physical-ai/constellation.duckdb --port 8003`에 프런트엔드를 붙여 열었다.
 - run 목록에 scincl 하나가 보이고, 지도에 16,554편과 상위 분야 이름이 나온다.
 - 피인용 상위 논문 위에 머물면 인용선과 이웃 제목이 켜진다.
+- 새 탭에서 다시 연 페이지의 콘솔 오류는 0건이다. 화면은 세션 안에서 확인했고, 이미지 파일로 저장하지는 않았다.
+- 데스크톱 앱의 "데이터베이스 열기"로 여는 경로는 시험하지 않았다.
+- 임베딩과 이름 짓기는 `PYTORCH_ENABLE_MPS_FALLBACK=1`을 켠 채 돌렸다. 이 설정 없이도 도는지는 확인하지 않았다.
 - 기존 `data/constellation.duckdb`, `data/embeddings/`, `data/models/`의 수정 시각은 작업 전과 같다.

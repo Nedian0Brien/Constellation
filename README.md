@@ -111,6 +111,7 @@ API 조회에는 GPU가 필요 없다. 재수집·임베딩·분석은 명시적
 
 ```sh
 export CONSTELLATION_DATA_DIR=data/physical-ai     # 명령마다 같은 폴더. .env에는 넣지 않는다
+export PYTORCH_ENABLE_MPS_FALLBACK=1              # MPS가 지원하지 않는 연산은 CPU로
 .venv/bin/constellation collect --set physical-ai            # 로봇·체화 AI, 연 800편
 .venv/bin/constellation collect --set physical-ai-driving    # 자율주행, 연 400편
 .venv/bin/constellation backfill --max 1500
