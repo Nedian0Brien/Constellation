@@ -7,7 +7,9 @@
     "snapshot": "node scripts/snapshot.mjs",
     "studio": "remotion studio",
     "render": "remotion render MapDive out/map-dive.mp4",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sound": "node scripts/sound.mjs",
+    "render:teaser": "npm run sound && remotion render Teaser out/teaser.mp4"
   },
   "dependencies": {
     "@deck.gl/core": "9.3.10",
@@ -15,6 +17,8 @@
     "@deck.gl/layers": "9.3.10",
     "@deck.gl/react": "9.3.10",
     "@remotion/cli": "4.0.527",
+    "@remotion/media": "4.0.527",
+    "lucide-react": "1.45.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "remotion": "4.0.527"

@@ -3,6 +3,11 @@ import DeckGL from "@deck.gl/react";
 import { LineLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { OrthographicView, OrthographicViewport } from "@deck.gl/core";
 import {
+  DataFilterExtension,
+  type DataFilterExtensionProps,
+} from "@deck.gl/extensions";
+import {
+  homeCamera,
   labelLevel,
   paperLabelOpacity,
   paperTitleOpacity,
@@ -40,7 +45,8 @@ import { HEIGHT, WIDTH, type MapModel, type Point } from "./model";
 
 const view = new OrthographicView({ id: "research-map" });
 const snapText = new SnapTextExtension(),
-  regionGradient = new RegionGradientExtension();
+  regionGradient = new RegionGradientExtension(),
+  yearFilter = new DataFilterExtension({ filterSize: 1 });
 
 // 영역 이름 묶음이 바뀌는 배율(기준 대비). 앱은 문턱에서 묶음을 바꾸고 CSS가 240ms
 // 교차 페이드한다(`labelLevel`, MapView의 regionSet). 영상은 시간 대신 배율로 잇는다:
@@ -64,6 +70,15 @@ export interface Focus {
   /** 이웃이 선에 닿은 뒤 다 켜질 때까지의 거리(지도 단위, 앱의 `fadeWorld`). */
   fadeWorld: number;
 }
+// 에이전트 주석(앱의 `annotate` 결과). 지도 좌표와 라벨, 켜진 정도(0~1).
+export interface Annotation {
+  id: string;
+  x: number;
+  y: number;
+  label: string;
+  kind: "paper" | "cluster";
+  alpha: number;
+}
 interface Title {
   i: number;
   text: string;
@@ -78,14 +93,47 @@ export function MapScene({
   model,
   camera,
   focus,
+  width = WIDTH,
+  yearHead,
+  annotations = [],
+  labels = true,
 }: {
   model: MapModel;
   camera: Camera;
   focus?: Focus;
+  /** 지도 폭(CSS px). 오른쪽에 패널이 열리면 줄어든다(앱과 같다). */
+  width?: number;
+  /** 연도 재생 헤드(소수 연도). 없으면 모든 논문. 앱의 재생 헤드와 같은 필터를 건다. */
+  yearHead?: number;
+  annotations?: Annotation[];
+  /** 영역 이름과 논문 제목을 그릴지(엔딩 카드의 배경 지도는 끈다). */
+  labels?: boolean;
 }) {
   const { deck, onAfterRender } = useDeckFrameSync();
-  const { map, home, points, topCited, metrics, reveals } = model;
-  const size = { width: WIDTH, height: HEIGHT };
+  const { map, points, topCited, metrics, reveals } = model;
+  const size = { width, height: HEIGHT };
+  // 기준 배율은 지도 폭에 따른다(앱의 homeCamera). 제목이 켜지는 배율(reveals)은 전체 폭
+  // 기준으로 한 번 잰 값을 쓴다 — 앱도 폭이 바뀌는 동안은 이전 값을 쓴다(settledHome).
+  const home = useMemo(
+    () => (width === WIDTH ? model.home : homeCamera(map, width, HEIGHT)),
+    [model, map, width],
+  );
+  // 연도 재생: 헤드까지의 논문만(연도 없는 논문은 늘). 영역 배경과 이름은 그 비율을 따른다.
+  const share = useMemo(
+    () => (yearHead === undefined ? null : clusterShare(model, yearHead)),
+    [model, yearHead],
+  );
+  const alive = useMemo(
+    () =>
+      share
+        ? new Set(
+            [...model.regionClusters]
+              .filter(([, cs]) => [...cs].some((c) => (share.get(c) ?? 0) > 0))
+              .map(([id]) => id),
+          )
+        : model.alive,
+    [model, share],
+  );
   const viewport = new OrthographicViewport({ ...camera, ...size });
   const relativeZoom = camera.zoom - home.zoom;
   const level = labelLevel(relativeZoom);
@@ -100,13 +148,13 @@ export function MapScene({
     const weight =
       ramp((relativeZoom - lo) / REGION_FADE + 0.5) *
       ramp((hi - relativeZoom) / REGION_FADE + 0.5);
-    if (weight <= 0 || regionOpacity <= 0) return [];
+    if (!labels || weight <= 0 || regionOpacity <= 0) return [];
     const placed = placeRegionLabels(
       items,
       viewport,
       size,
       model.radii,
-      model.alive,
+      alive,
       relativeZoom,
     );
     return items
@@ -128,7 +176,7 @@ export function MapScene({
       viewport,
       size,
       model.radii,
-      model.alive,
+      alive,
       relativeZoom,
     ).size === 0
       ? 1
@@ -138,9 +186,13 @@ export function MapScene({
 
   // 논문 제목: 화면 안(제목 폭만큼 여유)에서 지금 불투명도가 0보다 큰 것.
   const titles: Title[] = [];
-  if (level !== "field" || regionless > 0) {
+  if (
+    labels &&
+    yearHead === undefined &&
+    (level !== "field" || regionless > 0)
+  ) {
     const s = 2 ** camera.zoom,
-      hx = (WIDTH / 2 + TITLE_MARGIN_X) / s,
+      hx = (size.width / 2 + TITLE_MARGIN_X) / s,
       hy = (HEIGHT / 2 + TITLE_MARGIN_Y) / s;
     model.boxes.forEach((b, k) => {
       if (
@@ -204,6 +256,25 @@ export function MapScene({
   }, [graph, held, map]);
   const hoverT = focus?.t ?? 0,
     front = focus?.front ?? 0;
+  // 강조한 논문의 제목은 강조가 켜진 만큼 진하게 둔다. 앱은 이 자리에 강조 라벨(제목 전문
+  // 타이핑)을 따로 그리는데, 영상은 지도 제목 하나로 대신한다.
+  if (labels && held >= 0 && hoverT > 0) {
+    const k = model.boxOf[held];
+    const t = titles.find((x) => x.i === held);
+    if (t) t.alpha = Math.max(t.alpha, 255 * hoverT);
+    else if (k >= 0) {
+      const b = model.boxes[k];
+      titles.push({
+        i: held,
+        text: metrics.displays[held],
+        value: metrics.values[held],
+        valueDx: metrics.valueDx[held],
+        position: [b.x, b.y],
+        dy: TITLE_HEIGHT * reveals.row[k],
+        alpha: 255 * hoverT,
+      });
+    }
+  }
   const linked = (i: number) =>
     hoverT * ramp((front - (linkLength.get(i) ?? 0)) / (focus?.fadeWorld ?? 1));
 
@@ -236,13 +307,29 @@ export function MapScene({
       getPosition: (b) => b.position,
       getRadius: (b) => b.radius,
       radiusUnits: "common",
-      getFillColor: (b) => [...b.color, 255],
+      getFillColor: (b) => [
+        ...b.color,
+        Math.round(255 * (share ? (share.get(b.id) ?? 0) : 1)),
+      ],
+      updateTriggers: { getFillColor: [share] },
       antialiasing: false,
       opacity: 0.7,
       extensions: [regionGradient],
     }),
-    new ScatterplotLayer<Point>({
+    new ScatterplotLayer<Point, DataFilterExtensionProps<Point>>({
       id: "papers",
+      // 앱의 재생 헤드와 같은 필터: 헤드 해의 논문은 소프트 범위로 옅게 켜진다.
+      extensions: [yearFilter],
+      filterEnabled: yearHead !== undefined,
+      getFilterValue: (p) => {
+        const y = map.year[p.i];
+        return y === null ? model.yearLower - 1 : y;
+      },
+      filterRange: [model.yearLower - 1, yearHead ?? Infinity],
+      filterSoftRange:
+        yearHead === undefined
+          ? undefined
+          : [model.yearLower - 1, yearHead - 1],
       data: points,
       getPosition: (p) => p.position,
       getFillColor: (p) => colors[p.i],
@@ -346,7 +433,7 @@ export function MapScene({
   ];
 
   return (
-    <div className="map-ground">
+    <div className="map-ground" style={{ width, right: "auto" }}>
       <DeckGL
         ref={deck}
         views={view}
@@ -363,6 +450,54 @@ export function MapScene({
           {r.label}
         </div>
       ))}
+      {annotations.length > 0 && (
+        <svg className="map-annotations">
+          {annotations.map((n) => {
+            // 앱(MapView)과 같은 자리: 점의 오른쪽 위, 화면 밖이면 반대쪽으로 꺾는다.
+            const [px, py] = viewport.project([n.x, n.y, 0]);
+            const dx = px > size.width - 200 ? -36 : 36,
+              dy = py < 60 ? 36 : -36;
+            const lx = px + dx,
+              ly = py + dy;
+            return (
+              <g
+                key={n.id}
+                className="map-annotation"
+                style={{ opacity: n.alpha }}
+              >
+                <line x1={px} y1={py} x2={lx} y2={ly} />
+                <circle cx={px} cy={py} r={n.kind === "cluster" ? 6 : 4} />
+                <text
+                  x={lx + (dx > 0 ? 4 : -4)}
+                  y={ly}
+                  textAnchor={dx > 0 ? "start" : "end"}
+                  dominantBaseline="middle"
+                >
+                  {n.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      )}
     </div>
   );
+}
+
+// 주제마다 헤드까지 그려지는 논문 비율(앱 MapView의 `clusterShare`). 헤드 해의 논문은
+// 소수 부분만큼 센다 — 필터의 소프트 범위와 같이 해마다 계단 없이 는다.
+function clusterShare(model: MapModel, head: number): Map<number, number> {
+  const { map } = model;
+  const total = new Map<number, number>(),
+    shown = new Map<number, number>();
+  for (let i = 0; i < map.n; i++) {
+    const c = map.cluster[i],
+      y = map.year[i];
+    total.set(c, (total.get(c) ?? 0) + 1);
+    const w = y === null ? 1 : Math.min(1, Math.max(0, head - y + 1));
+    if (w > 0) shown.set(c, (shown.get(c) ?? 0) + w);
+  }
+  const out = new Map<number, number>();
+  for (const [c, n] of total) out.set(c, (shown.get(c) ?? 0) / n);
+  return out;
 }

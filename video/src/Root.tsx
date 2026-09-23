@@ -2,19 +2,31 @@ import "./styles.css";
 import { Composition } from "remotion";
 import { WIDTH, HEIGHT } from "./map/model";
 import { MapDive, type MapDiveProps } from "./scenes/MapDive";
+import { Teaser } from "./scenes/Teaser";
+import { DURATION, FOCUS_PAPER, FPS } from "./timeline";
 
 export function Root() {
   return (
-    <Composition
-      id="MapDive"
-      component={MapDive}
-      durationInFrames={150}
-      fps={30}
-      width={WIDTH}
-      height={HEIGHT}
-      // 현재 코퍼스(RAG·정보검색)에서 체화 AI에 가장 가까운 논문. 피지컬 AI 코퍼스를
-      // 만들면 스냅샷과 이 id만 바꾼다.
-      defaultProps={{ paperId: "openalex:W4389523655" } satisfies MapDiveProps}
-    />
+    <>
+      {/* 30초 티저. 스냅샷은 피지컬 AI 코퍼스(README "홍보 영상"). */}
+      <Composition
+        id="Teaser"
+        component={Teaser}
+        durationInFrames={DURATION}
+        fps={FPS}
+        width={WIDTH}
+        height={HEIGHT}
+      />
+      {/* PoC 장면(렌더 검증용). 티저와 같은 초점 논문 RT-1. */}
+      <Composition
+        id="MapDive"
+        component={MapDive}
+        durationInFrames={150}
+        fps={FPS}
+        width={WIDTH}
+        height={HEIGHT}
+        defaultProps={{ paperId: FOCUS_PAPER } satisfies MapDiveProps}
+      />
+    </>
   );
 }

@@ -59,6 +59,9 @@ export function buildModel(s: Snapshot) {
       width: metrics.widths[p.i],
       priority: map.cited[p.i],
     }));
+  // 논문 색인 → boxes 색인. 강조한 논문의 제목을 찾을 때 쓴다.
+  const boxOf = new Int32Array(map.n).fill(-1);
+  boxes.forEach((b, k) => (boxOf[b.i] = k));
   const reveals = revealZooms(
     boxes,
     home.zoom,
@@ -70,6 +73,22 @@ export function buildModel(s: Snapshot) {
   );
   // 필터가 없으니 모든 영역에 그려지는 논문이 있다.
   const alive = new Set(regions.flat().map((n) => n.id));
+  // 영역 이름마다 속한 클러스터. 연도 재생 중에는 그려지는 논문이 있는 영역만 이름을 켠다
+  // (앱 MapView의 `regionAlive`).
+  const regionClusters = new Map(
+    regions
+      .flat()
+      .map((n) => [
+        n.id,
+        n.node !== undefined
+          ? descendants(tree, n.node)
+          : new Set([n.cluster!]),
+      ]),
+  );
+  // 연도 하한(앱의 `yearSpan[0]`). 연도 없는 논문은 하한 − 1로 두어 늘 통과시킨다.
+  const yearLower = Math.min(
+    ...map.year.filter((y): y is number => y !== null),
+  );
   const index = citationIndex(map.n, s.edges.citing, s.edges.cited);
   if (!index || s.edges.n !== map.n)
     throw new Error("인용 관계 자료가 지도와 어긋난다. 스냅샷을 다시 받는다.");
@@ -83,10 +102,13 @@ export function buildModel(s: Snapshot) {
     characterSet,
     metrics,
     boxes,
+    boxOf,
     reveals,
     regions,
     radii: regionRadii(map, tree, clusters),
     alive,
+    regionClusters,
+    yearLower,
     blobs: regionBlobs(map, clusters),
     index,
   };

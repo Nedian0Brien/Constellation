@@ -3,17 +3,21 @@ import { staticFile, useDelayRender } from "remotion";
 import type {
   ClusterInfo,
   EdgesData,
+  FlowData,
+  LineageData,
   MapData,
   TreeData,
 } from "../../frontend/src/api";
 
 // `npm run snapshot`이 constellation-serve에서 받아 둔 지도 자료. 앱의 fetchMap·
-// fetchClusters·fetchTree·fetchEdges 응답과 같은 모양이다.
+// fetchClusters·fetchTree·fetchEdges·fetchFlow·fetchLineage 응답과 같은 모양이다.
 export interface Snapshot {
   map: MapData;
   clusters: ClusterInfo[];
   tree: TreeData;
   edges: EdgesData;
+  flow: FlowData;
+  lineage: LineageData;
 }
 
 async function load(name: string) {
@@ -31,9 +35,11 @@ export function useSnapshot(): Snapshot | null {
   const [handle] = useState(() => delayRender("snapshot"));
   const [data, setData] = useState<Snapshot | null>(null);
   useEffect(() => {
-    Promise.all(["map", "clusters", "tree", "edges"].map(load))
-      .then(([map, clusters, tree, edges]) => {
-        setData({ map, clusters, tree, edges });
+    Promise.all(
+      ["map", "clusters", "tree", "edges", "flow", "lineage"].map(load),
+    )
+      .then(([map, clusters, tree, edges, flow, lineage]) => {
+        setData({ map, clusters, tree, edges, flow, lineage });
         continueRender(handle);
       })
       .catch(cancelRender);

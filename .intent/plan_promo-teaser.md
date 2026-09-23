@@ -22,11 +22,15 @@ date: 2026-09-24
 | `video/src/map/MapScene.tsx` | 연도 필터(`DataFilterExtension`)·영역 알파·주석 라벨 prop |
 | `video/src/scenes/Teaser.tsx` | 새 파일. 7개 장면을 `<Sequence>`로 잇는다 |
 | `video/src/scenes/*.tsx` | 새 파일. 장면별 컴포넌트 |
-| `video/src/chat/*.tsx` | 새 파일. 채팅 패널 표시 컴포넌트 |
-| `video/src/views/*.tsx` | 새 파일. 트리·흐름·계보 SVG |
+| `video/src/chat/schedule.ts`, `ChatPanel.tsx` | 새 파일. 기록을 블록·프레임으로 나누고 패널을 그린다. 도구 호출은 앱처럼 "도구 호출 N건" 묶음으로 보인다(spec의 "도구: fly_to" 행 대신 — 실제 앱 화면을 따랐다) |
+| `video/src/views/ViewFrames.tsx` | 새 파일. 트리·흐름·계보 SVG(앱 뷰 마크업에서 핸들러만 뺐다) |
+| `video/src/map/camera.ts` | 새 파일. 카메라 열쇠 보간·인용선 강조(MapDive와 티저가 같이 쓴다) |
+| `video/src/map/model.ts` | `yearLower`·`regionClusters`·`boxOf` |
+| `video/src/scenes/MapDive.tsx` | `camera.ts`를 쓰고 기본 초점을 RT-1로 |
 | `video/src/styles.css` | 뷰·채팅·자막 CSS(앱 값 + 출처) |
 | `video/src/Root.tsx` | `Teaser` 등록 |
-| `video/package.json` | `@remotion/media`, `render:teaser` |
+| `video/package.json` | `@remotion/media`·`lucide-react`(앱과 같은 1.45.0), `sound`·`render:teaser` |
+| `video/tsconfig.json` | `resolveJsonModule`(대화 기록 import) |
 | `frontend/src/views/tree/layout.ts`, `flow/layout.ts`, `lineage/layout.ts` | 새 파일. 뷰 레이아웃 함수 |
 | `frontend/src/views/TreeView.tsx`, `FlowView.tsx`, `LineageView.tsx` | 레이아웃 함수를 import로 |
 | `video/STORYBOARD.md`, `README.md` | 결과와 명령 |

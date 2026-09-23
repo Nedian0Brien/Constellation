@@ -146,17 +146,17 @@ npm --prefix frontend run test:e2e
 
 ## 홍보 영상
 
-`video/`는 Remotion 프로젝트다. 연구 지도를 앱과 같은 렌더링 코드(`frontend/src/views/map/`)로 프레임마다 그려 MP4로 낸다. 1280×720 컴포지션을 기기 픽셀 비율 1.5로 렌더해 1920×1080이 나온다.
+`video/`는 Remotion 프로젝트다. 연구 지도와 분석 뷰를 앱과 같은 배치 코드(`frontend/src/views/map/`, `views/{tree,flow,lineage}/layout.ts`)로 프레임마다 그려 MP4로 낸다. 1280×720 컴포지션을 기기 픽셀 비율 1.5로 렌더해 1920×1080이 나온다. 30초 티저(`Teaser`)는 피지컬 AI 코퍼스를 쓴다.
 
 ```sh
-npm --prefix video ci
-cargo run -p constellation-serve -- --db data/constellation.duckdb   # 스냅샷을 받을 API
-npm --prefix video run snapshot   # /api 응답을 video/public/data/에 저장(git 밖)
-npm --prefix video run studio     # 미리보기
-npm --prefix video run render     # video/out/map-dive.mp4
+npm --prefix frontend ci && npm --prefix video ci
+cargo run -p constellation-serve -- --db data/physical-ai/constellation.duckdb --port 8003
+CONSTELLATION_API=http://127.0.0.1:8003 CONSTELLATION_RUN=project-scincl-20260923T165703Z npm --prefix video run snapshot
+npm --prefix video run studio          # 미리보기
+npm --prefix video run render:teaser   # 합성 사운드 + video/out/teaser.mp4
 ```
 
-`npm --prefix video run typecheck`는 frontend 파일의 타입(tauri·zustand)을 `frontend/node_modules`에서 읽으므로 `npm --prefix frontend ci`가 먼저 필요하다. 장면 구성과 남은 작업은 [스토리보드](video/STORYBOARD.md)에 있다. 개인·3인 이하 조직은 Remotion을 무료로 쓰고, 그보다 큰 회사는 [회사 라이선스](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md)가 필요하다.
+스냅샷(`video/public/data/`)과 사운드(`video/public/audio/`)는 git 밖이다. 채팅 장면은 실제 에이전트 대화 기록(`video/src/recording/agent-thread.json`)을 재생한다. `npm --prefix video run typecheck`는 frontend 파일의 타입을 `frontend/node_modules`에서 읽는다. 장면 구성과 앱과 다르게 그린 부분은 [스토리보드](video/STORYBOARD.md)에 있다. 개인·3인 이하 조직은 Remotion을 무료로 쓰고, 그보다 큰 회사는 [회사 라이선스](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md)가 필요하다.
 
 ## 문서
 
