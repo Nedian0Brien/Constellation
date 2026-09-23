@@ -198,7 +198,7 @@ main {
     1px 56px, 480px 400px;
   background-position:
     18px 18px, 18px 18px, right 18px top 18px, right 18px top 18px,
-    18px bottom 18px, 18px bottom 18px, right 18px bottom 18px,
+    left 18px bottom 18px, left 18px bottom 18px, right 18px bottom 18px,
     right 18px bottom 18px, center;
 }
 .map-empty {
