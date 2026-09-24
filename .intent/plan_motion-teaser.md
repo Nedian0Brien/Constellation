@@ -20,7 +20,9 @@ date: 2026-09-24
 | `video/motion/src/video.js` | 새 파일. 본 제작 장면 코드(방향을 고른 뒤) |
 | `video/motion/src/assemble.py` | 새 파일. `new.mjs`가 만든 엔진 포함 `video.html`에 `src/video.js`, `app-map.js`, `data.js`를 끼운다 |
 | `video/motion/src/app-map.entry.ts`, `src/build-app-map.mjs` → `app-map.js` | 새 파일. 앱 지도 모듈을 esbuild로 묶은 전역 `AppMap`(생성물, 커밋) |
-| `video/motion/video.html` | 새 파일(조립 결과, 커밋). 파일 하나로 열린다 |
+| `video/motion/video.html` | 새 파일(조립 결과, 커밋). `app-map.js`, `data.js`, `assets/`를 옆에 두고 연다 |
+| `video/motion/capture/capture.mjs` → `assets/` | 새 파일. 실행 중인 앱을 1440×950(데스크톱 창 크기), 2배로 찍는다. 지도 자리는 투명. 질문 입력 과정, 대화 스크롤 타일, 요소 위치(rects.json) |
+| `video/motion/assets/traffic-lights.png` | 설치된 데스크톱 앱 창을 screencapture로 찍은 신호등 영역 |
 | `video/motion/.gitignore` | `out/`, `*.mp4`, `frames.png`, `sheet.png` |
 | `README.md` | "홍보 영상"에 JS 티저 명령 |
 
@@ -33,6 +35,8 @@ date: 2026-09-24
 2D 연구 지도(spec "변경"): 앱 지도 모듈(labels·regions·edges·style·titles)을 `app-map.js`로 묶어 영상이 그대로 부른다. `data.js`는 앱 API와 같은 모양(map·clusters·tree, 좌표는 소수 5자리)이다. deck.gl 레이어는 캔버스로 옮긴다: 영역 배경은 방사형 그러데이션, 점은 색별 Path2D, 제목은 `letterSpacing`을 쓴 모노 글자, 영역 이름의 두 겹 그림자는 화면 밖 글자의 그림자로 그린다. 1280×720 CSS 화면을 1.5배로 그린다(Remotion 버전과 같다). 앱 CSS 값은 실행 중인 앱에서 `getComputedStyle`로 읽었다.
 
 새 연출(spec "연출 새로 짜기"): 카메라 상태는 {target, zoom, pitch, bearing}이다. 지도 점은 target 기준 화면 픽셀 오프셋을 bearing으로 돌리고, 화면 가로축을 중심으로 pitch만큼 기울인 평면에 원근 투영한다(초점거리는 STYLE). 앱 함수는 이 투영을 viewport로 받아 그대로 쓴다. 점·고리 반지름은 앱 픽셀값 × 깊이 배율, 영역 배경은 세로를 cos(pitch)로 누른 타원이다. 먼 쪽 제목·영역 이름은 깊이 배율로 옅게 한다.
+
+쇼케이스(spec "앱 쇼케이스로 전환"): 창 한 장을 오프스크린 캔버스(2880×1900)에 합성한다 — 앱 바탕 → 지도(앱 지도 코드) → 앱 캡처(지도 자리 투명) → 입력·대화 조각 → 신호등. 이 캔버스를 WebGL2 사각형 하나의 텍스처(밉맵, 비등방 필터)로 올려 원근 행렬로 무대에 놓는다. 그림자는 투영한 네 모서리를 흐린 다각형으로 2D에 그린다. 캡처는 `captureBeyondViewport: false`로 찍는다 — 켜면 찍는 동안 뷰포트가 바뀌어 앱이 입력창을 다시 만들고 입력이 지워진다.
 
 ## 작업 순서
 
