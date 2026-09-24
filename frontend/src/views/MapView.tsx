@@ -4,12 +4,7 @@ import { useFront, useTween, useTyping } from "../hooks/use-tween";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DeckGL, { type DeckGLRef } from "@deck.gl/react";
-import {
-  LineLayer,
-  ScatterplotLayer,
-  TextLayer,
-  type TextLayerProps,
-} from "@deck.gl/layers";
+import { LineLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { OrthographicView, OrthographicViewport } from "@deck.gl/core";
 import {
   DataFilterExtension,
@@ -42,18 +37,17 @@ import {
   paperTitleOpacity,
   PAPER_LABEL_ZOOM,
   paperLabelOpacity,
-  clampRegionLabel,
+  placeRegionLabels,
   regionRadii,
   regionLabels,
   revealZooms,
-  truncateTitle,
   wrapTitle,
-  MAX_ROWS,
   homeCamera,
   fitCamera,
   descendants,
 } from "./map/labels";
 import { placeLabels, type LabelBox } from "./map/active-labels";
+import { titleCharacterSet, titleMeasure, titleMetrics } from "./map/titles";
 import {
   clusterColor,
   ordinalColor,
@@ -72,42 +66,43 @@ import {
 import { SnapTextExtension } from "./map/text-snap";
 import { RegionGradientExtension } from "./map/region-gradient";
 import { ZoomDial } from "./map/ZoomDial";
+import {
+  LABEL_FADE_MS,
+  DOT_RADIUS_MAX,
+  HALO_GAP,
+  HALO_MIN,
+  SHOW_REGION_BLOBS,
+  DOT_RADIUS,
+  DOT_RADIUS_TOP,
+  TOP_CITED_QUANTILE,
+  LINK_OUT,
+  LINK_IN,
+  LINK_WIDTH,
+  HOVER_DIM,
+  LINK_FAR,
+  LINK_FAR_WIDTH,
+  LINK_SPEED,
+  LINK_FADE_PX,
+  TITLE_FONT_SIZE,
+  TITLE_MAX_WIDTH,
+  TITLE_PADDING,
+  TITLE_GAP_X,
+  TITLE_HEIGHT,
+  TITLE_OFFSET_X,
+  VALUE_GAP,
+  TITLE_MARGIN_X,
+  TITLE_MARGIN_Y,
+  TITLE_TILE,
+  TITLE_ZOOM_STEP,
+  ZOOM_RANGE,
+  titleTypography,
+  titleFontRenderer,
+} from "./map/style";
 type Point = { id: string; i: number; position: [number, number, number] };
 const view = new OrthographicView({ id: "research-map" });
 const snapText = new SnapTextExtension(),
   regionGradient = new RegionGradientExtension(),
   yearFilter = new DataFilterExtension({ filterSize: 1 });
-// 라벨이 켜지고 꺼지는 시간. `.region-name`의 transition과 같다. 호버 연결선과
-// 옅어짐도 같은 시간에 맞춘다.
-const LABEL_FADE_MS = 240;
-// 점 반지름의 픽셀 상한. 제목이 점 중심 아래 9px에서 시작하므로 그 안에 둔다. 선택한
-// 논문의 고리는 점보다 5px 밖, 기준 배율에서는 지금처럼 10px.
-const DOT_RADIUS_MAX = 7,
-  HALO_GAP = 5,
-  HALO_MIN = 10;
-// 레퍼런스 시각 언어(프로토타입). 영역 블롭은 두고, 점은 기본 1.5px에 상위 피인용 논문만
-// 크게(3px) 흰 테두리로 강조한다. 강조 문턱은 피인용수 98분위.
-const SHOW_REGION_BLOBS = true as boolean,
-  DOT_RADIUS = 1.5,
-  DOT_RADIUS_TOP = 3,
-  TOP_CITED_QUANTILE = 0.98;
-// 마우스를 올린 논문의 인용 관계. 참조(올린 논문 → 이웃)는 파랑, 피인용(이웃 → 올린
-// 논문)은 빨강 — dataviz 기준 팔레트의 다크 모드 발산 쌍(#3987e5·#e66767)으로, 지도
-// 바탕 #0e1319 위에서 검증기를 통과한다(CVD ΔE 19.2, 정상 시각 29.0, 대비 3:1 이상).
-// 굵기 2px는 같은 규격의 선 표식. 나머지 점은 절반으로 옅어진다(shadcn `opacity-50`).
-const LINK_OUT: [number, number, number] = [57, 135, 229],
-  LINK_IN: [number, number, number] = [230, 103, 103],
-  LINK_WIDTH = 2,
-  HOVER_DIM = 0.5;
-// 로컬 그래프에서 선택 노드에 닿지 않는 선(이웃끼리의 인용). `--ink-soft` #93a3b4, 1px, 옅게.
-const LINK_FAR: [number, number, number, number] = [147, 163, 180, 110],
-  LINK_FAR_WIDTH = 1;
-// 강조가 켜지면 연결선이 강조 노드에서 이웃으로 초당 이만큼(화면 픽셀) 일정한 속도로
-// 뻗어 나온다 — 가까운 이웃에 먼저 닿는다. 이웃의 점·라벨은 선이 닿은 순간부터 240ms
-// 페이드인(앞머리가 그 뒤로 `LINK_SPEED × 0.24s`만큼 더 나아가는 동안). 꺼지면 선과
-// 라벨이 그 자리에서 240ms 페이드아웃한다.
-const LINK_SPEED = 1200,
-  LINK_FADE_PX = (LINK_SPEED * LABEL_FADE_MS) / 1000;
 // 점 위에 이만큼 머물러야 강조가 켜진다. 사용자가 정한 값(1초 → 0.5초).
 const HOVER_DELAY_MS = 500;
 // 강조 노드의 라벨은 아래로 펼쳐지며 제목 전문을 한 글자씩(한 프레임에 하나) 보여준다.
@@ -127,28 +122,6 @@ const SELECT_MARGIN = 90;
 const FIT_PADDING = 80;
 // 로컬 그래프의 홉 수. 2홉은 선이 너무 많았다(사용자 지시로 1홉).
 const LOCAL_HOPS = 1;
-// 논문 제목 상자. 본문 글꼴 11px, 220px 최대 폭(안쪽 여백 2px 4px를 뺀 212px에
-// 글자), 이웃과의 간격은 가로 8px·세로 4px(간격 스케일 4·8). 높이는 쌓을 때의 줄
-// 간격이기도 하다. 글자는 점 아래 9px(위 여백 7 + 안쪽 2)에서 시작한다.
-// 프로토타입: 10px 대문자 모노, 자간 0.8px, 점 오른쪽(점 상한 반지름 + 6px)에 왼쪽
-// 정렬, 세로는 점 중심. 제목 뒤 5px에 점 색으로 연도. 줄 간격 16px.
-// 겹침 계산(`revealZooms`·`placeLabels`)은 점 중심의 상자를 전제하므로 상자 폭을
-// 2·(오프셋 + 제목 + 연도)로 넣어 오른쪽 라벨을 안에 가둔다 — 안전하지만 같은 배율에서
-// 켜지는 제목이 준다.
-const TITLE_FONT_SIZE = 10,
-  TITLE_TRACKING = 0.8,
-  TITLE_MAX_WIDTH = 240,
-  TITLE_PADDING = 8,
-  TITLE_GAP_X = 8,
-  TITLE_HEIGHT = 16,
-  TITLE_OFFSET_X = DOT_RADIUS_MAX + 6,
-  VALUE_GAP = 5,
-  // 화면 밖이어도 이만큼 안이면 그린다: 가로는 라벨 전체 폭, 세로는 쌓인 줄까지.
-  TITLE_MARGIN_X = TITLE_OFFSET_X + TITLE_MAX_WIDTH + 60,
-  TITLE_MARGIN_Y = TITLE_HEIGHT * (MAX_ROWS + 1),
-  // 제목 배열을 다시 만드는 카메라 칸: 중심 240px, 배율 반 단계. `titles` 참고.
-  TITLE_TILE = 240,
-  TITLE_ZOOM_STEP = 0.5;
 // TextLayer에 주는 제목 하나. 위치는 지도 좌표라 카메라가 움직여도 안 바뀐다.
 interface Title {
   id: string;
@@ -165,103 +138,6 @@ interface Title {
   /** 점 중심에서의 세로 픽셀 거리: 줄 × 16. */
   dy: number;
   selected: boolean;
-}
-// 기준 배율 위로 확대할 수 있는 단계. 25600%.
-const ZOOM_RANGE = 8;
-// 제목 글꼴·색. 본문의 글꼴 문자열과 글자색을 한 번 읽는다 — 글자 폭 재기와
-// TextLayer(글꼴 아틀라스)가 같은 글꼴을 쓴다. 테마 변수가 oklch라 색은 캔버스에
-// 넣었다 꺼내 sRGB로 읽는다. 캔버스가 없으면 글자 수로 어림한다.
-type RGB = [number, number, number];
-interface TitleTypography {
-  fontFamily: string;
-  color: RGB;
-  measureChar: (char: string) => number;
-}
-function titleTypography(): TitleTypography {
-  const ctx =
-    typeof document === "undefined"
-      ? null
-      : document.createElement("canvas").getContext("2d");
-  // 실측 기본값: 어두운 테마의 글자색(#e8e8ec)과 본문 글꼴.
-  const fallback: TitleTypography = {
-    fontFamily: "monospace",
-    color: [232, 232, 236],
-    measureChar: () => 6 + TITLE_TRACKING,
-  };
-  if (!ctx) return fallback;
-  const style = getComputedStyle(document.body);
-  const mono = style.getPropertyValue("--font-mono").trim() || "monospace";
-  const rgb = (css: string, or: RGB): RGB => {
-    ctx.fillStyle = css;
-    const hex = ctx.fillStyle;
-    return /^#[0-9a-f]{6}$/i.test(hex)
-      ? ([1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as RGB)
-      : or;
-  };
-  ctx.font = `${TITLE_FONT_SIZE}px ${mono}`;
-  return {
-    fontFamily: mono,
-    color: rgb(style.color, fallback.color),
-    measureChar: (char) => ctx.measureText(char).width + TITLE_TRACKING,
-  };
-}
-// 글꼴 아틀라스의 글리프를 DOM과 같은 래스터로 만든다. deck 기본 방식은 아틀라스
-// 크기(여기서는 22px)의 글꼴을 그려 절반으로 줄이는 셈이라, 시스템 글꼴의 광학
-// 크기 때문에 11px 글자보다 4% 좁게 나왔다. 그래서 11px 글꼴을 기기 픽셀 비율만큼
-// 키운 캔버스에 그린다. 캔버스 글자는 macOS의 글꼴 다듬기(획 굵히기)를 받아 본문의
-// `-webkit-font-smoothing: antialiased`보다 3할 굵어지는데, `textRendering`을
-// geometricPrecision으로 두면 같은 잉크 양이 나온다(실측: 같은 제목에서 1644 대
-// 2188). 치수는 아틀라스 픽셀(= 기기 픽셀)로 돌려준다. `_getFontRenderer`는 deck
-// 9.3의 실험 API다(text-layer.d.ts).
-type FontRenderer = ReturnType<NonNullable<TextLayerProps["_getFontRenderer"]>>;
-function titleFontRenderer(fontFamily: string, dpr: number): FontRenderer {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  // 캔버스 크기를 바꾸면 컨텍스트가 초기화되므로 그릴 때마다 다시 잡는다.
-  const style = () => {
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.font = `${TITLE_FONT_SIZE}px ${fontFamily}`;
-    ctx.textBaseline = "alphabetic";
-    ctx.textAlign = "left";
-    ctx.textRendering = "geometricPrecision";
-    ctx.fillStyle = "#fff";
-  };
-  style();
-  const measure = (char?: string) => {
-    const m = ctx.measureText(char ?? "A");
-    return char === undefined
-      ? {
-          advance: 0,
-          width: 0,
-          ascent: Math.ceil(m.fontBoundingBoxAscent * dpr),
-          descent: Math.ceil(m.fontBoundingBoxDescent * dpr),
-        }
-      : {
-          advance: (m.width + TITLE_TRACKING) * dpr,
-          width: Math.ceil(
-            (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) * dpr,
-          ),
-          ascent: Math.ceil(m.actualBoundingBoxAscent * dpr),
-          descent: Math.ceil(m.actualBoundingBoxDescent * dpr),
-        };
-  };
-  return {
-    measure,
-    draw(char) {
-      const g = measure(char),
-        left = ctx.measureText(char).actualBoundingBoxLeft,
-        pad = Math.ceil(dpr);
-      canvas.width = g.width + pad * 2;
-      canvas.height = g.ascent + g.descent + pad * 2;
-      style();
-      ctx.fillText(char, pad / dpr + left, (pad + g.ascent) / dpr);
-      return {
-        data: ctx.getImageData(0, 0, canvas.width, canvas.height),
-        left: pad,
-        top: pad,
-      };
-    },
-  };
 }
 // E2E용 다리. 제목이 DOM에 없으므로 켜진 제목과 deck의 투영·픽킹을 컨테이너에 걸어
 // 둔다. `project`는 JS 쪽 뷰포트, `pick`은 실제로 그려진 픽셀을 본다 — 둘이 어긋나면
@@ -882,43 +758,20 @@ export default function MapView() {
     () => regionRadii(map, a.tree.data, a.clusters.data ?? []),
     [map, a.tree.data, a.clusters.data],
   );
-  // 영역 라벨 배치. 배율 단계마다 한 묶음만 켜진다. 중심이 화면 안이면 그 자리에,
-  // 중심은 밖이지만 화면 중앙이 영역 안(반지름 이내)이면 가장자리에 붙인다.
-  // 그래서 영역을 확대해 들어가도 이름이 남는다. 겹치는 라벨은 큰 영역이 이긴다.
+  // 영역 라벨 배치(`placeRegionLabels`). 배율 단계마다 한 묶음만 켜진다.
   const regionSet = level === "field" ? top : relativeZoom < 2 ? sub : leaves;
-  const shownRegions = useMemo(() => {
-    const boxes: { x: number; y: number; w: number; h: number }[] = [];
-    const out = new Map<string, [number, number]>();
-    // 문턱을 넘어도 반 단계까지는 영역 이름이 옅어지며 남는다.
-    if (relativeZoom >= PAPER_LABEL_ZOOM + 0.5) return out;
-    const [cx, cy] = viewport.unproject([size.width / 2, size.height / 2]);
-    for (const n of [...regionSet].sort((a, b) => b.size - a.size)) {
-      if (!regionAlive.has(n.id)) continue;
-      let [x, y] = viewport.project([n.x, n.y, 0]);
-      const w = Math.min(205, n.label.length * 10),
-        h = Math.ceil(n.label.length / 20) * 23;
-      const inside =
-        x > w / 2 &&
-        x < size.width - w / 2 &&
-        y > 55 + h / 2 &&
-        y < size.height - 75 - h / 2;
-      const covering = Math.hypot(cx - n.x, cy - n.y) <= (radii.get(n.id) ?? 0);
-      if (!inside && !covering) continue;
-      if (!inside)
-        [x, y] = clampRegionLabel(x, y, w, h, size.width, size.height);
-      if (
-        boxes.some(
-          (b) =>
-            Math.abs(x - b.x) < (w + b.w) / 2 + 12 &&
-            Math.abs(y - b.y) < (h + b.h) / 2 + 10,
-        )
-      )
-        continue;
-      boxes.push({ x, y, w, h });
-      out.set(n.id, [x, y]);
-    }
-    return out;
-  }, [relativeZoom, regionSet, viewport, size, radii, regionAlive]);
+  const shownRegions = useMemo(
+    () =>
+      placeRegionLabels(
+        regionSet,
+        viewport,
+        size,
+        radii,
+        regionAlive,
+        relativeZoom,
+      ),
+    [relativeZoom, regionSet, viewport, size, radii, regionAlive],
+  );
   // 논문 제목의 바닥 배율(절대 zoom). 겹치지 않는 제목은 여기서부터 진해진다.
   // 상위 분야 단계에서는 안 켠다. 하위 분야 단계인데 화면에 영역 이름이 하나도
   // 없으면(영역 사이 빈 곳) 바닥을 없애 겹치지 않는 제목을 바로 켠다 — 그 순간
@@ -939,13 +792,7 @@ export default function MapView() {
   // 영역 이름은 같은 곡선을 거꾸로 따라 옅어진다.
   const regionOpacity = 1 - paperLabelOpacity(relativeZoom);
   const typo = useMemo(() => titleTypography(), []);
-  // TextLayer의 글꼴 아틀라스에 넣을 글자. 제목에 나오는 글자 전부와 말줄임표(133자).
-  // 'auto'로 두면 새 글자가 화면에 들어올 때마다 아틀라스를 다시 만든다.
-  const characterSet = useMemo(
-    () =>
-      [...new Set(map.title.join("").toUpperCase() + "0123456789…")].join(""),
-    [map],
-  );
+  const characterSet = useMemo(() => titleCharacterSet(map), [map]);
   // 글꼴 아틀라스는 실제로 그려질 크기(11px × 기기 픽셀 비율)로, 1:1로 표본한다.
   // 기본값(64px SDF)은 22px로 줄여 그릴 때 i의 점·따옴표·마침표 같은 작은 획이
   // 사라졌다. 글리프는 `titleFontRenderer`가 DOM과 같은 11px 글꼴로 그린다.
@@ -958,48 +805,13 @@ export default function MapView() {
     () => () => titleFontRenderer(typo.fontFamily, dpr),
     [typo, dpr],
   );
-  // 글자 폭 표로 글 폭을 잰다. TextLayer는 글자마다 잰 폭을 더해 글을 놓으므로(커닝
-  // 없음) 이 합이 실제 그려지는 폭이다. 제목 상자 폭과 말줄임이 모두 이 표를 쓴다.
-  const measure = useMemo(() => {
-    const table = new Map<string, number>();
-    for (const ch of characterSet) table.set(ch, typo.measureChar(ch));
-    const missing = typo.measureChar("M");
-    return (text: string) => {
-      let w = 0;
-      for (const ch of text) w += table.get(ch) ?? missing;
-      return w;
-    };
-  }, [characterSet, typo]);
-  // 제목 상자 폭과 한 줄로 줄인 제목(`…`). 지도마다 한 번(1만 편에 약 70ms). 필터가
-  // 바뀌어도 다시 재지 않는다.
-  const displays = useMemo(
-    () =>
-      map.title.map((t) =>
-        truncateTitle(
-          measure,
-          t.toUpperCase(),
-          TITLE_MAX_WIDTH - TITLE_PADDING,
-        ),
-      ),
+  const measure = useMemo(
+    () => titleMeasure(characterSet, typo),
+    [characterSet, typo],
+  );
+  const { displays, values, valueDx, widths } = useMemo(
+    () => titleMetrics(map, measure),
     [map, measure],
-  );
-  const values = useMemo(
-    () => map.year.map((y) => (y === null ? "" : String(y))),
-    [map],
-  );
-  // 값의 가로 오프셋과, 겹침 계산용 상자 폭(점 중심 대칭: 오른쪽 라벨 끝까지의 두 배).
-  const valueDx = useMemo(
-    () => displays.map((d) => TITLE_OFFSET_X + measure(d) + VALUE_GAP),
-    [displays, measure],
-  );
-  const widths = useMemo(
-    () =>
-      displays.map(
-        (_, i) =>
-          2 * (valueDx[i] + measure(values[i]) + TITLE_PADDING / 2) +
-          TITLE_GAP_X,
-      ),
-    [displays, values, valueDx, measure],
   );
   // 제목 상자: 필터에 든 논문만. 필터 밖 논문은 자리를 차지하지 않는다.
   const boxes = useMemo(

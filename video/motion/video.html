@@ -1,0 +1,1899 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Constellation</title>
+<style>body { --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: #e8e8ec; }</style>
+<script src="app-map.js"></script>
+<script src="data.js"></script>
+<script src="assets.js"></script>
+</head>
+<body>
+<script>
+/* BEGIN MOTION ENGINE v2 — js-motion-video/engine/motion.js. Replace with `node tool/new.mjs --update <file>` */
+(function (global) {
+'use strict';
+
+// Every frame is a pure function of t (seconds). Nothing here reads the wall clock
+// while drawing, and every random number comes from a seeded generator, so the
+// live player and the frame-by-frame export produce the same picture.
+//
+// The engine is style-neutral: it provides mechanisms only. Colour, type, blend,
+// effect strength, easing and every other aesthetic value must be passed by the
+// caller; a missing one throws an error that names it.
+
+const TAU = Math.PI * 2;
+const RENDER = typeof location !== 'undefined' && new URLSearchParams(location.search).has('render');
+
+function fail(where, msg) { throw new Error(`${where}: ${msg}`); }
+function need(o, names, where) {
+  for (const n of names) {
+    const v = n.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o);
+    if (v === undefined || v === null) fail(where, `${n} 값이 필요합니다. 이 도구는 미적 기본값을 두지 않습니다 (references/engine.md).`);
+  }
+}
+// ─── Math ───────────────────────────────────────────────────────────────
+const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (t) => t * t * (3 - 2 * t);
+const ease = {
+  linear: (t) => t,
+  inQuad: (t) => t * t,
+  outQuad: (t) => 1 - (1 - t) * (1 - t),
+  inOutQuad: (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2,
+  inCubic: (t) => t * t * t,
+  outCubic: (t) => 1 - Math.pow(1 - t, 3),
+  inOutCubic: (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
+  outQuart: (t) => 1 - Math.pow(1 - t, 4),
+  inOutQuart: (t) => t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2,
+  outExpo: (t) => t >= 1 ? 1 : 1 - Math.pow(2, -10 * t),
+  inOutExpo: (t) => t <= 0 ? 0 : t >= 1 ? 1 : t < 0.5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2,
+  inOutSine: (t) => -(Math.cos(Math.PI * t) - 1) / 2,
+  smooth,
+};
+const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+
+function rng(seed) {
+  let a = seed | 0;
+  const next = () => {
+    a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+  next.gauss = () => { const u = 1 - next(), v = next(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v); };
+  return next;
+}
+
+const mixVal = (a, b, e) => Array.isArray(a) ? a.map((v, j) => lerp(v, b[j], e)) : lerp(a, b, e);
+
+// keys(t, [[t0, v0], [t1, v1], ...], easeFn) — values are numbers or arrays.
+function keys(t, frames, e) {
+  if (typeof e !== 'function') fail('M.keys', 'ease 함수가 필요합니다 (예: M.ease.linear). 이 도구는 미적 기본값을 두지 않습니다.');
+  if (t <= frames[0][0]) return frames[0][1];
+  const last = frames[frames.length - 1];
+  if (t >= last[0]) return last[1];
+  let k = 0;
+  while (t >= frames[k + 1][0]) k++;
+  const A = frames[k], B = frames[k + 1];
+  return mixVal(A[1], B[1], e((t - A[0]) / (B[0] - A[0])));
+}
+
+// spline(t, frames, easeFn) — Catmull-Rom through the key values, so a camera path
+// passes every key without stopping. easeFn reshapes time inside each segment.
+function spline(t, frames, e = ease.linear) {
+  if (t <= frames[0][0]) return frames[0][1];
+  const n = frames.length;
+  if (t >= frames[n - 1][0]) return frames[n - 1][1];
+  let k = 0;
+  while (t >= frames[k + 1][0]) k++;
+  const u = e((t - frames[k][0]) / (frames[k + 1][0] - frames[k][0]));
+  const P = (j) => frames[clamp(j, 0, n - 1)][1];
+  const cr = (p0, p1, p2, p3) => 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u + (-p0 + 3 * p1 - 3 * p2 + p3) * u * u * u);
+  const p0 = P(k - 1), p1 = P(k), p2 = P(k + 1), p3 = P(k + 2);
+  return Array.isArray(p1) ? p1.map((_, j) => cr(p0[j], p1[j], p2[j], p3[j])) : cr(p0, p1, p2, p3);
+}
+
+// span(t, tin, tout, { inDur, outDur, easeIn, easeOut }) — visibility 0..1 of an element
+// that enters at tin and leaves at tout (tout null = stays).
+function span(t, tin, tout, o = {}) {
+  need(o, ['inDur', 'easeIn'], 'M.span');
+  if (tout != null) need(o, ['outDur', 'easeOut'], 'M.span');
+  const a = o.easeIn(clamp((t - tin) / o.inDur));
+  const b = tout == null ? 0 : o.easeOut(clamp((t - tout) / o.outDur));
+  return a * (1 - b);
+}
+
+// shake(t, amp, seed) — handheld drift from incommensurate sines. Deterministic.
+function shake(t, amp, seed = 1) {
+  if (amp == null) fail('M.shake', 'amp 값이 필요합니다.');
+  const s = seed * 17.3;
+  return amp * (Math.sin(t * 1.31 + s) + 0.5 * Math.sin(t * 3.73 + s * 1.7) + 0.25 * Math.sin(t * 7.19 + s * 2.3)) / 1.75;
+}
+
+const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
+
+
+// stagger(i, n, { order, seed }) → 0..1 position of item i in the chosen order.
+const permCache = new Map();
+function stagger(i, n, o = {}) {
+  need(o, ['order'], 'M.stagger');
+  if (n <= 1) return 0;
+  const u = i / (n - 1);
+  switch (o.order) {
+    case 'start': return u;
+    case 'end': return 1 - u;
+    case 'center': return Math.abs(u - 0.5) * 2;
+    case 'edges': return 1 - Math.abs(u - 0.5) * 2;
+    case 'random': {
+      const key = n + ':' + (o.seed | 0);
+      let perm = permCache.get(key);
+      if (!perm) {
+        const r = rng(o.seed | 0); perm = Array.from({ length: n }, (_, k) => k);
+        for (let k = n - 1; k > 0; k--) { const j = Math.floor(r() * (k + 1)); [perm[k], perm[j]] = [perm[j], perm[k]]; }
+        permCache.set(key, perm);
+      }
+      return perm[i] / (n - 1);
+    }
+    default: return fail('M.stagger', `order는 start · end · center · edges · random 중 하나입니다 (${o.order}).`);
+  }
+}
+
+// count(v, { decimals, separator }) — number → string for counters.
+function count(v, { decimals = 0, separator = '' } = {}) {
+  const s = Math.abs(v).toFixed(decimals);
+  const [int, frac] = s.split('.');
+  const grouped = separator ? int.replace(/\B(?=(\d{3})+(?!\d))/g, separator) : int;
+  return (v < 0 ? '-' : '') + grouped + (frac ? '.' + frac : '');
+}
+
+// rot3(x, y, z, { yaw, pitch, roll }) → [x, y, z]; yaw about y, then pitch about x, then roll about z.
+function rot3(x, y, z, { yaw = 0, pitch = 0, roll = 0 } = {}) {
+  let c = Math.cos(yaw), s = Math.sin(yaw);
+  [x, z] = [x * c + z * s, -x * s + z * c];
+  c = Math.cos(pitch); s = Math.sin(pitch);
+  [y, z] = [y * c - z * s, y * s + z * c];
+  c = Math.cos(roll); s = Math.sin(roll);
+  [x, y] = [x * c - y * s, x * s + y * c];
+  return [x, y, z];
+}
+
+// noise(x, y, z, seed) — seeded 3D gradient (Perlin) noise, roughly −1..1.
+const noisePerm = new Map();
+function perm(seed) {
+  let p = noisePerm.get(seed);
+  if (p) return p;
+  const r = rng(seed), base = Array.from({ length: 256 }, (_, k) => k);
+  for (let k = 255; k > 0; k--) { const j = Math.floor(r() * (k + 1)); [base[k], base[j]] = [base[j], base[k]]; }
+  p = new Uint8Array(512); for (let k = 0; k < 512; k++) p[k] = base[k & 255];
+  noisePerm.set(seed, p);
+  return p;
+}
+const fadeN = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+function gradN(h, x, y, z) {
+  const u = (h & 15) < 8 ? x : y, v = (h & 15) < 4 ? y : ((h & 15) === 12 || (h & 15) === 14) ? x : z;
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+function noise(x, y = 0, z = 0, seed = 0) {
+  const p = perm(seed | 0);
+  const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+  x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+  const u = fadeN(x), v = fadeN(y), w = fadeN(z);
+  const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z, B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+  return lerp(lerp(lerp(gradN(p[AA], x, y, z), gradN(p[BA], x - 1, y, z), u),
+    lerp(gradN(p[AB], x, y - 1, z), gradN(p[BB], x - 1, y - 1, z), u), v),
+  lerp(lerp(gradN(p[AA + 1], x, y, z - 1), gradN(p[BA + 1], x - 1, y, z - 1), u),
+    lerp(gradN(p[AB + 1], x, y - 1, z - 1), gradN(p[BB + 1], x - 1, y - 1, z - 1), u), v), w);
+}
+// fbm(x, y, z, { octaves, lacunarity, gain, seed }) — layered noise.
+function fbm(x, y, z, o = {}) {
+  need(o, ['octaves'], 'M.fbm');
+  const lac = o.lacunarity ?? 2, gain = o.gain ?? 0.5;
+  let sum = 0, amp = 1, freq = 1, norm = 0;
+  for (let k = 0; k < o.octaves; k++) { sum += amp * noise(x * freq, y * freq, z * freq, (o.seed | 0) + k); norm += amp; amp *= gain; freq *= lac; }
+  return sum / norm;
+}
+
+// grid({ cols, rows, x, y, w, h, gutter }) — cells of a layout grid; x, y is the top-left.
+function grid(o) {
+  need(o, ['cols', 'rows', 'x', 'y', 'w', 'h'], 'M.grid');
+  const g = o.gutter || 0, cw = (o.w - g * (o.cols - 1)) / o.cols, ch = (o.h - g * (o.rows - 1)) / o.rows, out = [];
+  for (let r = 0; r < o.rows; r++) for (let c = 0; c < o.cols; c++) {
+    const x = o.x + c * (cw + g), y = o.y + r * (ch + g);
+    out.push({ i: out.length, col: c, row: r, x, y, w: cw, h: ch, cx: x + cw / 2, cy: y + ch / 2 });
+  }
+  return out;
+}
+// ─── Paths and shapes ───────────────────────────────────────────────────
+// path(svgD | [[x, y], …], { step, closed }) — flattened lazily (needs the DOM) into
+// polylines with cumulative lengths. Absolute M commands start new subpaths.
+function path(src, { step = 2, closed = false } = {}) {
+  let subs = null, total = 0, p2d = null;
+  const build = () => {
+    if (subs) return;
+    let lines;
+    if (typeof src === 'string') {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      lines = src.split(/(?=M)/).filter((d) => d.trim()).map((d) => {
+        el.setAttribute('d', d);
+        const L = el.getTotalLength(), n = Math.max(2, Math.ceil(L / step) + 1), pts = [];
+        for (let k = 0; k < n; k++) { const q = el.getPointAtLength(L * k / (n - 1)); pts.push([q.x, q.y]); }
+        return pts;
+      });
+    } else {
+      lines = [closed ? [...src, src[0]] : src.slice()];
+    }
+    subs = lines.map((pts) => {
+      const cum = [0];
+      for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+      return { pts, cum, len: cum[cum.length - 1] };
+    });
+    total = subs.reduce((a, s) => a + s.len, 0);
+  };
+  const locate = (d) => {
+    build();
+    d = clamp(d, 0, total);
+    for (const s of subs) {
+      if (d <= s.len || s === subs[subs.length - 1]) {
+        let lo = 0, hi = s.cum.length - 1;
+        while (hi - lo > 1) { const m = (lo + hi) >> 1; if (s.cum[m] <= d) lo = m; else hi = m; }
+        const seg = s.cum[hi] - s.cum[lo] || 1, f = (d - s.cum[lo]) / seg, A = s.pts[lo], B = s.pts[hi];
+        return { x: lerp(A[0], B[0], f), y: lerp(A[1], B[1], f), angle: Math.atan2(B[1] - A[1], B[0] - A[0]) };
+      }
+      d -= s.len;
+    }
+  };
+  const P = {
+    get length() { build(); return total; },
+    closed,
+    at(u) { return locate(u * P.length); },
+    // slice(a, b) → polylines covering the fraction range [a, b] of the total length.
+    slice(a, b) {
+      build();
+      const out = []; let off = 0; const A = clamp(a) * total, B = clamp(b) * total;
+      for (const s of subs) {
+        const s0 = Math.max(A, off), s1 = Math.min(B, off + s.len);
+        if (s1 > s0) {
+          const line = [], la = s0 - off, lb = s1 - off, at = (d) => {
+            let k = 1; while (k < s.cum.length - 1 && s.cum[k] < d) k++;
+            const f = (d - s.cum[k - 1]) / ((s.cum[k] - s.cum[k - 1]) || 1);
+            return [lerp(s.pts[k - 1][0], s.pts[k][0], f), lerp(s.pts[k - 1][1], s.pts[k][1], f)];
+          };
+          line.push(at(la));
+          for (let k = 0; k < s.pts.length; k++) if (s.cum[k] > la && s.cum[k] < lb) line.push(s.pts[k]);
+          line.push(at(lb));
+          out.push(line);
+        }
+        off += s.len;
+      }
+      return out;
+    },
+    resample(n) {
+      const out = [];
+      for (let k = 0; k < n; k++) { const q = locate(P.length * k / (closed ? n : Math.max(1, n - 1))); out.push([q.x, q.y]); }
+      return out;
+    },
+    path2d() {
+      if (p2d) return p2d;
+      if (typeof src === 'string') return (p2d = new Path2D(src));
+      build(); p2d = new Path2D();
+      for (const s of subs) s.pts.forEach(([x, y], k) => (k ? p2d.lineTo(x, y) : p2d.moveTo(x, y)));
+      if (closed) p2d.closePath();
+      return p2d;
+    },
+  };
+  return P;
+}
+
+// morph(a, b, e, { n }) — interpolate two paths resampled to the same point count.
+// Works best with single outlines whose start points sit in similar places.
+function morph(a, b, e, { n = 240 } = {}) {
+  const key = '_rs' + n;
+  const A = a[key] || (a[key] = a.resample(n)), B = b[key] || (b[key] = b.resample(n));
+  return path(A.map((p, k) => [lerp(p[0], B[k][0], e), lerp(p[1], B[k][1], e)]), { closed: a.closed && b.closed });
+}
+
+const f6 = (v) => +v.toFixed(3);
+const shape = {
+  rect: ({ cx = 0, cy = 0, w, h }) => { need({ w, h }, ['w', 'h'], 'M.shape.rect'); const x = cx - w / 2, y = cy - h / 2; return path(`M${f6(x)} ${f6(y)}H${f6(x + w)}V${f6(y + h)}H${f6(x)}Z`, { closed: true }); },
+  roundRect: ({ cx = 0, cy = 0, w, h, r }) => {
+    need({ w, h, r }, ['w', 'h', 'r'], 'M.shape.roundRect');
+    const x = cx - w / 2, y = cy - h / 2, R = Math.min(r, w / 2, h / 2);
+    return path(`M${f6(x + R)} ${f6(y)}H${f6(x + w - R)}A${R} ${R} 0 0 1 ${f6(x + w)} ${f6(y + R)}V${f6(y + h - R)}A${R} ${R} 0 0 1 ${f6(x + w - R)} ${f6(y + h)}H${f6(x + R)}A${R} ${R} 0 0 1 ${f6(x)} ${f6(y + h - R)}V${f6(y + R)}A${R} ${R} 0 0 1 ${f6(x + R)} ${f6(y)}Z`, { closed: true });
+  },
+  ellipse: ({ cx = 0, cy = 0, rx, ry, rotation = 0 }) => {
+    need({ rx, ry }, ['rx', 'ry'], 'M.shape.ellipse');
+    const deg = rotation * 180 / Math.PI, c = Math.cos(rotation), s = Math.sin(rotation);
+    const x1 = cx + rx * c, y1 = cy + rx * s, x2 = cx - rx * c, y2 = cy - rx * s;
+    return path(`M${f6(x1)} ${f6(y1)}A${rx} ${ry} ${f6(deg)} 1 1 ${f6(x2)} ${f6(y2)}A${rx} ${ry} ${f6(deg)} 1 1 ${f6(x1)} ${f6(y1)}Z`, { closed: true });
+  },
+  circle: ({ cx = 0, cy = 0, r }) => { need({ r }, ['r'], 'M.shape.circle'); return shape.ellipse({ cx, cy, rx: r, ry: r }); },
+  polygon: ({ cx = 0, cy = 0, r, sides, rotation = 0 }) => {
+    need({ r, sides }, ['r', 'sides'], 'M.shape.polygon');
+    return path(Array.from({ length: sides }, (_, k) => { const a = rotation - Math.PI / 2 + k * TAU / sides; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; }), { closed: true });
+  },
+  star: ({ cx = 0, cy = 0, r1, r2, points: n, rotation = 0 }) => {
+    need({ r1, r2, n }, ['r1', 'r2', 'n'], 'M.shape.star');
+    return path(Array.from({ length: n * 2 }, (_, k) => { const a = rotation - Math.PI / 2 + k * Math.PI / n, r = k % 2 ? r2 : r1; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; }), { closed: true });
+  },
+};
+
+// ─── Paint ──────────────────────────────────────────────────────────────
+// gradient(ctx, { type, stops, … }) — linear {x0,y0,x1,y1} · radial {x0,y0,r0,x1,y1,r1} · conic {angle,x,y}
+function gradient(ctx, o) {
+  need(o, ['type', 'stops'], 'M.gradient');
+  let g;
+  if (o.type === 'linear') { need(o, ['x0', 'y0', 'x1', 'y1'], 'M.gradient(linear)'); g = ctx.createLinearGradient(o.x0, o.y0, o.x1, o.y1); }
+  else if (o.type === 'radial') { need(o, ['x0', 'y0', 'r0', 'x1', 'y1', 'r1'], 'M.gradient(radial)'); g = ctx.createRadialGradient(o.x0, o.y0, o.r0, o.x1, o.y1, o.r1); }
+  else if (o.type === 'conic') { need(o, ['angle', 'x', 'y'], 'M.gradient(conic)'); g = ctx.createConicGradient(o.angle, o.x, o.y); }
+  else fail('M.gradient', `type은 linear · radial · conic 중 하나입니다 (${o.type}).`);
+  for (const [off, c] of o.stops) g.addColorStop(off, c);
+  return g;
+}
+const toPath2D = (p) => (p instanceof Path2D ? p : p.path2d());
+// fill(ctx, path, paint) — paint is a CSS colour or a gradient.
+function fill(ctx, p, paint) {
+  if (paint == null) fail('M.fill', 'paint 값이 필요합니다. 이 도구는 미적 기본값을 두지 않습니다 (references/materials.md).');
+  ctx.save(); ctx.fillStyle = paint; ctx.fill(toPath2D(p)); ctx.restore();
+}
+// stroke(ctx, path, { from, to, width, color, cap, join, dash, dashOffset }) — draw-on
+// by trimming the path to the length fraction [from, to].
+function stroke(ctx, p, o = {}) {
+  need(o, ['width', 'color'], 'M.stroke');
+  const a = o.from ?? 0, b = o.to ?? 1;
+  if (b <= a) return;
+  ctx.save();
+  ctx.lineWidth = o.width; ctx.strokeStyle = o.color;
+  if (o.cap) ctx.lineCap = o.cap;
+  if (o.join) ctx.lineJoin = o.join;
+  if (o.dash) { ctx.setLineDash(o.dash); ctx.lineDashOffset = o.dashOffset || 0; }
+  if (p instanceof Path2D) ctx.stroke(p);
+  else if (a <= 0 && b >= 1) ctx.stroke(p.path2d());
+  else {
+    for (const line of p.slice(a, b)) { ctx.beginPath(); line.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); }
+  }
+  ctx.restore();
+}
+
+// image(ctx, img, { cx, cy, w, h, fit, crop, alpha }) — draw an image into a box.
+function image(ctx, img, o = {}) {
+  need(o, ['w', 'h', 'fit'], 'M.image');
+  const cx = o.cx || 0, cy = o.cy || 0;
+  const cr = o.crop || { x: 0, y: 0, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height };
+  let w = o.w, h = o.h;
+  if (o.fit !== 'fill') {
+    const k = (o.fit === 'cover' ? Math.max : Math.min)(o.w / cr.w, o.h / cr.h);
+    if (o.fit !== 'cover' && o.fit !== 'contain') fail('M.image', `fit은 cover · contain · fill 중 하나입니다 (${o.fit}).`);
+    w = cr.w * k; h = cr.h * k;
+  }
+  ctx.save();
+  if (o.alpha != null) ctx.globalAlpha *= o.alpha;
+  if (o.fit === 'cover') { ctx.beginPath(); ctx.rect(cx - o.w / 2, cy - o.h / 2, o.w, o.h); ctx.clip(); }
+  ctx.drawImage(img, cr.x, cr.y, cr.w, cr.h, cx - w / 2, cy - h / 2, w, h);
+  ctx.restore();
+}
+
+// Wipes return mask painters for film.layer({ mask }). Coordinates are film units.
+const wipe = {
+  // linear({ angle, progress, soft, box }) — a straight edge sweeping along angle across
+  // the frame, or across box { x, y, w, h } (film units, current transform) when given.
+  linear(o) {
+    need(o, ['angle', 'progress'], 'M.wipe.linear');
+    return (m) => {
+      const T = m.getTransform(), k = Math.hypot(T.a, T.b), soft = (o.soft || 0) * k;
+      let cx = m.canvas.width / 2, cy = m.canvas.height / 2, D = Math.hypot(m.canvas.width, m.canvas.height) / 2;
+      if (o.box) { const q = T.transformPoint(new DOMPoint(o.box.x + o.box.w / 2, o.box.y + o.box.h / 2)); cx = q.x; cy = q.y; D = Math.hypot(o.box.w, o.box.h) / 2 * k; }
+      const s = -D - soft / 2 + clamp(o.progress) * (2 * D + soft);
+      m.save(); m.setTransform(1, 0, 0, 1, cx, cy); m.rotate(o.angle);
+      if (soft > 0) { const g = m.createLinearGradient(s - soft / 2, 0, s + soft / 2, 0); g.addColorStop(0, '#000'); g.addColorStop(1, 'rgba(0,0,0,0)'); m.fillStyle = g; }
+      else m.fillStyle = '#000';
+      m.fillRect(-D - soft, -D - soft, (s + (soft > 0 ? soft / 2 : 0)) + D + soft, 2 * (D + soft));
+      m.restore();
+    };
+  },
+  // iris({ x, y, progress, soft, box }) — a circle growing from (x, y) until it covers the
+  // frame, or box { x, y, w, h } when given.
+  iris(o) {
+    need(o, ['x', 'y', 'progress'], 'M.wipe.iris');
+    return (m) => {
+      const T = m.getTransform(), k = Math.hypot(T.a, T.b), q = T.transformPoint(new DOMPoint(o.x, o.y));
+      const corners = o.box
+        ? [[o.box.x, o.box.y], [o.box.x + o.box.w, o.box.y], [o.box.x, o.box.y + o.box.h], [o.box.x + o.box.w, o.box.y + o.box.h]].map(([x, y]) => T.transformPoint(new DOMPoint(x, y)))
+        : [[0, 0], [m.canvas.width, 0], [0, m.canvas.height], [m.canvas.width, m.canvas.height]].map(([x, y]) => ({ x, y }));
+      const R = Math.max(...corners.map((c) => Math.hypot(c.x - q.x, c.y - q.y)));
+      const soft = (o.soft || 0) * k, r = clamp(o.progress) * (R + soft);
+      m.save(); m.setTransform(1, 0, 0, 1, 0, 0);
+      if (soft > 0) { const g = m.createRadialGradient(q.x, q.y, Math.max(0, r - soft), q.x, q.y, Math.max(0.01, r)); g.addColorStop(0, '#000'); g.addColorStop(1, 'rgba(0,0,0,0)'); m.fillStyle = g; }
+      else m.fillStyle = '#000';
+      m.beginPath(); m.arc(q.x, q.y, Math.max(0, r), 0, TAU); m.fill();
+      m.restore();
+    };
+  },
+  // shape(path, scale, { cx, cy }) — a shape scaled about (cx, cy); scale 0 hides everything.
+  shape(p, scale, { cx = 0, cy = 0 } = {}) {
+    if (scale == null) fail('M.wipe.shape', 'scale 값이 필요합니다.');
+    return (m) => { m.save(); m.translate(cx, cy); m.scale(scale, scale); m.translate(-cx, -cy); m.fillStyle = '#000'; m.fill(toPath2D(p)); m.restore(); };
+  },
+};
+// ─── Text ───────────────────────────────────────────────────────────────
+const layoutCache = new Map();
+function layout(ctx, segs) {
+  const key = segs.map((s) => s.font + '|' + (s.track || 0) + '|' + s.text).join('§');
+  let L = layoutCache.get(key);
+  if (L) return L;
+  const chars = []; let w = 0, lastTrack = 0, asc = 0, desc = 0;
+  ctx.save();
+  for (const s of segs) {
+    if (!s.font) fail('M.text', 'segs의 각 항목에 font가 필요합니다.');
+    ctx.font = s.font; ctx.letterSpacing = (s.track || 0) + 'px';
+    const cps = [...s.text];
+    for (let j = 0; j < cps.length; j++) {
+      // Prefix widths keep the font's kerning even though characters are drawn one by one.
+      chars.push({ ch: cps[j], x: w + ctx.measureText(cps.slice(0, j).join('')).width, s });
+    }
+    const m = ctx.measureText(s.text);
+    asc = Math.max(asc, m.fontBoundingBoxAscent || 0); desc = Math.max(desc, m.fontBoundingBoxDescent || 0);
+    w += m.width; lastTrack = s.track || 0;
+  }
+  ctx.restore();
+  chars.forEach((c, k) => { c.w = (k + 1 < chars.length ? chars[k + 1].x : w) - c.x; });
+  L = { chars, w: w - lastTrack, asc, desc, units: {} };
+  layoutCache.set(key, L);
+  return L;
+}
+function unitsOf(L, split) {
+  if (L.units[split]) return L.units[split];
+  let u;
+  if (split === 'char') u = L.chars.map((_, k) => [k]);
+  else if (split === 'line') u = [L.chars.map((_, k) => k)];
+  else if (split === 'word') {
+    u = []; let cur = [];
+    L.chars.forEach((c, k) => { if (/\s/.test(c.ch)) { if (cur.length) u.push(cur); cur = []; } else cur.push(k); });
+    if (cur.length) u.push(cur);
+  } else fail('M.text', `split은 char · word · line 중 하나입니다 (${split}).`);
+  return (L.units[split] = u);
+}
+// seg(text, font, color, tracking) — one run of text. Mix runs in an array for multi-font lines.
+const seg = (text, font, color, track = 0) => [{ text, font, color, track }];
+const textWidth = (ctx, segs) => layout(ctx, segs).w;
+
+// text(ctx, segs, x, y, t, { split, enter, exit, transform, align, path, offset })
+//   split: 'char' | 'word' | 'line'
+//   enter / exit: { at, dur, ease, stagger (s per unit), order }
+//   transform(e, x, unit) → { dx, dy, scale, rotate, alpha, blur, clip: { l, r, t, b } }
+//     e = eased entrance progress 0..1, x = eased exit progress 0..1 (0 when no exit)
+//   path: a M.path — characters follow it; offset = start distance along the path
+function text(ctx, segs, x, y, t, o = {}) {
+  need(o, ['split', 'enter.at', 'enter.dur', 'enter.ease', 'transform'], 'M.text');
+  if (o.exit) need(o, ['exit.at', 'exit.dur', 'exit.ease'], 'M.text(exit)');
+  for (const s of segs) if (!s.color) fail('M.text', `'${s.text}'에 color가 필요합니다. 이 도구는 미적 기본값을 두지 않습니다.`);
+  const L = layout(ctx, segs), U = unitsOf(L, o.split), n = U.length;
+  const align = o.align || 'left';
+  const x0 = align === 'center' ? x - L.w / 2 : align === 'right' ? x - L.w : x;
+  const delay = (spec, k) => (spec.stagger || 0) * (spec.order ? stagger(k, n, { order: spec.order, seed: spec.seed }) * (n - 1) : k);
+  const baseAlpha = ctx.globalAlpha;
+  let pathStart = 0;
+  if (o.path) pathStart = (o.offset || 0) + (align === 'center' ? (o.path.length - L.w) / 2 : align === 'right' ? o.path.length - L.w : 0);
+  ctx.save();
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  let curFont = null;
+  const setFont = (c) => { if (c.s.font !== curFont) { ctx.font = curFont = c.s.font; ctx.letterSpacing = (c.s.track || 0) + 'px'; } };
+  U.forEach((idx, k) => {
+    const E = o.enter, X = o.exit;
+    const e = E.ease(clamp((t - E.at - delay(E, k)) / E.dur));
+    const xq = X ? X.ease(clamp((t - X.at - delay(X, k)) / X.dur)) : 0;
+    const first = L.chars[idx[0]], last = L.chars[idx[idx.length - 1]];
+    const box = { x: first.x, w: last.x + last.w - first.x, asc: L.asc, desc: L.desc };
+    const tr = o.transform(e, xq, { index: k, count: n, text: idx.map((j) => L.chars[j].ch).join(''), box }) || {};
+    const a = (tr.alpha ?? 1) * baseAlpha;
+    if (a < 0.004) return;
+    const b = tr.blur || 0;
+    ctx.filter = b > 0.3 ? `blur(${b.toFixed(2)}px)` : 'none';
+    ctx.globalAlpha = a;
+    const dx = tr.dx || 0, dy = tr.dy || 0;
+    if (o.path) {
+      for (const j of idx) {
+        const c = L.chars[j], q = o.path.at((pathStart + c.x + c.w / 2) / o.path.length);
+        setFont(c); ctx.fillStyle = c.s.color;
+        ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.angle + (tr.rotate || 0));
+        if (tr.scale != null) ctx.scale(tr.scale, tr.scale);
+        ctx.fillText(c.ch, -c.w / 2 + dx, dy); ctx.restore();
+      }
+      return;
+    }
+    const clipped = !!tr.clip, fancy = tr.scale != null || !!tr.rotate;
+    if (clipped || fancy) ctx.save();
+    if (clipped) {
+      const c = tr.clip, bx = x0 + box.x, by = y - L.asc, bh = L.asc + L.desc;
+      ctx.beginPath(); ctx.rect(bx + (c.l ?? 0) * box.w, by + (c.t ?? 0) * bh, ((c.r ?? 1) - (c.l ?? 0)) * box.w, ((c.b ?? 1) - (c.t ?? 0)) * bh); ctx.clip();
+    }
+    if (fancy) {
+      const ox = x0 + box.x + box.w / 2, oy = y - (L.asc - L.desc) / 2;
+      ctx.translate(ox + dx, oy + dy); if (tr.rotate) ctx.rotate(tr.rotate); if (tr.scale != null) ctx.scale(tr.scale, tr.scale);
+      for (const j of idx) { const c = L.chars[j]; setFont(c); ctx.fillStyle = c.s.color; ctx.fillText(c.ch, x0 + c.x - ox, y - oy); }
+    } else {
+      for (const j of idx) { const c = L.chars[j]; setFont(c); ctx.fillStyle = c.s.color; ctx.fillText(c.ch, x0 + c.x + dx, y + dy); }
+    }
+    if (clipped || fancy) { ctx.restore(); curFont = null; }
+  });
+  ctx.restore();
+}
+// ─── Camera ─────────────────────────────────────────────────────────────
+// The camera sits at (x, y, z) looking down +z; a point at depth d in front of it is drawn
+// at scale fov / d. Defaults (z = -1000, fov = 1000) draw the z = 0 plane at scale 1, so
+// 2D scenes look the same with or without a camera.
+// yaw > 0 looks right, pitch > 0 looks up, roll rotates the frame.
+const CAM_DEFAULT = { x: 0, y: 0, z: -1000, yaw: 0, pitch: 0, roll: 0, fov: 1000, near: 20 };
+function camera(fn = () => ({})) {
+  const cam = {
+    at(t) {
+      const s = Object.assign({}, CAM_DEFAULT);
+      const v = fn(t) || {};
+      for (const k in v) if (v[k] !== undefined) s[k] = v[k];
+      s.cy = Math.cos(s.yaw); s.sy = Math.sin(s.yaw);
+      s.cp = Math.cos(s.pitch); s.sp = Math.sin(s.pitch);
+      s.cr = Math.cos(s.roll); s.sr = Math.sin(s.roll);
+      return s;
+    },
+    // project(state, x, y, z, out) → scale (0 when behind the near plane).
+    project(s, wx, wy, wz, o) {
+      let x = wx - s.x, y = wy - s.y, z = wz - s.z;
+      if (s.yaw) { const x1 = x * s.cy - z * s.sy; z = x * s.sy + z * s.cy; x = x1; }
+      if (s.pitch) { const y1 = y * s.cp + z * s.sp; z = -y * s.sp + z * s.cp; y = y1; }
+      if (z < s.near) return 0;
+      const k = s.fov / z;
+      x *= k; y *= k;
+      if (s.roll) { const x1 = x * s.cr + y * s.sr; y = -x * s.sr + y * s.cr; x = x1; }
+      o.x = x; o.y = y;
+      return k;
+    },
+    // plane(ctx, t, z) — transform ctx so drawing at (x, y) lands on the plane at depth z.
+    // Exact for pan, dolly, zoom and roll; the plane always faces the camera (billboard).
+    plane(ctx, t, z = 0) {
+      const s = typeof t === 'object' ? t : cam.at(t);
+      const o = {};
+      const k = cam.project(s, 0, 0, z, o);
+      if (!k) return 0;
+      ctx.translate(o.x, o.y);
+      if (s.roll) ctx.rotate(-s.roll);
+      ctx.scale(k, k);
+      return k;
+    },
+  };
+  return cam;
+}
+const staticCamera = camera();
+
+// lookAt([x,y,z], [tx,ty,tz]) → { yaw, pitch } aiming the camera at a target.
+function lookAt(p, q) {
+  const dx = q[0] - p[0], dy = q[1] - p[1], dz = q[2] - p[2];
+  return { yaw: Math.atan2(dx, dz), pitch: Math.atan2(-dy, Math.hypot(dx, dz)) };
+}
+
+
+// ─── Particles ──────────────────────────────────────────────────────────
+// A formation is f(p, i, t, o, ps): given particle constants p and index i at time t,
+// write world position o.x/o.y/o.z, size o.s, alpha o.al and two free channels
+// o.u/o.w (their meaning is yours — e.g. a colour mix read back in draw's color()).
+// p holds seeded constants: a b c d e h (uniform 0..1) and g1 g2 g3 (normal).
+function particles(opts = {}) {
+  need(opts, ['count', 'seed'], 'M.particles');
+  const { count, seed } = opts;
+  const r = rng(seed);
+  const P = [];
+  for (let i = 0; i < count; i++) {
+    P.push({ a: r(), b: r(), c: r(), d: r(), e: r(), g1: r.gauss(), g2: r.gauss(), g3: r.gauss(), h: r() });
+  }
+  let forms = null;
+  const reset = (o) => { o.x = 0; o.y = 0; o.z = 0; o.s = 1; o.al = 1; o.u = 0; o.w = 0; return o; };
+  const tmp = reset({}), A = reset({}), B = reset({});
+  const pa = {}, pb = {};
+  const ps = {
+    count, P,
+    // timeline([{ t0, dur, f, ease, spread, swirl }]) — the first entry is the starting formation.
+    // Later entries morph from the previous one: each particle starts at a time spread across
+    // [t0, t0 + dur * spread] and bends sideways by up to `swirl` px on the way.
+    timeline(list) {
+      list.forEach((F, k) => {
+        if (typeof F.f !== 'function') fail('particles.timeline', `${k}번 항목에 f(형태 함수)가 필요합니다.`);
+        if (k > 0) need(F, ['t0', 'dur', 'ease'], `particles.timeline[${k}]`);
+      });
+      forms = list; return ps;
+    },
+    at(i, t, o) {
+      if (!forms) fail('particles', 'timeline([...])을 먼저 정하세요.');
+      let k = 0;
+      for (let j = forms.length - 1; j >= 0; j--) if (t >= (forms[j].t0 || 0)) { k = j; break; }
+      const p = P[i], F = forms[k];
+      reset(o); F.f(p, i, t, o, ps);
+      if (k === 0) return o;
+      const spread = F.spread || 0;
+      const lt = (t - F.t0 - p.d * F.dur * spread) / (F.dur * (1 - spread));
+      if (lt >= 1) return o;
+      const e = F.ease(clamp(lt));
+      reset(tmp); forms[k - 1].f(p, i, t, tmp, ps);
+      const dx = o.x - tmp.x, dy = o.y - tmp.y, len = Math.hypot(dx, dy) || 1;
+      const sw = Math.sin(e * Math.PI) * p.g3 * Math.min(F.swirl || 0, len * 0.35);
+      o.x = lerp(tmp.x, o.x, e) - dy / len * sw;
+      o.y = lerp(tmp.y, o.y, e) + dx / len * sw;
+      o.z = lerp(tmp.z, o.z, e);
+      o.s = lerp(tmp.s, o.s, e); o.al = lerp(tmp.al, o.al, e);
+      o.u = lerp(tmp.u, o.u, e); o.w = lerp(tmp.w, o.w, e);
+      return o;
+    },
+    // draw(ctx, t, { color, width, blend, alpha, cam, shutter, maxTrail, nearFade, maxSize })
+    //   color(p, o, i) → [r, g, b]; width = stroke width at size 1; blend = canvas composite op.
+    //   shutter > 0 draws each particle as a stroke from its position at t - shutter (motion blur).
+    draw(ctx, t, opt = {}) {
+      need(opt, ['color', 'width', 'blend'], 'particles.draw');
+      const ga = opt.alpha ?? 1;
+      if (ga <= 0.001) return;
+      const cam = opt.cam || staticCamera;
+      const shutter = opt.shutter || 0, width = opt.width, maxTrail = opt.maxTrail ?? Infinity;
+      const nearFade = opt.nearFade || 0, maxSize = opt.maxSize ?? Infinity;
+      const sA = cam.at(t), sB = cam.at(Math.max(0, t - shutter));
+      ctx.save();
+      ctx.globalCompositeOperation = opt.blend;
+      ctx.lineCap = 'round';
+      for (let i = 0; i < count; i++) {
+        ps.at(i, t, A);
+        let al = A.al * ga;
+        if (al < 0.01) continue;
+        const k = cam.project(sA, A.x, A.y, A.z, pa);
+        if (!k) continue;
+        if (nearFade > 0) { al *= clamp((sA.fov / k - sA.near) / nearFade); if (al < 0.01) continue; }
+        ps.at(i, Math.max(0, t - shutter), B);
+        const kb = cam.project(sB, B.x, B.y, B.z, pb);
+        const c = opt.color(P[i], A, i);
+        ctx.strokeStyle = `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${al.toFixed(3)})`;
+        ctx.lineWidth = Math.min(width * A.s * k, maxSize);
+        // Canvas prunes zero-length segments, so a resting particle gets a minimal stub.
+        const d = kb ? Math.hypot(pa.x - pb.x, pa.y - pb.y) : 0, trail = d > 0.4 && d < maxTrail;
+        ctx.beginPath();
+        ctx.moveTo(trail ? pb.x : pa.x - 0.4, trail ? pb.y : pa.y);
+        ctx.lineTo(pa.x, pa.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    },
+  };
+  return ps;
+}
+
+// points(src, { extras, motion }) — particles settle onto points ({x, y, z?, s?, al?, u?, w?}
+// or [x, y, z?]). src may be a function (evaluated lazily, after fonts load).
+// extras: 'wrap' (surplus particles double up) or 'hide'. With more points than particles
+// an even sample of the points is used. motion(p, i, t, o, pt) may adjust o afterwards.
+function points(src, opts = {}) {
+  need(opts, ['extras'], 'M.forms.points');
+  let list = null;
+  return (p, i, t, o, ps) => {
+    if (!list) { list = typeof src === 'function' ? src() : src; if (!list.length) fail('M.forms.points', '점 목록이 비어 있습니다.'); }
+    let j = list.length > ps.count ? Math.floor(i * list.length / ps.count) : i;
+    if (j >= list.length) { if (opts.extras === 'hide') { o.al = 0; j = j % list.length; } else j = j % list.length; }
+    const pt = list[j];
+    if (Array.isArray(pt)) { o.x = pt[0]; o.y = pt[1]; o.z = pt[2] || 0; }
+    else { o.x = pt.x; o.y = pt.y; o.z = pt.z || 0; if (pt.s != null) o.s = pt.s; if (pt.al != null && o.al) o.al = pt.al; if (pt.u != null) o.u = pt.u; if (pt.w != null) o.w = pt.w; }
+    if (opts.motion) opts.motion(p, i, t, o, pt);
+  };
+}
+
+// Samplers → point lists for points(). Text and path samplers are lazy functions.
+const sample = {
+  // text(str, font, { step, threshold }) — glyph pixels, centred on 0,0.
+  text(str, font, o = {}) {
+    need(o, ['step'], 'M.sample.text');
+    return () => {
+      const px = +(/(\d+(?:\.\d+)?)px/.exec(font) || [0, 100])[1];
+      const c = document.createElement('canvas'), x = c.getContext('2d');
+      x.font = font;
+      const w = Math.ceil(x.measureText(str).width) + 40, h = Math.ceil(px * 1.6);
+      c.width = w; c.height = h;
+      x.font = font; x.fillStyle = '#fff'; x.textBaseline = 'alphabetic';
+      x.fillText(str, 20, Math.round(h * 0.72));
+      const d = x.getImageData(0, 0, w, h).data, out = [];
+      for (let yy = 0; yy < h; yy += o.step) for (let xx = 0; xx < w; xx += o.step) {
+        if (d[(yy * w + xx) * 4 + 3] > (o.threshold ?? 128)) out.push({ x: xx - w / 2, y: yy - h / 2 });
+      }
+      return out;
+    };
+  },
+  // path(p, { n }) — n points evenly along a M.path.
+  path(p, o = {}) { need(o, ['n'], 'M.sample.path'); return () => p.resample(o.n).map(([x, y]) => ({ x, y })); },
+  grid(o = {}) {
+    need(o, ['cols', 'rows', 'w', 'h'], 'M.sample.grid');
+    const out = [];
+    for (let r = 0; r < o.rows; r++) for (let c = 0; c < o.cols; c++) {
+      out.push({ x: (o.cx || 0) - o.w / 2 + (o.cols > 1 ? c * o.w / (o.cols - 1) : o.w / 2), y: (o.cy || 0) - o.h / 2 + (o.rows > 1 ? r * o.h / (o.rows - 1) : o.h / 2), z: o.z || 0 });
+    }
+    return out;
+  },
+  circle(o = {}) {
+    need(o, ['r', 'n'], 'M.sample.circle');
+    return Array.from({ length: o.n }, (_, k) => { const a = (o.start || 0) + k * TAU / o.n; return { x: (o.cx || 0) + Math.cos(a) * o.r, y: (o.cy || 0) + Math.sin(a) * o.r, z: o.z || 0 }; });
+  },
+  // sphere({ R, n }) — Fibonacci lattice.
+  sphere(o = {}) {
+    need(o, ['R', 'n'], 'M.sample.sphere');
+    return Array.from({ length: o.n }, (_, i) => {
+      const yy = 1 - 2 * (i + 0.5) / o.n, r = Math.sqrt(1 - yy * yy), phi = i * 2.399963;
+      return { x: (o.cx || 0) + Math.cos(phi) * r * o.R, y: (o.cy || 0) + yy * o.R, z: (o.cz || 0) + Math.sin(phi) * r * o.R };
+    });
+  },
+  // box({ w, h, d, n, seed }) — uniform random points in a box.
+  box(o = {}) {
+    need(o, ['w', 'h', 'n', 'seed'], 'M.sample.box');
+    const r = rng(o.seed);
+    return Array.from({ length: o.n }, () => ({ x: (o.cx || 0) + (r() - 0.5) * o.w, y: (o.cy || 0) + (r() - 0.5) * o.h, z: (o.cz || 0) + (r() - 0.5) * (o.d || 0) }));
+  },
+};
+// ─── Audio ──────────────────────────────────────────────────────────────
+// synth(build, opts): build(ac, A) schedules nodes at absolute times on an
+// OfflineAudioContext. The same buffer drives live playback and the export.
+function makeKit(ac, opts) {
+  const master = ac.createGain(); master.gain.value = opts.gain ?? 0.9;
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -14; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.25;
+  master.connect(comp).connect(ac.destination);
+  const bus = ac.createGain(); bus.connect(master);
+  const rv = opts.reverb === false ? null : Object.assign({ seconds: 2.8, mix: 0.28, seed: 11 }, opts.reverb || {});
+  if (rv) {
+    const len = Math.ceil(ac.sampleRate * rv.seconds), ir = ac.createBuffer(2, len, ac.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const r = rng(rv.seed + ch), data = ir.getChannelData(ch);
+      for (let j = 0; j < len; j++) data[j] = (r() * 2 - 1) * Math.pow(1 - j / len, 3.2);
+    }
+    const conv = ac.createConvolver(); conv.buffer = ir;
+    const wet = ac.createGain(); wet.gain.value = rv.mix;
+    bus.connect(conv).connect(wet).connect(master);
+  }
+  const noiseCache = new Map();
+  const noise = (seconds, seed = 1) => {
+    const key = seconds + ':' + seed;
+    if (noiseCache.has(key)) return noiseCache.get(key);
+    const len = Math.ceil(ac.sampleRate * seconds), buf = ac.createBuffer(1, len, ac.sampleRate), r = rng(seed), d = buf.getChannelData(0);
+    for (let j = 0; j < len; j++) d[j] = r() * 2 - 1;
+    noiseCache.set(key, buf);
+    return buf;
+  };
+  const hz = (n) => n < 128 ? midi(n) : n;
+  const A = {
+    ac, out: bus, midi, noise,
+    // pad — sustained chord. notes are MIDI numbers or Hz.
+    pad({ t0, t1, notes, gain = 0.05, attack = 1.6, release = 2.2, type = 'sawtooth', cutoff = 900, detune = 7, pan = 0 }) {
+      const env = ac.createGain(), lp = ac.createBiquadFilter(), pn = ac.createStereoPanner();
+      lp.type = 'lowpass'; lp.frequency.value = cutoff; lp.Q.value = 0.6; pn.pan.value = pan;
+      env.gain.setValueAtTime(0, t0);
+      env.gain.linearRampToValueAtTime(gain, t0 + attack);
+      env.gain.setValueAtTime(gain, Math.max(t0 + attack, t1 - release));
+      env.gain.linearRampToValueAtTime(0, t1);
+      lp.connect(env).connect(pn).connect(bus);
+      for (const n of notes) for (const d of [-detune, detune]) {
+        const osc = ac.createOscillator(); osc.type = type; osc.frequency.value = hz(n); osc.detune.value = d;
+        osc.connect(lp); osc.start(t0); osc.stop(t1 + 0.05);
+      }
+    },
+    // whoosh — filtered noise sweep for transitions; peaks at t + dur * peak.
+    whoosh({ t, dur = 1.2, gain = 0.2, from = 300, to = 3200, peak = 0.62, q = 1.1, pan = [-0.5, 0.5], seed = 3 }) {
+      const src = ac.createBufferSource(); src.buffer = noise(dur + 0.1, seed);
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
+      bp.frequency.setValueAtTime(from, t);
+      bp.frequency.exponentialRampToValueAtTime(to, t + dur * peak);
+      bp.frequency.exponentialRampToValueAtTime(Math.max(from, to * 0.4), t + dur);
+      const env = ac.createGain();
+      env.gain.setValueAtTime(0.0001, t);
+      env.gain.exponentialRampToValueAtTime(gain, t + dur * peak);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      const pn = ac.createStereoPanner();
+      pn.pan.setValueAtTime(pan[0], t); pn.pan.linearRampToValueAtTime(pan[1], t + dur);
+      src.connect(bp).connect(env).connect(pn).connect(bus);
+      src.start(t); src.stop(t + dur + 0.05);
+    },
+    // hit — low impact: sine with a pitch drop plus a short noise click.
+    hit({ t, gain = 0.5, freq = 46, drop = 150, decay = 1.8, click = 0.25, seed = 5 }) {
+      const osc = ac.createOscillator(); osc.type = 'sine';
+      osc.frequency.setValueAtTime(drop, t); osc.frequency.exponentialRampToValueAtTime(freq, t + 0.18);
+      const env = ac.createGain();
+      env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+      osc.connect(env).connect(bus); osc.start(t); osc.stop(t + decay + 0.05);
+      if (click > 0) {
+        const n = ac.createBufferSource(); n.buffer = noise(0.2, seed);
+        const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+        const ce = ac.createGain();
+        ce.gain.setValueAtTime(gain * click, t); ce.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+        n.connect(lp).connect(ce).connect(bus); n.start(t); n.stop(t + 0.2);
+      }
+    },
+    // chime — bell-like partials with exponential decay.
+    chime({ t, note = 81, gain = 0.08, decay = 2.6, partials = [1, 2.01, 3.02], weights = [1, 0.3, 0.1], pan = 0 }) {
+      const f = hz(note), pn = ac.createStereoPanner(); pn.pan.value = pan; pn.connect(bus);
+      partials.forEach((m, j) => {
+        const osc = ac.createOscillator(); osc.type = 'sine'; osc.frequency.value = f * m;
+        const env = ac.createGain(), g = gain * (weights[j] ?? 0.1), d = decay / (1 + j * 0.6);
+        env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(g, t + 0.01);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + d);
+        osc.connect(env).connect(pn); osc.start(t); osc.stop(t + d + 0.05);
+      });
+    },
+  };
+  return A;
+}
+
+const audio = {
+  synth: (build, opts = {}) => ({ kind: 'synth', build, opts }),
+  // file(src, { offset, gain }) — src relative to the HTML file. offset = audio time at t = 0.
+  file: (src, opts = {}) => ({ kind: 'file', src, offset: opts.offset || 0, gain: opts.gain ?? 1 }),
+};
+
+async function renderSynth(spec, duration) {
+  const sr = spec.opts.sampleRate || 48000;
+  const oac = new OfflineAudioContext(2, Math.ceil(sr * duration), sr);
+  spec.build(oac, makeKit(oac, spec.opts));
+  return oac.startRendering();
+}
+
+function wavBase64(buf) {
+  const ch = buf.numberOfChannels, len = buf.length, sr = buf.sampleRate;
+  const bytes = new Uint8Array(44 + len * ch * 2), v = new DataView(bytes.buffer);
+  const str = (o, s) => { for (let j = 0; j < s.length; j++) v.setUint8(o + j, s.charCodeAt(j)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + len * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, len * ch * 2, true);
+  const data = []; for (let c = 0; c < ch; c++) data.push(buf.getChannelData(c));
+  let o = 44;
+  for (let j = 0; j < len; j++) for (let c = 0; c < ch; c++) { v.setInt16(o, clamp(data[c][j], -1, 1) * 32767, true); o += 2; }
+  let s = '';
+  for (let j = 0; j < bytes.length; j += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(j, j + 0x8000));
+  return btoa(s);
+}
+
+
+// ─── Film (canvas, player, render mode) ─────────────────────────────────
+const ICONS = {
+  play: '<path d="M4 2.2v11.6a.6.6 0 0 0 .9.5l9.4-5.8a.6.6 0 0 0 0-1L4.9 1.7a.6.6 0 0 0-.9.5z"/>',
+  pause: '<rect x="3" y="2" width="3.5" height="12" rx="1"/><rect x="9.5" y="2" width="3.5" height="12" rx="1"/>',
+  replay: '<path d="M8 2.5a5.5 5.5 0 1 1-5.2 3.7l1.4.5A4 4 0 1 0 8 4v2L4.8 3.2 8 .5z"/>',
+  muted: '<path d="M2 6h2.5L8 3v10L4.5 10H2z"/><path d="M10.5 6l4 4m0-4l-4 4" stroke="currentColor" stroke-width="1.4" fill="none"/>',
+  sound: '<path d="M2 6h2.5L8 3v10L4.5 10H2z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.8a6 6 0 0 1 0 8.4" stroke="currentColor" stroke-width="1.3" fill="none"/>',
+};
+
+function css(W, H, bg) {
+  return `
+  html,body{margin:0;height:100%;background:${bg};overflow:hidden}
+  body{display:grid;place-items:center}
+  .mv-stage{position:relative;width:min(100vw,calc(100vh * ${W} / ${H}));aspect-ratio:${W} / ${H}}
+  .mv-stage canvas{display:block;width:100%;height:100%;cursor:pointer}
+  .mv-controls{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:12px;padding:28px 24px 20px;
+    background:linear-gradient(transparent,rgba(0,0,0,.6));opacity:0;transition:opacity .2s ease;font-family:ui-monospace,Menlo,monospace}
+  .mv-stage:hover .mv-controls,.mv-controls.mv-pinned{opacity:1}
+  .mv-controls button{width:36px;height:36px;flex:none;border:0;border-radius:50%;display:grid;place-items:center;
+    background:rgba(255,255,255,.12);color:#fff;cursor:pointer;transition:background .15s ease}
+  .mv-controls button:hover{background:rgba(255,255,255,.22)}
+  .mv-controls button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .mv-controls button[hidden]{display:none}
+  .mv-controls svg{width:14px;height:14px;fill:currentColor}
+  .mv-controls input{flex:1;accent-color:#fff;cursor:pointer}
+  .mv-controls .mv-time{font-size:12px;color:rgba(255,255,255,.6);font-variant-numeric:tabular-nums;min-width:96px;text-align:right}
+  body.mv-render{display:block}
+  body.mv-render .mv-stage{width:${W}px;height:${H}px}
+  body.mv-render .mv-controls{display:none}`;
+}
+
+
+// film({ duration, fps, width, height, background, style, fonts, assets, audio, draw, maxScale })
+// draw(ctx, t, film) is called with the origin at the frame centre (x right, y down).
+const nonEmpty = (v) => v != null && (typeof v === 'string' ? v.trim() !== '' : Array.isArray(v) ? v.length > 0 : typeof v === 'object' ? Object.keys(v).length > 0 : true);
+function checkStyle(st) {
+  if (!st) fail('M.film', 'style 선언이 필요합니다. 브리프에서 정한 palette · type · motion · materials · texture · sound를 적으세요 (references/style.md).');
+  for (const k of ['palette', 'type', 'motion', 'materials']) {
+    if (!nonEmpty(st[k])) fail('M.film', `style.${k}가 비어 있습니다. 브리프에서 정한 값을 적으세요 (references/style.md).`);
+  }
+  for (const k of ['texture', 'sound']) if (!(k in st)) fail('M.film', `style.${k} 키가 필요합니다. 쓰지 않으면 null로 적으세요.`);
+}
+function showError(e) {
+  const put = () => {
+    const pre = document.createElement('pre');
+    pre.textContent = String(e && e.message || e);
+    pre.style.cssText = 'position:fixed;inset:24px;margin:0;padding:24px;color:#fff;background:#300;font:14px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;z-index:9';
+    document.body.appendChild(pre);
+  };
+  if (document.body) put(); else document.addEventListener('DOMContentLoaded', put);
+}
+
+function film(opts) {
+  try {
+    checkStyle(opts.style);
+    need(opts, ['duration', 'width', 'height', 'background', 'draw'], 'M.film');
+  } catch (e) { if (typeof document !== 'undefined') showError(e); throw e; }
+  const W = opts.width, H = opts.height, D = opts.duration, FPS = opts.fps || 30;
+  const bg = opts.background;
+  const images = new Map();
+  const pool = [];
+  const acquire = () => {
+    const c = pool.pop() || document.createElement('canvas');
+    if (c.width !== f.canvas.width || c.height !== f.canvas.height) { c.width = f.canvas.width; c.height = f.canvas.height; }
+    const x = c.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, c.width, c.height);
+    x.globalAlpha = 1; x.globalCompositeOperation = 'source-over'; x.filter = 'none';
+    return c;
+  };
+  const f = {
+    W, H, duration: D, fps: FPS, style: opts.style, ctx: null, canvas: null, scale: 1, time: 0,
+    render(t) {
+      t = clamp(t, 0, D);
+      f.time = t;
+      const ctx = f.ctx;
+      f.screen(ctx);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none';
+      opts.draw(ctx, t, f);
+    },
+    // screen(ctx) — reset to the frame transform (centre origin), e.g. after cam.plane().
+    screen(ctx = f.ctx) { ctx.setTransform(f.scale, 0, 0, f.scale, (W / 2) * f.scale, (H / 2) * f.scale); },
+    clear(color = bg) { const c = f.ctx; c.save(); f.screen(c); c.fillStyle = color; c.fillRect(-W / 2, -H / 2, W, H); c.restore(); },
+    asset(name) { const img = images.get(name); if (!img) fail('film.asset', `'${name}' 자산이 없습니다. film({ assets })에 등록하세요.`); return img; },
+    // layer(draw, { blend, alpha, filter, mask }) — draw into an offscreen canvas with the
+    // current transform, optionally cut by mask(mctx)'s alpha, then composite it.
+    layer(draw, o = {}) {
+      need(o, ['blend'], 'film.layer');
+      const main = f.ctx, T = main.getTransform();
+      const L = acquire(), lc = L.getContext('2d');
+      lc.setTransform(T);
+      f.ctx = lc;
+      try { draw(lc); } finally { f.ctx = main; }
+      if (o.mask) {
+        const Mk = acquire(), mc = Mk.getContext('2d');
+        mc.setTransform(T); o.mask(mc);
+        lc.save(); lc.setTransform(1, 0, 0, 1, 0, 0); lc.globalAlpha = 1; lc.filter = 'none';
+        lc.globalCompositeOperation = 'destination-in'; lc.drawImage(Mk, 0, 0); lc.restore();
+        pool.push(Mk);
+      }
+      main.save(); main.setTransform(1, 0, 0, 1, 0, 0);
+      main.globalAlpha *= o.alpha ?? 1; main.globalCompositeOperation = o.blend; main.filter = o.filter || 'none';
+      main.drawImage(L, 0, 0); main.restore();
+      pool.push(L);
+    },
+    glow(x, y, r, rgb, a) {
+      need({ x, y, r, rgb, a }, ['x', 'y', 'r', 'rgb', 'a'], 'film.glow');
+      if (a <= 0) return;
+      const c = f.ctx, g = c.createRadialGradient(x, y, 0, x, y, r), [R, G, B] = rgb;
+      g.addColorStop(0, `rgba(${R},${G},${B},${a})`);
+      g.addColorStop(0.45, `rgba(${R},${G},${B},${a * 0.35})`);
+      g.addColorStop(1, `rgba(${R},${G},${B},0)`);
+      c.save(); c.fillStyle = g; c.fillRect(-W / 2, -H / 2, W, H); c.restore();
+    },
+    // vignette({ inner, outer, strength, color }) — radii as fractions of H (inner) and W (outer).
+    vignette(o = {}) {
+      need(o, ['inner', 'outer', 'strength', 'color'], 'film.vignette');
+      const c = f.ctx, v = c.createRadialGradient(0, 0, H * o.inner, 0, 0, W * o.outer), col = o.color.join(',');
+      v.addColorStop(0, `rgba(${col},0)`); v.addColorStop(1, `rgba(${col},${o.strength})`);
+      c.save(); c.fillStyle = v; c.fillRect(-W / 2, -H / 2, W, H); c.restore();
+    },
+    // grain(t, { alpha, rate, color }) — seeded noise tiles, a new tile `rate` times a second.
+    grain(t, o = {}) {
+      need(o, ['alpha', 'rate', 'color'], 'film.grain');
+      const c = f.ctx, n = Math.floor(t * o.rate);
+      c.save();
+      f.screen(c);
+      c.globalAlpha = o.alpha;
+      c.fillStyle = c.createPattern(grainTiles(o.color)[n % 3], 'repeat');
+      const off = hash(n) * 256;
+      c.translate(off, off * 0.7);
+      c.fillRect(-W / 2 - 256, -H / 2 - 256, W + 512, H + 512);
+      c.restore();
+    },
+    // fade(t, { in, out, color }) — from/to a solid colour at the ends of the film (seconds; 0 = none).
+    fade(t, o = {}) {
+      need(o, ['in', 'out', 'color'], 'film.fade');
+      const a = Math.max(o.in > 0 ? 1 - smooth(clamp(t / o.in)) : 0, o.out > 0 ? smooth(clamp((t - (D - o.out)) / o.out)) : 0);
+      if (a <= 0) return;
+      const c = f.ctx; c.save(); f.screen(c); c.fillStyle = `rgba(${o.color.join(',')},${a})`; c.fillRect(-W / 2, -H / 2, W, H); c.restore();
+    },
+  };
+
+  const tiles = new Map();
+  function grainTiles(color) {
+    const key = color.join(',');
+    if (tiles.has(key)) return tiles.get(key);
+    const set = [0, 1, 2].map((k) => {
+      const g = document.createElement('canvas'); g.width = g.height = 256;
+      const gx = g.getContext('2d'), img = gx.createImageData(256, 256), r = rng(99 + k);
+      for (let j = 0; j < img.data.length; j += 4) {
+        const v = r() * 255; img.data[j] = color[0]; img.data[j + 1] = color[1]; img.data[j + 2] = color[2]; img.data[j + 3] = v;
+      }
+      gx.putImageData(img, 0, 0);
+      return g;
+    });
+    tiles.set(key, set);
+    return set;
+  }
+
+  const boot = async () => {
+    const style = document.createElement('style'); style.textContent = css(W, H, bg); document.head.appendChild(style);
+    if (RENDER) document.body.classList.add('mv-render');
+    const stage = document.createElement('div'); stage.className = 'mv-stage';
+    stage.innerHTML = `<canvas aria-label="${(opts.title || document.title || 'video').replace(/"/g, '&quot;')}"></canvas>
+      <div class="mv-controls"><button class="mv-play" aria-label="재생/일시정지"><svg viewBox="0 0 16 16"></svg></button>
+      <button class="mv-mute" aria-label="소리 켜기/끄기" hidden><svg viewBox="0 0 16 16"></svg></button>
+      <input class="mv-seek" type="range" min="0" max="${D}" step="0.01" value="0" aria-label="재생 위치">
+      <span class="mv-time"></span></div>`;
+    document.body.appendChild(stage);
+    const canvas = f.canvas = stage.querySelector('canvas');
+    f.ctx = canvas.getContext('2d');
+    const resize = () => {
+      f.scale = RENDER ? 1 : clamp((global.devicePixelRatio || 1) * (canvas.clientWidth || W) / W, 0.5, opts.maxScale || 1.5);
+      canvas.width = Math.round(W * f.scale); canvas.height = Math.round(H * f.scale);
+      pool.length = 0;
+    };
+    resize();
+    try { await Promise.all((opts.fonts || []).map(([font, s]) => document.fonts.load(font, s))); } catch (e) { /* system fonts */ }
+    await document.fonts.ready;
+    layoutCache.clear();
+    await Promise.all(Object.entries(opts.assets || {}).map(([name, src]) => new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => { images.set(name, img); res(); };
+      img.onerror = () => rej(new Error(`film: 자산 '${name}'(${src})을 불러오지 못했습니다.`));
+      img.src = src;
+    }))).catch((e) => { showError(e); throw e; });
+
+    const spec = opts.audio || null;
+    if (RENDER) {
+      global.seek = (t) => { f.render(t); return true; };
+      global.__film = {
+        duration: D, fps: FPS, width: W, height: H,
+        audio: spec ? { kind: spec.kind, url: spec.kind === 'file' ? new URL(spec.src, location.href).href : null, offset: spec.offset || 0, gain: spec.gain ?? 1 } : null,
+        audioWav: async () => spec && spec.kind === 'synth' ? wavBase64(await renderSynth(spec, D)) : null,
+      };
+      f.render(0);
+      global.__ready = true;
+      return;
+    }
+    livePlayer(f, stage, spec, resize);
+  };
+  // Errors inside the async boot (first frame, assets) would otherwise vanish as an unhandled
+  // rejection: show them on the page and log them so render.mjs can print them.
+  const start = () => boot().catch((e) => { showError(e); console.error(e && e.message || e); });
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else setTimeout(start, 0);
+  }
+  return f;
+}
+function livePlayer(f, stage, spec, resize) {
+  const D = f.duration;
+  const $ = (s) => stage.querySelector(s);
+  const playBtn = $('.mv-play'), muteBtn = $('.mv-mute'), seekEl = $('.mv-seek'), timeEl = $('.mv-time'), controls = $('.mv-controls');
+  const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  let playing = false, cur = 0, anchor = 0, anchorT = 0, raf = 0;
+  const snd = { on: false, ac: null, buf: null, src: null, el: null, loading: null };
+
+  async function soundReady() {
+    if (!spec) return false;
+    if (spec.kind === 'synth') {
+      if (!snd.ac) snd.ac = new AudioContext();
+      if (!snd.buf) snd.buf = await (snd.loading ||= renderSynth(spec, D));
+      await snd.ac.resume();
+    } else if (!snd.el) {
+      snd.el = new Audio(spec.src); snd.el.preload = 'auto'; snd.el.volume = clamp(spec.gain ?? 1);
+    }
+    return true;
+  }
+  function soundStop() {
+    if (snd.src) { try { snd.src.stop(); } catch (e) { /* already stopped */ } snd.src = null; }
+    if (snd.el) snd.el.pause();
+  }
+  function soundStart(t) {
+    soundStop();
+    if (!snd.on || !playing) return;
+    if (spec.kind === 'synth' && snd.buf) {
+      const s = snd.ac.createBufferSource(); s.buffer = snd.buf; s.connect(snd.ac.destination); s.start(0, t); snd.src = s;
+    } else if (snd.el) { snd.el.currentTime = Math.max(0, t + (spec.offset || 0)); snd.el.play().catch(() => {}); }
+  }
+  function icons() {
+    playBtn.querySelector('svg').innerHTML = playing ? ICONS.pause : cur >= D ? ICONS.replay : ICONS.play;
+    muteBtn.querySelector('svg').innerHTML = snd.on ? ICONS.sound : ICONS.muted;
+    controls.classList.toggle('mv-pinned', !playing);
+  }
+  function show(t) {
+    cur = t;
+    try { f.render(t); } catch (e) { playing = false; cancelAnimationFrame(raf); showError(e); throw e; }
+    seekEl.value = t.toFixed(2); timeEl.textContent = `${fmt(t)} / ${fmt(D)}`;
+  }
+  function tick(now) {
+    const t = anchorT + (now - anchor) / 1000;
+    if (t >= D) { show(D); playing = false; soundStop(); icons(); return; }
+    show(t);
+    raf = requestAnimationFrame(tick);
+  }
+  function play() {
+    if (cur >= D) cur = 0;
+    playing = true; anchor = performance.now(); anchorT = cur; icons();
+    soundStart(cur);
+    raf = requestAnimationFrame(tick);
+  }
+  function pause() { playing = false; cancelAnimationFrame(raf); soundStop(); icons(); }
+  const toggle = () => (playing ? pause() : play());
+
+  if (spec) muteBtn.hidden = false;
+  muteBtn.addEventListener('click', async () => {
+    snd.on = !snd.on; icons();
+    if (snd.on) { await soundReady(); if (playing) { anchor = performance.now(); anchorT = cur; soundStart(cur); } }
+    else soundStop();
+  });
+  playBtn.addEventListener('click', toggle);
+  f.canvas.addEventListener('click', toggle);
+  seekEl.addEventListener('input', () => { pause(); show(parseFloat(seekEl.value)); });
+  global.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+    if (e.key === 'm' && spec) muteBtn.click();
+  });
+  global.addEventListener('resize', () => { resize(); layoutCache.clear(); show(cur); });
+  show(0);
+  play();
+}
+
+
+global.Motion = {
+  version: 2, TAU, clamp, lerp, smooth, ease, hash, rng, keys, spline, span, shake, midi,
+  stagger, count, rot3, noise, fbm, grid,
+  seg, text, textWidth,
+  path, morph, shape, gradient, fill, stroke, image, wipe,
+  camera, lookAt,
+  particles, forms: { points }, sample,
+  audio, film,
+};
+})(typeof window !== 'undefined' ? window : globalThis);
+/* END MOTION ENGINE */
+</script>
+<script>
+'use strict';
+const M = Motion;
+const A = AppMap; // 앱 연구 지도 코드(frontend/src/views/map). app-map.js
+const D = window.DATA;
+const MAP = D.map;
+const CAP = D.capture; // 앱 화면 캡처의 요소 위치(CSS px). capture/capture.mjs
+
+// ─── Facts ──────────────────────────────────────────────────────────────
+// source: 논문·좌표·주제·트리·RT-1 인용 이웃·질문·도구 호출·라벨은 모두 ./data.js
+// (build-data.mjs가 피지컬 AI 코퍼스 스냅샷과 실제 에이전트 기록에서 만든다). 코드에 수치를 적지 않는다.
+// source: 앱 창의 헤더·사이드바·연도 막대·에이전트 패널은 실행 중인 앱을 찍은 픽셀(assets/, capture.mjs).
+// 지도 자리는 앱 지도 코드(app-map.js)로 프레임마다 그린다. 창 모서리 반경과 신호등은 설치된 데스크톱 앱
+// 창을 screencapture로 찍어 쟀다(2026-09-24). 아래 APP 값은 실행 중인 앱에서 getComputedStyle로 읽었다.
+
+// ─── 앱 토큰(측정값) ──────────────────────────────────────────────────────
+const SANS = '-apple-system, "system-ui", "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; // --font-sans
+const MONO = '"SFMono-Regular", Consolas, "Liberation Mono", monospace'; // --font-mono
+const SERIF = 'Georgia, "Times New Roman", "Noto Serif KR", "AppleMyungjo", serif'; // --font-region
+const APP = {
+  ground: '#0c1118', // .map-wrap --map-ground
+  mark: 'rgba(255,255,255,0.16)', // --map-mark: 십자·크롭 마크
+  background: '#101113', // --background (앱 창·에이전트 패널 바탕, 캡처에서 확인)
+  backgroundClear: 'rgba(16,17,19,0)', // --background의 투명
+  foreground: '#e8e8ec', // --foreground
+  muted: '#a5a6af', // --muted-foreground
+  accent: '#86d9f0', // --accent: 에이전트 주석
+  warn: '#f2cb8d', // --warn: 다이얼 바늘
+  primary: '#d9d5e8', // --primary: 헤더 로고
+  halo: [232, 232, 236, 210 / 255], // MapView selected-halo
+  held: [255, 255, 255], // MapView: 선택·강조한 논문의 점
+  topStroke: [255, 255, 255, 235 / 255], // MapView papers: 상위 피인용 흰 테두리
+  paperAlpha: 205 / 255, // MapView colors: 강조 대상 점의 알파
+  blobOpacity: 0.7, // MapView soft-regions: 주제 색 모드
+  blobStops: [[0, 0.1], [0.45, 0.04], [1, 0]], // region-gradient.ts
+  dotMin: 1.3, // MapView radiusMinPixels
+  regionFont: { size: 20, line: 23, maxWidth: 205, pad: 4, shadows: [[0, 1, 5], [0, 0, 12]] }, // .region-name
+  caption: { x: 34, y: 30, gap: 15, eyebrow: [10, 1.2], rest: [11, 1.1] }, // .map-caption(px, 자간 px)
+  crop: { inset: 18, len: 56 }, // .map-wrap 모서리 크롭 마크
+  cross: { tileW: 480, tileH: 400, half: 20 }, // .map-wrap 십자(480×400 칸 가운데, 40px)
+  controls: { right: 18, width: 48, button: 32, icon: 16, gap: 4, resetRight: 26, resetGap: 12 }, // .map-controls, .map-reset
+  dial: { height: 168, pxPerZoom: 48, minor: 0.25, tick: [6, 8, 14], label: [18, 9, 0.36], needle: [4, 10, 0.4, 6], mask: 0.18, hide: 0.12, min: -2 }, // ZoomDial.tsx, .zoom-*
+  brand: { logo: 30, gap: 10, size: 16, weight: 550, tracking: -0.5, line: 0.8 }, // .product-brand, 헤더 로고 SVG
+  annotation: { line: 1.5, dash: [3, 3], ring: 2, r: 4, d: 36, textGap: 4, font: 12, weight: 600, stroke: 4, edge: [200, 60] }, // .map-annotation, MapView
+  icons: {
+    plus: ['M5 12h14', 'M12 5v14'], minus: ['M5 12h14'], reset: ['M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8', 'M3 3v5h5'],
+    logo: 'M6 22 12 7l13 6-7 13L6 22Zm6-15 6 19M6 22l19-9', logoDots: [[6, 22, 2], [12, 7, 2.3], [25, 13, 1.8], [18, 26, 1.6]],
+  }, // lucide-react(24 뷰박스, 획 2)와 앱 헤더 로고
+  window: { radius: 16, capScale: 2 }, // 데스크톱 창 모서리(screencapture 2배 이미지에서 32px), 캡처 배율
+  move: 0.28, // MapView move(): 280ms ease-out cubic
+  flyPaper: 3.5, // agent/resolve.ts levelOffset.paper
+};
+
+// ─── STYLE ──────────────────────────────────────────────────────────────
+// 브리프: 웹 랜딩(소리 없이 재생 가능)의 제품 쇼케이스. 영상만 보고 제품을 알아야 한다.
+// 사용자 결정: 실제 앱 창 전체를 보여 주고, 두세 단어 헤드라인을 넣는다. 설명 문장은 쓰지 않는다.
+// 연출 문법: 어두운 무대에 앱 창 하나가 떠 있고, 장면마다 창이 기울어 돌며 헤드라인 반대편으로 비켜선다.
+// 카메라는 창의 부분(지도, 에이전트 패널)으로 밀고 들어간다. 창 안의 지도는 앱 코드로 실제처럼 움직인다.
+const deg = Math.PI / 180;
+const STYLE = {
+  palette: {
+    background: '#050608', // 무대
+    glow: [118, 108, 186], // 창 뒤 빛(앱 --primary의 보라 계열을 낮춘 색)
+    glow2: [60, 110, 150], // 반대편 빛(앱 인용선 파랑 계열)
+    headline: '#f4f4f7',
+    headlineSoft: 'rgba(244,244,247,0.56)', // 헤드라인 둘째 줄
+    shadow: 'rgba(0,0,0,0.62)',
+    rim: 'rgba(255,255,255,0.10)', // 창 테두리 빛
+    scrim: [5, 6, 8], // 헤드라인이 창 위에 올 때 뒤에 까는 무대색 그러데이션
+  },
+  type: {
+    headline: (s) => `700 ${s}px ${SANS}`,
+    brand: (s) => `${APP.brand.weight} ${s}px ${SANS}`,
+    region: (s) => `${s}px ${SERIF}`,
+    mono: (s) => `${s}px ${MONO}`,
+    sans: (s, w = 400) => `${w} ${s}px ${SANS}`,
+  },
+  motion: {
+    enter: 0.9, exit: 0.6, stagger: 0.028,
+    easeIn: M.ease.outExpo, easeOut: M.ease.inCubic, move: M.ease.inOutQuart, cam: M.ease.inOutCubic, panel: M.ease.outCubic,
+    regionFade: 0.5, // 영역 이름 묶음이 바뀌는 문턱의 교차 페이드 배율 폭
+    labelFade: A.LABEL_FADE_MS / 1000,
+    rise: 26, blur: 10, // 헤드라인 글자가 올라오며 선명해지는 거리(px)와 흐림
+    lineDelay: 0.18, // 헤드라인 둘째 줄이 늦는 시간
+  },
+  materials: ['floating app window (real app capture + live map)', 'perspective (WebGL quad)', 'soft shadow', 'stage glow', 'kinetic headline'],
+  texture: { vignette: { inner: 0.5, outer: 1.2, strength: 0.7, color: [0, 0, 0] }, grain: { alpha: 0.03, rate: 24, color: [255, 255, 255] } },
+  sound: {
+    chords: [[45, 52, 57, 64, 71], [41, 48, 57, 60, 67], [43, 50, 59, 62, 69], [45, 52, 60, 64, 71]],
+    padGain: 0.05, whooshGain: 0.13, chimeGain: 0.05, hitGain: 0.3, master: 0.9, whoosh: 1.1,
+    reverb: { seconds: 3.2, mix: 0.3, seed: 7 },
+  },
+  layout: {
+    fov: 30 * deg, // 무대 카메라 화각
+    headline: { size: 76, line: 1.12, tracking: -2.4 },
+    brandScale: 4.6, // 헤더 로고·제품명(30px·16px)을 같은 비율로 키운다
+    shadow: { dy: 70, blur: 70, grow: 1.02 },
+    glow: [[-420, -140, 900, 0.22], [380, 120, 1000, 0.28]], // 무대 빛 두 개(x, y, 반지름, 세기)
+    scrim: { h3: { from: -960, to: 40, alpha: 0.92 } }, // 헤드라인 뒤 그러데이션(왼쪽 끝 → 투명해지는 x)
+    annotPad: 170, // 주석 셋을 담는 지도 카메라의 여백(CSS px)
+    annotShift: 160, // 라벨이 점 오른쪽으로 뻗으므로 점들을 이만큼 왼쪽에 둔다(CSS px)
+    reveal: 330, // 답이 패널에 채워지는 속도(CSS px/s)
+    revealEdge: 28, // 드러나는 경계의 부드러운 폭(CSS px)
+    scrollLead: 60, // 드러나는 경계를 패널 아래 끝에서 이만큼 위에 둔다
+  },
+};
+
+// ─── 헤드라인(초안, 사용자 확인 전) ───────────────────────────────────────
+const COPY = {
+  h1: ['분야를', '한 장의 지도로'],
+  h2: ['논문 하나에서', '인용의 흐름까지'],
+  h3: ['물으면,', '에이전트가 찾아 준다'],
+};
+const HEAD_AT = { h1: [-880, -20], h2: [330, -20], h3: [-880, -250] }; // 헤드라인 왼쪽 위(무대 px)
+
+const DURATION = 30, FPS = 30;
+// 장면 시각(초). 화면과 소리가 같이 쓴다.
+const T = {
+  brand: [0.2, 3.0],
+  enter: [2.6, 4.4], // 창이 무대로 들어온다
+  pull: [3.6, 9.2], // 지도: RT-1 근접 → 전체 지도
+  h1: [3.8, 9.4],
+  s2: [9.4, 11.0], // 창이 왼쪽으로 돌며 다가온다
+  dive: [10.0, 12.4], // 지도: 전체 → RT-1 주변
+  select: 12.0,
+  lines: [12.7, 16.2],
+  h2: [11.0, 15.9],
+  s3: [15.8, 17.2], // 창이 에이전트 패널 쪽으로 다가온다
+  panel: [16.3, 16.65], // 패널이 열린다(지도 폭이 준다)
+  type: [16.9, 19.1], // 질문을 친다(캡처한 입력 과정)
+  send: 19.35,
+  answer: 0.25, // 보낸 뒤 답이 드러나기 시작하기까지
+  h3: [16.2, 21.0],
+  s4: [21.0, 22.6], // 창이 지도로 돌아 주석을 보인다
+  end: [24.2, 26.4], // 창이 가운데로 물러나고 지도가 전체로
+  finale: 26.0, // 제품명
+};
+// 답이 채워지는 시각: 사용자 메시지 다음부터 일정한 속도로. fly_to·annotate는 그 도구 행이 드러날 때.
+const userPart = CAP.parts.find((p) => p.kind === 'user');
+const answerTop = userPart.y + userPart.h;
+const revealAt = (y) => T.send + T.answer + Math.max(0, y - answerTop) / STYLE.layout.reveal;
+// "RT-1으로 지도를 이동하고…" 문단 바로 아래 도구 행(fly_to·annotate)이 드러나는 순간.
+const flyPart = CAP.parts.find((p) => p.kind === 'text' && p.text.includes('이동'));
+const nextPart = CAP.parts[CAP.parts.indexOf(flyPart) + 1];
+T.fly = revealAt(nextPart.y);
+T.annot = T.fly + 0.35;
+T.fit = [T.annot + 0.5, T.annot + 1.9];
+
+// ── 앱 지도 모형(프레임과 무관, 한 번) ────────────────────────────────────
+const MR = CAP.map, MRC = CAP.mapChat; // 지도 자리: 기본, 패널을 연 뒤
+const home = A.homeCamera(MAP, MR.w, MR.h);
+const homeChat = A.homeCamera(MAP, MRC.w, MRC.h);
+const topCited = (() => {
+  const s = [...MAP.cited].sort((a, b) => a - b), cut = s[Math.floor(s.length * A.TOP_CITED_QUANTILE)] ?? Infinity;
+  return MAP.cited.map((c) => c >= cut && c > 0);
+})();
+const typo = A.titleTypography(); // body의 --font-mono와 글자색(video.html head)
+const measure = A.titleMeasure(A.titleCharacterSet(MAP), typo);
+const metrics = A.titleMetrics(MAP, measure);
+const boxes = [];
+for (let i = 0; i < MAP.n; i++)
+  if (Number.isFinite(MAP.x[i]) && Number.isFinite(MAP.y[i]))
+    boxes.push({ i, x: MAP.x[i], y: MAP.y[i], width: metrics.widths[i], priority: MAP.cited[i] });
+const boxOf = new Int32Array(MAP.n).fill(-1);
+boxes.forEach((b, k) => (boxOf[b.i] = k));
+const reveals = A.revealZooms(boxes, home.zoom, A.TITLE_HEIGHT, home.zoom + A.ZOOM_RANGE);
+const regions = [0, 1, 2].map((l) => A.regionLabels(D.tree, D.clusters, l));
+const radii = A.regionRadii(MAP, D.tree, D.clusters);
+const alive = new Set(regions.flat().map((n) => n.id));
+const blobs = A.regionBlobs(MAP, D.clusters);
+const COLOR = MAP.cluster.map((c) => A.clusterColor(c));
+const RT = D.rt1.i;
+const P = [MAP.x[RT], MAP.y[RT]];
+const LINKS = [...D.rt1.refs.map((j) => ({ j, out: true })), ...D.rt1.citedBy.map((j) => ({ j, out: false }))]
+  .filter((l) => Number.isFinite(MAP.x[l.j]))
+  .map((l) => ({ ...l, len: Math.hypot(MAP.x[l.j] - P[0], MAP.y[l.j] - P[1]) }));
+
+// ── 창 안 지도 카메라(앱과 같은 정사영: target·zoom) ────────────────────────
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+const phase = (t, [a, b], ease) => ease(clamp01((t - a) / (b - a)));
+function glide(a, b, e) {
+  const zoom = a.zoom + (b.zoom - a.zoom) * e;
+  const shrink = (2 ** a.zoom * (1 - e)) / 2 ** zoom;
+  return { target: [b.target[0] - (b.target[0] - a.target[0]) * shrink, b.target[1] - (b.target[1] - a.target[1]) * shrink], zoom };
+}
+const cam = (target, zoom) => ({ target, zoom });
+const HOME = cam([home.target[0], home.target[1]], home.zoom);
+const CLOSE = cam(P, home.zoom + 5.6); // RT-1 논문 제목 단계
+const NEAR = cam(P, home.zoom + 2.3); // 인용망 전체가 보이는 하위 분야 단계
+const FLY = cam(P, homeChat.zoom + APP.flyPaper);
+const FIT = (() => {
+  const f = A.fitCamera(D.labels.map((l) => MAP.x[l.i]), D.labels.map((l) => MAP.y[l.i]), MRC.w, MRC.h, STYLE.layout.annotPad, homeChat.zoom - 2, homeChat.zoom + A.ZOOM_RANGE);
+  return cam([f.target[0] + STYLE.layout.annotShift / 2 ** f.zoom, f.target[1]], f.zoom);
+})();
+const END = cam([homeChat.target[0], homeChat.target[1]], homeChat.zoom);
+function mapCamAt(t) {
+  if (t < T.pull[1]) return glide(CLOSE, HOME, phase(t, T.pull, STYLE.motion.cam));
+  if (t < T.dive[0]) return HOME;
+  if (t < T.fly) return glide(HOME, NEAR, phase(t, T.dive, STYLE.motion.cam));
+  if (t < T.fit[0]) {
+    const f = 1 - (1 - clamp01((t - T.fly) / APP.move)) ** 3; // 앱 move(): target·zoom 선형 보간
+    return { target: [NEAR.target[0] + (FLY.target[0] - NEAR.target[0]) * f, NEAR.target[1] + (FLY.target[1] - NEAR.target[1]) * f], zoom: NEAR.zoom + (FLY.zoom - NEAR.zoom) * f };
+  }
+  if (t < T.end[0]) return glide(FLY, FIT, phase(t, T.fit, STYLE.motion.cam));
+  return glide(FIT, END, phase(t, T.end, STYLE.motion.cam));
+}
+// 앱 호버 곡선(MapView hoverT·front): 240ms ease-out, 앞머리는 화면에서 초당 LINK_SPEED px.
+function focusAt(t, on, off) {
+  if (t < on) return null;
+  const fd = STYLE.motion.labelFade, eo = (x) => 1 - (1 - clamp01(x)) ** 3;
+  const k = t < off ? eo((t - on) / fd) : 1 - eo((t - off) / fd);
+  if (k <= 0) return null;
+  let front = 0;
+  for (let f = 0; on + f / FPS < Math.min(t, off); f++) front += A.LINK_SPEED / FPS / 2 ** mapCamAt(on + f / FPS).zoom;
+  return { t: k, front, fadeWorld: A.LINK_FADE_PX / 2 ** mapCamAt(on).zoom };
+}
+
+// ── 무대 위 창의 자리(무대 px, 가운데 원점; 각도는 도) ───────────────────────
+// s: z = 0 평면에서 창의 폭(px). 창 좌표는 CSS px(1440×950)를 이 폭에 맞춰 줄인다.
+const WIN = CAP.window;
+const pose = (x, y, s, rx, ry, rz = 0, z = 0) => ({ x, y, s, rx: rx * deg, ry: ry * deg, rz: rz * deg, z });
+const POSES = {
+  off: pose(520, 760, 1150, 34, -34, 6),
+  p1: pose(250, 36, 1180, 9, -17, 0.6),
+  p2: pose(-300, 30, 1500, 7, 19, -0.4),
+  // 에이전트 패널(창 오른쪽 27%)을 크게. 왼쪽 지도는 깊이 쪽으로 물러난다.
+  p3: pose(-400, 40, 2350, 4, 26, 0),
+  p4: pose(100, 60, 2200, 5, -10, 0),
+  p5: pose(0, -110, 1000, 12, 0, 0),
+};
+function lerpPose(a, b, e) {
+  const o = {};
+  for (const k of Object.keys(a)) o[k] = a[k] + (b[k] - a[k]) * e;
+  return o;
+}
+function poseAt(t) {
+  const m = STYLE.motion.move;
+  if (t < T.s2[0]) return lerpPose(POSES.off, POSES.p1, phase(t, T.enter, STYLE.motion.cam));
+  if (t < T.s3[0]) return lerpPose(POSES.p1, POSES.p2, phase(t, T.s2, m));
+  if (t < T.s4[0]) return lerpPose(POSES.p2, POSES.p3, phase(t, T.s3, m));
+  if (t < T.end[0]) return lerpPose(POSES.p3, POSES.p4, phase(t, T.s4, m));
+  return lerpPose(POSES.p4, POSES.p5, phase(t, T.end, m));
+}
+
+// ── 소리 ─────────────────────────────────────────────────────────────────
+const S = STYLE.sound;
+const score = M.audio.synth((ac, A2) => {
+  const cuts = [0, T.s2[0], T.s3[0], T.end[0], DURATION];
+  S.chords.forEach((notes, k) => A2.pad({ t0: Math.max(0, cuts[k] - 1), t1: cuts[k + 1] + 1, notes, gain: S.padGain }));
+  A2.hit({ t: T.brand[0], gain: S.hitGain });
+  [T.enter[0], T.s2[0], T.s3[0], T.s4[0], T.end[0]].forEach((t) => A2.whoosh({ t, dur: S.whoosh, gain: S.whooshGain }));
+  A2.chime({ t: T.lines[0], note: 88, gain: S.chimeGain });
+  A2.chime({ t: T.send, note: 81, gain: S.chimeGain });
+  D.labels.forEach((_, k) => A2.chime({ t: T.annot + k * 0.12, note: 84 + k * 3, gain: S.chimeGain * 0.8 }));
+  A2.hit({ t: T.finale + 0.2, gain: S.hitGain * 0.8 });
+}, { gain: S.master, reverb: S.reverb });
+
+// 캡처 이미지는 assets.js의 data URI(window.ASSETS)로 읽는다 — file://로 열어도 WebGL에 올릴 수 있다.
+const ASSETS = {
+  map: window.ASSETS.map, welcome: window.ASSETS.welcome, chat: window.ASSETS.chat, lights: window.ASSETS['traffic-lights'],
+  ...Object.fromEntries(CAP.tiles.map((t) => [t.name, window.ASSETS[t.name]])),
+  ...Object.fromEntries(CAP.typing.map((t) => [t.name, window.ASSETS[t.name]])),
+};
+const film = M.film({
+  title: 'Constellation', duration: DURATION, fps: FPS, width: 1920, height: 1080,
+  background: STYLE.palette.background, style: STYLE,
+  copy: Object.values(COPY).flat().join(' ') + ' Constellation',
+  fonts: [
+    [STYLE.type.headline(STYLE.layout.headline.size), Object.values(COPY).flat().join(' ')],
+    [STYLE.type.brand(72), 'Constellation'],
+    [STYLE.type.sans(APP.annotation.font, APP.annotation.weight), D.labels.map((l) => l.label).join(' ')],
+  ],
+  assets: ASSETS, audio: score, draw,
+});
+
+// ── 창 그리기(오프스크린, 캡처와 같은 2배 해상도) ─────────────────────────────
+const CS = APP.window.capScale;
+const winCanvas = document.createElement('canvas');
+winCanvas.width = WIN.width * CS; winCanvas.height = WIN.height * CS;
+const wctx = winCanvas.getContext('2d');
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const span = (t, a, b) => M.span(t, a, b, { inDur: STYLE.motion.enter, easeIn: STYLE.motion.easeIn, outDur: STYLE.motion.exit, easeOut: STYLE.motion.easeOut });
+let VW = MR.w, VH = MR.h; // 지금 그리는 지도 자리의 크기(CSS px)
+
+function drawWindow(t) {
+  const c = wctx;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, winCanvas.width, winCanvas.height);
+  c.scale(CS, CS);
+  // 창 모양(모서리 16px)으로 자르고 앱 바탕을 깐다.
+  c.save();
+  c.beginPath(); c.roundRect(0, 0, WIN.width, WIN.height, APP.window.radius); c.clip();
+  c.fillStyle = APP.background; c.fillRect(0, 0, WIN.width, WIN.height);
+
+  // 패널이 열리는 정도(0~1)와 그때의 지도 자리.
+  const open = phase(t, T.panel, STYLE.motion.panel);
+  const mw = MR.w + (MRC.w - MR.w) * open;
+  // 지도(앱 지도 코드).
+  c.save(); c.translate(MR.x, MR.y); c.beginPath(); c.rect(0, 0, mw, MR.h); c.clip();
+  VW = mw; VH = MR.h;
+  const mcam = mapCamAt(t);
+  const mhomeZoom = home.zoom + (homeChat.zoom - home.zoom) * open;
+  drawGround(c);
+  drawMap(c, t, mcam, mhomeZoom);
+  drawAnnotations(c, t, mcam);
+  drawCaption(c, mcam.zoom - mhomeZoom);
+  drawControls(c, mcam.zoom, mhomeZoom);
+  c.restore();
+
+  // 앱 화면(캡처): 지도만 연 화면 → 패널이 오른쪽에서 밀려 들어온 화면 → 대화.
+  const img = (n) => film.asset(n);
+  const PX = CAP.scroller.x; // 패널 왼쪽 끝(창 CSS px)
+  if (open < 1) { c.globalAlpha = 1 - open; c.drawImage(img('map'), 0, 0, WIN.width, WIN.height); c.globalAlpha = 1; }
+  if (open > 0) {
+    const chrome = t < T.send ? 'welcome' : 'chat';
+    // 패널 바깥(사이드바·검색줄·연도 막대)은 교차하고, 패널은 오른쪽에서 밀려 들어온다.
+    c.save(); c.beginPath(); c.rect(0, CAP.header.h, PX - 1, WIN.height); c.clip();
+    c.globalAlpha = open; c.drawImage(img(chrome), 0, 0, WIN.width, WIN.height); c.restore();
+    c.save(); c.translate((1 - open) * (WIN.width - PX + 1), 0);
+    c.beginPath(); c.rect(PX - 1, CAP.header.h, WIN.width - PX + 1, WIN.height); c.clip();
+    c.drawImage(img(chrome), 0, 0, WIN.width, WIN.height);
+    if (t < T.send) drawTyping(c, t); else drawThread(c, t);
+    c.restore();
+    // 헤더는 두 캡처가 같다.
+    c.save(); c.beginPath(); c.rect(0, 0, WIN.width, CAP.header.h); c.clip();
+    c.drawImage(img(chrome), 0, 0, WIN.width, WIN.height); c.restore();
+  }
+  // 데스크톱 창의 신호등(설치된 앱 창에서 찍은 픽셀).
+  c.drawImage(img('lights'), 0, 0, img('lights').width / CS, img('lights').height / CS);
+  c.restore();
+  // 창 테두리 빛.
+  c.strokeStyle = STYLE.palette.rim; c.lineWidth = 1;
+  c.beginPath(); c.roundRect(0.5, 0.5, WIN.width - 1, WIN.height - 1, APP.window.radius); c.stroke();
+}
+
+// 질문 입력: 캡처한 입력 과정에서 지금 글자 수에 맞는 장면을 입력창 자리에 놓는다.
+function drawTyping(c, t) {
+  if (t < T.type[0]) return;
+  const frames = CAP.typing, total = frames[frames.length - 1].n;
+  const n = Math.round(total * phase(t, T.type, M.ease.linear));
+  let f = frames[0];
+  for (const x of frames) if (x.n <= n) f = x;
+  // 입력창이 줄이 늘며 자라므로 가장 큰 자리까지 바탕으로 덮고 놓는다.
+  const top = Math.min(...frames.map((x) => x.y)), bottom = Math.max(...frames.map((x) => x.y + x.h));
+  c.fillStyle = APP.background; c.fillRect(frames[0].x, top, frames[0].w, bottom - top);
+  c.drawImage(film.asset(f.name), f.x, f.y, f.w, f.h);
+}
+// 대화: 사용자 메시지는 보내는 순간, 답은 위에서 아래로 일정한 속도로 드러난다. 넘치면 스크롤을 따라간다.
+function drawThread(c, t) {
+  const sc = CAP.scroller, L = STYLE.layout, visible = CAP.footer.y - sc.y;
+  const reveal = answerTop + Math.max(0, t - T.send - T.answer) * L.reveal;
+  const scroll = Math.max(0, Math.min(CAP.content - visible, reveal - visible + L.scrollLead));
+  c.save(); c.beginPath(); c.rect(sc.x, sc.y, sc.w, visible); c.clip();
+  c.fillStyle = APP.background; c.fillRect(sc.x, sc.y, sc.w, visible);
+  for (const tile of CAP.tiles) c.drawImage(film.asset(tile.name), sc.x, sc.y + tile.y - scroll, sc.w, sc.h);
+  // 아직 드러나지 않은 부분을 패널 바탕으로 덮는다(경계는 부드럽게).
+  const y = sc.y + reveal - scroll;
+  const g = c.createLinearGradient(0, y - L.revealEdge, 0, y);
+  g.addColorStop(0, APP.backgroundClear); g.addColorStop(1, APP.background);
+  c.fillStyle = g; c.fillRect(sc.x, y - L.revealEdge, sc.w, L.revealEdge);
+  c.fillStyle = APP.background; c.fillRect(sc.x, y, sc.w, sc.y + visible - y);
+  c.restore();
+}
+
+// ── 지도 레이어(앱 지도 코드) ─────────────────────────────────────────────
+function drawGround(c) {
+  c.fillStyle = APP.ground; c.fillRect(0, 0, VW, VH);
+  const G = APP.cross, K = APP.crop;
+  c.fillStyle = APP.mark;
+  const ox = VW / 2 - G.tileW / 2, oy = VH / 2 - G.tileH / 2; // background-position: center
+  for (let x = ox - G.tileW * Math.ceil(ox / G.tileW); x < VW; x += G.tileW)
+    for (let y = oy - G.tileH * Math.ceil(oy / G.tileH); y < VH; y += G.tileH) {
+      const cx = x + G.tileW / 2, cy = y + G.tileH / 2;
+      c.fillRect(cx - G.half, cy, G.half * 2, 1);
+      c.fillRect(cx, cy - G.half, 1, G.half * 2);
+    }
+  for (const [x, y, sx, sy] of [[K.inset, K.inset, 1, 1], [VW - K.inset, K.inset, -1, 1], [K.inset, VH - K.inset, 1, -1], [VW - K.inset, VH - K.inset, -1, -1]]) {
+    c.fillRect(sx > 0 ? x : x - K.len, sy > 0 ? y : y - 1, K.len, 1);
+    c.fillRect(sx > 0 ? x : x - 1, sy > 0 ? y : y - K.len, 1, K.len);
+  }
+}
+const viewport = (cam) => {
+  const s = 2 ** cam.zoom;
+  return {
+    s,
+    project: (p) => [(p[0] - cam.target[0]) * s + VW / 2, (p[1] - cam.target[1]) * s + VH / 2],
+    unproject: (p) => [(p[0] - VW / 2) / s + cam.target[0], (p[1] - VH / 2) / s + cam.target[1]],
+  };
+};
+
+function drawMap(c, t, cam, homeZoom) {
+  const vp = viewport(cam);
+  const rel = cam.zoom - homeZoom;
+  const level = A.labelLevel(rel);
+  const scale = A.dotScale(rel);
+  const rpx = (i) => Math.min(A.DOT_RADIUS_MAX, Math.max(APP.dotMin, scale * (topCited[i] ? A.DOT_RADIUS_TOP : A.DOT_RADIUS)));
+  const focus = focusAt(t, T.lines[0], T.lines[1]);
+  const hoverT = focus?.t ?? 0;
+  const selA = clamp01((t - T.select) / STYLE.motion.labelFade) * (1 - clamp01((t - T.lines[1]) / STYLE.motion.labelFade));
+
+  // 1. 영역 배경(soft-regions).
+  for (const b of blobs) {
+    const [x, y] = vp.project(b.position), r = b.radius * vp.s;
+    if (x + r < 0 || x - r > VW || y + r < 0 || y - r > VH) continue;
+    const g = c.createRadialGradient(x, y, 0, x, y, r);
+    for (const [o, a] of APP.blobStops) g.addColorStop(o, rgba(b.color, a * APP.blobOpacity));
+    c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  // 2. 논문 점(papers).
+  const dim = 1 - A.HOVER_DIM * hoverT;
+  const pos = new Float32Array(MAP.n * 2);
+  const groups = new Map(), rings = new Path2D();
+  for (let i = 0; i < MAP.n; i++) {
+    if (!Number.isFinite(MAP.x[i])) continue;
+    const x = (MAP.x[i] - cam.target[0]) * vp.s + VW / 2, y = (MAP.y[i] - cam.target[1]) * vp.s + VH / 2;
+    pos[i * 2] = x; pos[i * 2 + 1] = y;
+    if (x < -10 || x > VW + 10 || y < -10 || y > VH + 10) continue;
+    const r = rpx(i), sel = i === RT && selA > 0;
+    const col = sel ? APP.held : COLOR[i];
+    const a = sel ? APP.paperAlpha + (1 - APP.paperAlpha) * selA : APP.paperAlpha;
+    const key = `${col}|${a.toFixed(3)}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { col, a, path: new Path2D() }));
+    g.path.moveTo(x + r, y); g.path.arc(x, y, r, 0, M.TAU);
+    if (topCited[i]) { rings.moveTo(x + r, y); rings.arc(x, y, r, 0, M.TAU); }
+  }
+  c.globalAlpha = dim;
+  for (const g of groups.values()) { c.fillStyle = rgba(g.col, g.a); c.fill(g.path); }
+  c.lineWidth = 1; c.strokeStyle = rgba(APP.topStroke, APP.topStroke[3]); c.stroke(rings);
+  c.globalAlpha = 1;
+
+  // 3. 인용선(hover-links)과 이웃·강조 점(hover-nodes).
+  const px = pos[RT * 2], py = pos[RT * 2 + 1];
+  if (focus) {
+    c.lineWidth = A.LINK_WIDTH; c.lineCap = 'butt';
+    for (const l of LINKS) {
+      const f = l.len > 0 ? Math.min(1, focus.front / l.len) : 1;
+      c.strokeStyle = rgba(l.out ? A.LINK_OUT : A.LINK_IN, hoverT);
+      c.beginPath(); c.moveTo(px, py); c.lineTo(px + (pos[l.j * 2] - px) * f, py + (pos[l.j * 2 + 1] - py) * f); c.stroke();
+    }
+    const node = (i, fill, k) => {
+      c.fillStyle = fill; c.beginPath(); c.arc(pos[i * 2], pos[i * 2 + 1], rpx(i), 0, M.TAU); c.fill();
+      if (topCited[i]) { c.strokeStyle = rgba(APP.topStroke, APP.topStroke[3] * k); c.lineWidth = 1; c.stroke(); }
+    };
+    for (const l of LINKS) {
+      const k = hoverT * clamp01((focus.front - l.len) / focus.fadeWorld);
+      if (k > 0) node(l.j, rgba(COLOR[l.j], APP.paperAlpha * k), k);
+    }
+    node(RT, rgba(APP.held, hoverT), hoverT);
+  }
+  // 4. 선택 고리(selected-halo).
+  if (selA > 0) {
+    c.globalAlpha = selA; c.strokeStyle = rgba(APP.halo, APP.halo[3]); c.lineWidth = 1;
+    c.beginPath(); c.arc(px, py, Math.max(A.HALO_MIN, rpx(RT) + A.HALO_GAP), 0, M.TAU); c.stroke();
+    c.globalAlpha = 1;
+  }
+
+  // 5. 영역 이름(placeRegionLabels) — 문턱 교차 페이드 × 논문 제목이 켜지는 만큼 옅어짐.
+  const size = { width: VW, height: VH };
+  const regionOpacity = 1 - A.paperLabelOpacity(rel);
+  const STEPS = [-Infinity, 1, 2, Infinity];
+  const names = [];
+  regions.forEach((items, k) => {
+    const wgt = clamp01((rel - STEPS[k]) / STYLE.motion.regionFade + 0.5) * clamp01((STEPS[k + 1] - rel) / STYLE.motion.regionFade + 0.5);
+    if (wgt <= 0 || regionOpacity <= 0) return;
+    const placed = A.placeRegionLabels(items, vp, size, radii, alive, rel);
+    for (const n of items) if (placed.has(n.id)) names.push({ label: n.label, at: placed.get(n.id), a: wgt * regionOpacity });
+  });
+  const cur = STEPS.findIndex((s) => rel < s) - 1;
+  const regionless = level === 'topic' && A.placeRegionLabels(regions[cur], vp, size, radii, alive, rel).size === 0 ? 1 : 0;
+  const floor = level === 'field' ? Infinity : homeZoom + A.PAPER_LABEL_ZOOM - 0.5;
+
+  // 6. 논문 제목(paper-titles·paper-values).
+  if (level !== 'field' || regionless > 0) {
+    c.font = `${A.TITLE_FONT_SIZE}px ${typo.fontFamily}`; c.letterSpacing = `${A.TITLE_TRACKING}px`;
+    c.textBaseline = 'middle'; c.textAlign = 'left';
+    const hx = VW / 2 + A.TITLE_MARGIN_X, hy = VH / 2 + A.TITLE_MARGIN_Y;
+    const title = (i, k, alpha) => {
+      const x = pos[i * 2], y = pos[i * 2 + 1] + A.TITLE_HEIGHT * reveals.row[k];
+      c.fillStyle = rgba(typo.color, alpha); c.fillText(metrics.displays[i], x + A.TITLE_OFFSET_X, y);
+      c.fillStyle = rgba(COLOR[i], alpha); c.fillText(metrics.values[i], x + metrics.valueDx[i], y);
+    };
+    boxes.forEach((b, k) => {
+      if (b.i === RT) return;
+      if (Math.abs(pos[b.i * 2] - VW / 2) > hx || Math.abs(pos[b.i * 2 + 1] - VH / 2) > hy) return;
+      const a = A.paperTitleOpacity(cam.zoom, reveals.zoom[k], floor, regionless) * dim;
+      if (a > 0) title(b.i, k, a);
+    });
+    const a = Math.max(hoverT, selA * A.paperTitleOpacity(cam.zoom, -Infinity, floor, regionless), A.paperTitleOpacity(cam.zoom, reveals.zoom[boxOf[RT]], floor, regionless));
+    if (a > 0) title(RT, boxOf[RT], a);
+    c.letterSpacing = '0px';
+  }
+  drawRegionNames(c, names);
+}
+
+// .region-name: Georgia 20px/23px, 최대 폭 205px, 가운데 정렬, 바탕색 그림자 두 겹.
+function drawRegionNames(c, names) {
+  const F = APP.regionFont, dev = c.getTransform().a;
+  c.font = STYLE.type.region(F.size); c.textAlign = 'center'; c.textBaseline = 'middle';
+  const m = (s) => c.measureText(s).width;
+  for (const n of names) {
+    if (n.a <= 0) continue;
+    const lines = A.wrapTitle(m, n.label, F.maxWidth - F.pad * 2);
+    const y0 = n.at[1] - ((lines.length - 1) * F.line) / 2;
+    c.globalAlpha = n.a;
+    // CSS text-shadow는 그림자만 글자 아래에 깐다: 글자는 화면 밖에 그리고 그림자만 제자리로 끌어온다.
+    for (const [dx, dy, blur] of F.shadows) {
+      c.shadowColor = APP.background; c.shadowBlur = blur * dev;
+      c.shadowOffsetX = 10000 * dev + dx * dev; c.shadowOffsetY = dy * dev;
+      c.fillStyle = APP.background;
+      lines.forEach((l, k) => c.fillText(l, n.at[0] - 10000, y0 + k * F.line));
+    }
+    c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetX = 0; c.shadowOffsetY = 0;
+    c.fillStyle = APP.foreground;
+    lines.forEach((l, k) => c.fillText(l, n.at[0], y0 + k * F.line));
+  }
+  c.globalAlpha = 1; c.textAlign = 'left';
+}
+
+// 에이전트 주석(.map-annotation).
+function drawAnnotations(c, t, cam) {
+  const N = APP.annotation;
+  if (t < T.annot) return;
+  const a = (1 - (1 - clamp01((t - T.annot) / STYLE.motion.labelFade)) ** 3) * (1 - clamp01((t - T.end[0]) / STYLE.motion.exit));
+  if (a <= 0) return;
+  const vp = viewport(cam);
+  for (const l of D.labels) {
+    const [px, py] = vp.project([MAP.x[l.i], MAP.y[l.i]]);
+    const dx = px > VW - N.edge[0] ? -N.d : N.d, dy = py < N.edge[1] ? N.d : -N.d;
+    const lx = px + dx, ly = py + dy;
+    c.globalAlpha = a;
+    c.strokeStyle = APP.accent; c.lineWidth = N.line; c.setLineDash(N.dash);
+    c.beginPath(); c.moveTo(px, py); c.lineTo(lx, ly); c.stroke(); c.setLineDash([]);
+    c.lineWidth = N.ring; c.beginPath(); c.arc(px, py, N.r, 0, M.TAU); c.stroke();
+    c.font = STYLE.type.sans(N.font, N.weight); c.textBaseline = 'middle'; c.textAlign = dx > 0 ? 'left' : 'right';
+    const tx = lx + (dx > 0 ? N.textGap : -N.textGap);
+    c.lineJoin = 'round'; c.lineWidth = N.stroke; c.strokeStyle = APP.background;
+    c.strokeText(l.label, tx, ly);
+    c.fillStyle = APP.foreground; c.fillText(l.label, tx, ly);
+  }
+  c.globalAlpha = 1; c.textAlign = 'left';
+}
+
+// .map-caption.
+function drawCaption(c, rel) {
+  const K = APP.caption;
+  const level = A.labelLevel(rel);
+  const eyebrow = level === 'field' ? '상위 분야' : level === 'topic' ? '하위 분야' : '논문 제목';
+  const parts = [[eyebrow, K.eyebrow], [`${D.clusters.length}개 주제 · ${MAP.n.toLocaleString('en-US')}편`, K.rest]];
+  c.fillStyle = APP.muted; c.textBaseline = 'middle'; c.textAlign = 'left';
+  let x = K.x;
+  for (const [text, [size, ls]] of parts) {
+    c.font = STYLE.type.mono(size); c.letterSpacing = `${ls}px`;
+    c.fillText(text, x, K.y + 7);
+    x += c.measureText(text).width + K.gap;
+  }
+  c.letterSpacing = '0px';
+}
+
+// 확대 컨트롤(.map-controls)과 다이얼(ZoomDial.tsx).
+function icon(c, paths, x, y, size, color) {
+  c.save(); c.translate(x - size / 2, y - size / 2); c.scale(size / 24, size / 24);
+  c.strokeStyle = color; c.lineWidth = 2; c.lineCap = 'round'; c.lineJoin = 'round';
+  for (const d of paths) c.stroke(new Path2D(d));
+  c.restore();
+}
+function drawControls(c, zoom, homeZoom) {
+  const K = APP.controls, G = APP.dial;
+  const x0 = VW - K.right - K.width, cx = x0 + K.width / 2;
+  const total = K.button * 2 + K.gap * 2 + G.height;
+  const top = VH / 2 - total / 2, dialTop = top + K.button + K.gap;
+  const pct = (z) => Math.round(100 * 2 ** (z - homeZoom));
+  const min = homeZoom + G.min, max = homeZoom + A.ZOOM_RANGE;
+  zoom = Math.min(max, Math.max(min, zoom));
+  const half = G.height / 2 / G.pxPerZoom;
+  const mask = (y) => { const v = (y - dialTop) / G.height; return v < G.mask ? v / G.mask : v > 1 - G.mask ? (1 - v) / G.mask : 1; };
+  c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (let m = Math.ceil((zoom - half - homeZoom) / G.minor); m <= Math.floor((zoom + half - homeZoom) / G.minor); m++) {
+    const z = homeZoom + m * G.minor;
+    if (z < min - 1e-9 || z > max + 1e-9) continue;
+    const major = m % 4 === 0, y = dialTop + G.height / 2 - (z - zoom) * G.pxPerZoom;
+    c.globalAlpha = clamp01(mask(y));
+    const w = major ? G.tick[2] : G.tick[1];
+    c.fillStyle = major ? APP.foreground : APP.muted;
+    c.fillRect(x0 + K.width - G.tick[0] - w, y - 0.5, w, 1);
+    if (major && Math.abs(z - zoom) > G.hide) {
+      c.font = STYLE.type.mono(G.label[1]); c.letterSpacing = `${G.label[2]}px`; c.fillStyle = APP.muted;
+      c.fillText(`${pct(z)}%`, x0 + K.width - G.tick[0] - G.label[0], y);
+    }
+  }
+  c.globalAlpha = 1;
+  const cy = dialTop + G.height / 2;
+  c.fillStyle = APP.warn;
+  c.fillRect(x0 + G.needle[0], cy - 1, K.width - G.needle[0] * 2, 2);
+  c.font = STYLE.type.mono(G.needle[1]); c.letterSpacing = `${G.needle[2]}px`;
+  c.fillText(`${pct(zoom)}%`, x0 + G.needle[0] - G.needle[3], cy);
+  c.letterSpacing = '0px'; c.textAlign = 'left';
+  icon(c, APP.icons.plus, cx, top + K.button / 2, K.icon, APP.foreground);
+  icon(c, APP.icons.minus, cx, top + total - K.button / 2, K.icon, APP.foreground);
+  icon(c, APP.icons.reset, VW - K.resetRight - K.button / 2, top + total + K.resetGap + K.button / 2, K.icon, APP.foreground);
+}
+
+// ── 무대: 창을 원근으로 놓는다(WebGL 사각형 하나, 밉맵) ─────────────────────
+const GLC = document.createElement('canvas');
+const gl = GLC.getContext('webgl2', { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: true, alpha: true });
+if (!gl) throw new Error('WebGL2를 쓸 수 없다');
+const prog = (() => {
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, `#version 300 es
+    in vec2 a_uv; uniform mat4 u_mvp; uniform vec2 u_size; out vec2 v_uv;
+    void main() { v_uv = a_uv; gl_Position = u_mvp * vec4((a_uv.x - 0.5) * u_size.x, (0.5 - a_uv.y) * u_size.y, 0.0, 1.0); }`));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, `#version 300 es
+    precision highp float; in vec2 v_uv; uniform sampler2D u_tex; uniform float u_alpha; out vec4 o;
+    void main() { o = texture(u_tex, v_uv) * u_alpha; }`));
+  gl.linkProgram(p);
+  return p;
+})();
+const tex = gl.createTexture();
+(() => {
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'a_uv');
+  gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+  if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+})();
+
+// 4×4 행렬(열 우선). 무대 단위는 z = 0 평면에서 화면 px.
+const mul = (a, b) => { const o = new Float32Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = s; } return o; };
+const ident = () => new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+const trans = (x, y, z) => { const m = ident(); m[12] = x; m[13] = y; m[14] = z; return m; };
+const rotX = (a) => { const m = ident(), c = Math.cos(a), s = Math.sin(a); m[5] = c; m[6] = s; m[9] = -s; m[10] = c; return m; };
+const rotY = (a) => { const m = ident(), c = Math.cos(a), s = Math.sin(a); m[0] = c; m[2] = -s; m[8] = s; m[10] = c; return m; };
+const rotZ = (a) => { const m = ident(), c = Math.cos(a), s = Math.sin(a); m[0] = c; m[1] = s; m[4] = -s; m[5] = c; return m; };
+const scaleM = (k) => { const m = ident(); m[0] = k; m[5] = k; m[10] = k; return m; };
+const STAGE = { w: 1920, h: 1080 };
+const DIST = STAGE.h / 2 / Math.tan(STYLE.layout.fov / 2); // 이 거리에서 z = 0 평면이 1 단위 = 1 px
+const PERSP = (() => {
+  const f = 1 / Math.tan(STYLE.layout.fov / 2), aspect = STAGE.w / STAGE.h, n = 10, far = DIST * 10;
+  const m = new Float32Array(16);
+  m[0] = f / aspect; m[5] = f; m[10] = (far + n) / (n - far); m[11] = -1; m[14] = (2 * far * n) / (n - far);
+  return m;
+})();
+// 창 자리 → MVP. y는 무대(아래 +)와 GL(위 +)이 반대다.
+function mvpOf(p) {
+  const k = p.s / WIN.width;
+  const model = mul(trans(p.x, -p.y, p.z), mul(rotY(p.ry), mul(rotX(p.rx), mul(rotZ(p.rz), scaleM(k)))));
+  return mul(PERSP, mul(trans(0, 0, -DIST), model));
+}
+// 창 좌표(CSS px, 왼쪽 위 원점) → 무대 px(가운데 원점).
+function projectWin(mvp, u, v) {
+  const x = u - WIN.width / 2, y = WIN.height / 2 - v;
+  const cx = mvp[0] * x + mvp[4] * y + mvp[12], cy = mvp[1] * x + mvp[5] * y + mvp[13], cw = mvp[3] * x + mvp[7] * y + mvp[15];
+  return [(cx / cw) * STAGE.w / 2, -(cy / cw) * STAGE.h / 2];
+}
+
+// ── 한 프레임 ─────────────────────────────────────────────────────────────
+function draw(ctx, t) {
+  film.clear();
+  const P0 = STYLE.palette, L = STYLE.layout;
+  const [g1, g2] = L.glow;
+  film.glow(g1[0], g1[1], g1[2], P0.glow2, g1[3]);
+  film.glow(g2[0], g2[1], g2[2], P0.glow, g2[3]);
+
+  const winA = span(t, T.enter[0], DURATION + 1);
+  if (winA > 0) {
+    const p = poseAt(t), mvp = mvpOf(p);
+    drawWindow(t);
+    // 그림자: 창 네 모서리를 투영한 사각형을 아래로 내려 흐리게.
+    const q = [[0, 0], [WIN.width, 0], [WIN.width, WIN.height], [0, WIN.height]].map(([u, v]) => projectWin(mvp, u, v));
+    ctx.save(); ctx.filter = `blur(${L.shadow.blur}px)`; ctx.fillStyle = P0.shadow; ctx.globalAlpha = winA;
+    ctx.beginPath(); q.forEach(([x, y], i) => (i ? ctx.lineTo(x * L.shadow.grow, y + L.shadow.dy) : ctx.moveTo(x * L.shadow.grow, y + L.shadow.dy))); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    // 창(원근).
+    const cw = ctx.canvas.width, ch = ctx.canvas.height;
+    if (GLC.width !== cw || GLC.height !== ch) { GLC.width = cw; GLC.height = ch; }
+    gl.viewport(0, 0, cw, ch);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(prog);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, winCanvas);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniformMatrix4fv(gl.getUniformLocation(prog, 'u_mvp'), false, mvp);
+    gl.uniform2f(gl.getUniformLocation(prog, 'u_size'), WIN.width, WIN.height);
+    gl.uniform1f(gl.getUniformLocation(prog, 'u_alpha'), winA);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(GLC, 0, 0); ctx.restore();
+  }
+
+  // 창 위에 오는 헤드라인은 뒤에 무대색 그러데이션을 깐다.
+  for (const [k, sc] of Object.entries(L.scrim)) {
+    const a = span(t, T[k][0] - 0.2, T[k][1] + 0.2) * sc.alpha;
+    if (a <= 0) continue;
+    const g = ctx.createLinearGradient(sc.from, 0, sc.to, 0);
+    g.addColorStop(0, rgba(P0.scrim, a)); g.addColorStop(0.55, rgba(P0.scrim, a * 0.75)); g.addColorStop(1, rgba(P0.scrim, 0));
+    ctx.fillStyle = g; ctx.fillRect(-STAGE.w / 2, -STAGE.h / 2, sc.to + STAGE.w / 2, STAGE.h);
+  }
+  for (const k of Object.keys(COPY)) headline(ctx, t, COPY[k], T[k], HEAD_AT[k][0], HEAD_AT[k][1]);
+  // 제품명: 여는 장면(무대 가운데)과 닫는 장면(창 아래).
+  brand(ctx, t, T.brand, 0, 0, 1);
+  brand(ctx, t, [T.finale, DURATION + 1], 0, 380, 0.62);
+
+  film.vignette(STYLE.texture.vignette);
+  film.grain(t, STYLE.texture.grain);
+}
+
+// 두 줄 헤드라인: 글자가 흐림에서 선명하게 올라온다. 둘째 줄은 조금 늦게, 옅게.
+function headline(ctx, t, lines, [a, b], x, y) {
+  if (t < a - 0.1 || t > b + STYLE.motion.exit + 0.1) return;
+  const L = STYLE.layout.headline, P0 = STYLE.palette;
+  lines.forEach((line, k) => {
+    M.text(ctx, M.seg(line, STYLE.type.headline(L.size), k === 0 ? P0.headline : P0.headlineSoft, L.tracking), x, y + k * L.size * L.line, t, {
+      split: 'char', align: 'left',
+      enter: { at: a + k * STYLE.motion.lineDelay, dur: STYLE.motion.enter, ease: STYLE.motion.easeIn, stagger: STYLE.motion.stagger },
+      exit: { at: b, dur: STYLE.motion.exit, ease: STYLE.motion.easeOut },
+      transform: (e, xo) => ({ alpha: e * (1 - xo), dy: (1 - e) * STYLE.motion.rise - xo * STYLE.motion.rise * 0.5, blur: (1 - e + xo) * STYLE.motion.blur }),
+    });
+  });
+}
+
+// 제품명: 앱 헤더의 로고(30px, --primary)와 제품명(16px, 550, 자간 −0.5px)을 같은 비율로 키운다.
+function brand(ctx, t, [at, out], cx, cy, scale) {
+  const B = APP.brand, k = STYLE.layout.brandScale * scale;
+  const a = span(t, at, out);
+  if (a <= 0) return;
+  const logo = B.logo * k, size = B.size * k, gap = B.gap * k;
+  ctx.font = STYLE.type.brand(size); ctx.letterSpacing = `${B.tracking * k}px`;
+  const tw = ctx.measureText('Constellation').width;
+  const x0 = cx - (logo + gap + tw) / 2, y = cy + (1 - a) * STYLE.motion.rise;
+  ctx.globalAlpha = a;
+  ctx.save(); ctx.translate(x0, y - logo / 2); ctx.scale(logo / 32, logo / 32);
+  ctx.strokeStyle = APP.primary; ctx.lineWidth = B.line;
+  ctx.stroke(new Path2D(APP.icons.logo));
+  ctx.fillStyle = APP.primary;
+  for (const [px, py, r] of APP.icons.logoDots) { ctx.beginPath(); ctx.arc(px, py, r, 0, M.TAU); ctx.fill(); }
+  ctx.restore();
+  ctx.fillStyle = APP.foreground; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.fillText('Constellation', x0 + logo + gap, y);
+  ctx.letterSpacing = '0px'; ctx.globalAlpha = 1;
+}
+</script>
+</body>
+</html>

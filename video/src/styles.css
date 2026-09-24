@@ -1,0 +1,412 @@
+/* 앱의 디자인 토큰(순수 CSS)을 그대로 쓴다. titleTypography()가 body의 글자색과
+   --font-mono를 읽는다. */
+@import "../../frontend/src/styles/tokens.css";
+
+html,
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* 아래 두 규칙은 frontend/src/index.css(tailwind라 영상 번들에서 읽지 못한다)의
+   값을 옮긴 것이다. 실행 중인 앱에서 getComputedStyle로 잰 값과 같다(2026-09-24).
+   앱에서 바꾸면 여기도 바꾼다. */
+
+/* index.css `.map-wrap`: 남색 바탕, 480×400 칸마다 십자, 모서리 크롭 마크. */
+.map-ground {
+  position: absolute;
+  inset: 0;
+  --map-ground: #0c1118;
+  --map-mark: rgb(255 255 255 / 0.16);
+  background-color: var(--map-ground);
+  background-image:
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    linear-gradient(var(--map-mark), var(--map-mark)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='400'%3E%3Cg stroke='rgba(255,255,255,0.16)'%3E%3Cpath d='M220 200.5h40M240.5 180v40'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat:
+    no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat,
+    no-repeat, repeat;
+  background-size:
+    56px 1px,
+    1px 56px,
+    56px 1px,
+    1px 56px,
+    56px 1px,
+    1px 56px,
+    56px 1px,
+    1px 56px,
+    480px 400px;
+  background-position:
+    18px 18px,
+    18px 18px,
+    right 18px top 18px,
+    right 18px top 18px,
+    left 18px bottom 18px,
+    left 18px bottom 18px,
+    right 18px bottom 18px,
+    right 18px bottom 18px,
+    center;
+}
+
+/* index.css `.region-name`(1197행)과 뒤의 덮어쓰기(1776행): Georgia 20px/1.15,
+   최대 폭 205px. 영상에서는 transition·animation을 뺀다 — 불투명도는 프레임에서
+   계산한다. */
+.region-name {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: 205px;
+  width: max-content;
+  padding: 4px;
+  color: var(--foreground);
+  font: 20px/1.15 var(--font-region);
+  text-align: center;
+  text-shadow:
+    0 1px 5px var(--background),
+    0 0 12px var(--background);
+  pointer-events: none;
+}
+
+/* ── 에이전트 주석: index.css `.map-annotation*`(1239–1266행) ─────────── */
+.map-annotations {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+.map-annotation line {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.map-annotation circle {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.map-annotation text {
+  fill: var(--foreground);
+  font: 600 12px/1.4 var(--font-sans);
+  paint-order: stroke;
+  stroke: var(--background);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+/* ── 계층 트리·갈래 흐름·인용 계보: index.css 520–600, 634–670, 712–730,
+   1673–1699행. 스크롤 대신 영상이 프레임으로 훑는다. ─────────────── */
+.tree-wrap,
+.flow-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  color: var(--foreground);
+}
+.tree-head {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.7rem 1.1rem;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  flex: 0 0 auto;
+}
+.tree-head .dim {
+  color: var(--ink-faint);
+  font-family: var(--font);
+}
+.flow-scroll {
+  flex: 1 1 auto;
+  padding: 0.4rem 1rem 2rem;
+}
+.tree-wrap svg text,
+.flow-wrap svg text {
+  font-family: var(--font-sans);
+}
+.tv-leaf {
+  font-size: 12px;
+}
+.tv-size {
+  font-size: 10px;
+  fill: var(--ink-faint);
+  text-anchor: end;
+}
+.tv-node {
+  font-size: 10.5px;
+  fill: var(--ink-faint);
+}
+.tv-node--top {
+  fill: var(--ink-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.tv-cut {
+  font-size: 9.5px;
+  fill: var(--ink-faint);
+}
+.fv-win {
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+.fv-winsub {
+  font-size: 10px;
+  fill: var(--ink-faint);
+}
+.fv-lab {
+  font-size: 11px;
+  fill: var(--ink-soft);
+}
+.fv-sz {
+  font-size: 9.5px;
+  fill: var(--ink-faint);
+}
+.lv-year {
+  font-size: 10.5px;
+  fill: var(--ink-faint);
+  text-anchor: end;
+}
+.lv-lab {
+  font-size: 11px;
+  fill: var(--ink-faint);
+}
+.lv-lab--main {
+  fill: var(--ink);
+  font-size: 11.5px;
+}
+.lv-cite {
+  font-size: 9.5px;
+  fill: var(--ink-faint);
+}
+
+/* ── 에이전트 패널: 실행 중인 앱(1440×900)에서 잰 값(2026-09-24).
+   AgentSidebar(border-l, --sidebar), thread.aui.tsx의 Tailwind 클래스를 옮겼다. ── */
+.chat-panel {
+  position: relative;
+  width: 384px;
+  height: 720px;
+  background: var(--sidebar);
+  border-left: 1px solid var(--border);
+  color: var(--foreground);
+  font: 14px/21px var(--font-sans);
+  overflow: hidden;
+}
+.chat-eyebrow {
+  position: absolute;
+  left: 17px;
+  top: 21px;
+  font: 10px var(--font-mono);
+  letter-spacing: 1.2px;
+  color: var(--muted-foreground);
+}
+.chat-head-icons svg {
+  position: absolute;
+  top: 19px;
+  color: var(--foreground);
+}
+.chat-head-icons svg:first-child {
+  left: 314px;
+}
+.chat-head-icons svg:last-child {
+  left: 346px;
+}
+.chat-empty {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 300px;
+  text-align: center;
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+.chat-viewport {
+  position: absolute;
+  top: 54px;
+  left: 0;
+  right: 0;
+  bottom: 142px;
+  overflow: hidden;
+}
+.chat-content {
+  padding: 16px 16px 0;
+}
+.chat-user {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px 0 0;
+}
+.chat-bubble {
+  max-width: 263px;
+  box-sizing: border-box;
+  padding: 8px 16px;
+  border-radius: 7px;
+  background: var(--muted);
+}
+.chat-assistant {
+  margin-top: 24px;
+  padding-left: 8px;
+  font-size: 14px;
+  line-height: 22.75px;
+}
+.chat-assistant > .chat-p + .chat-p,
+.chat-assistant > .chat-p + .chat-ul,
+.chat-assistant > .chat-ul + .chat-p {
+  margin-top: 12px;
+}
+.chat-p {
+  margin: 0;
+}
+.chat-p strong,
+.chat-ul strong {
+  font-weight: 600;
+}
+.chat-ul {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+.chat-ul li {
+  margin-top: 4px;
+}
+.chat-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  color: var(--muted-foreground);
+}
+.chat-tools-label {
+  font-size: 12px;
+  line-height: 12px;
+}
+/* tw-shimmer의 반짝임을 프레임 기반 배경 위치로 옮겼다. */
+.chat-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground) 40%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 60%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.chat-reasoning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted-foreground);
+}
+.chat-composer {
+  position: absolute;
+  left: 17px;
+  width: 351px;
+  bottom: 24px;
+  height: 94px;
+  box-sizing: border-box;
+  padding: 8px;
+  background: var(--card);
+  border: 1px solid rgb(55 56 63 / 0.6);
+  border-radius: 24px;
+}
+.chat-input {
+  padding: 4px 10px;
+  font: 16px/24px var(--font-sans);
+}
+.chat-input--placeholder {
+  color: rgb(165 166 175 / 0.6);
+}
+.chat-caret {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  margin-left: 1px;
+  vertical-align: -3px;
+  background: var(--foreground);
+}
+.chat-send {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--action);
+  color: var(--action-foreground);
+}
+
+/* ── 자막·연도·엔딩. 크기·굵기·줄 높이는 design-ops `patterns/typography.md`
+   Implementation defaults(제목 600·1.25, 본문 16·1.5, 웹 자간 0)와 앱 토큰
+   (--text-display 32px, --space-16 64px)에서 왔다. ─────────────────── */
+.caption {
+  position: absolute;
+  left: 64px;
+  bottom: 64px;
+  font: 600 32px/1.25 var(--font-sans);
+  color: var(--foreground);
+  text-shadow:
+    0 1px 12px var(--background),
+    0 0 24px var(--background);
+}
+.year-counter {
+  position: absolute;
+  left: 64px;
+  top: 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-shadow: 0 1px 12px var(--background);
+}
+.year-counter-year {
+  font: 600 32px/1.25 var(--font-mono);
+  color: var(--foreground);
+}
+.year-counter-n {
+  font: 16px/1.5 var(--font-sans);
+  color: var(--muted-foreground);
+}
+.end-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+.end-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font: 600 48px/1.25 var(--font-sans);
+  color: var(--foreground);
+}
+.end-brand svg {
+  width: 56px;
+  height: 56px;
+}
+.end-sub {
+  font: 16px/1.5 var(--font-sans);
+  color: var(--muted-foreground);
+}
