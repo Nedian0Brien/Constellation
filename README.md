@@ -158,10 +158,11 @@ npm --prefix video run render:teaser   # 합성 사운드 + video/out/teaser.mp4
 
 스냅샷(`video/public/data/`)과 사운드(`video/public/audio/`)는 git 밖이다. 사운드 스크립트는 `src/timeline.ts`를 직접 import하므로 Node 23.6 이상(TS 타입 제거 기본 지원)이 필요하다. 채팅 장면은 실제 에이전트 대화 기록(`video/src/recording/agent-thread.json`)을 재생한다. `npm --prefix video run typecheck`는 frontend 파일의 타입을 `frontend/node_modules`에서 읽는다. 장면 구성과 앱과 다르게 그린 부분은 [스토리보드](video/STORYBOARD.md)에 있다. 개인·3인 이하 조직은 Remotion을 무료로 쓰고, 그보다 큰 회사는 [회사 라이선스](https://github.com/remotion-dev/remotion/blob/main/LICENSE.md)가 필요하다.
 
-`video/motion/`은 같은 데이터로 만든 캔버스 모션그래픽 티저다. 논문 16,554편을 3D UMAP 좌표에 별로 띄우고 카메라가 분야와 RT-1 인용망 사이를 난다. `video.html` 하나를 브라우저로 열면 재생된다(엔진과 `data.js` 포함). 추출은 js-motion-video 스킬의 `render.mjs`(헤드리스 Chrome → ffmpeg)로 한다.
+`video/motion/`은 같은 데이터로 만든 캔버스 모션그래픽 티저다. 앱의 연구 지도 모듈을 묶은 `app-map.js`를 그대로 불러 점·영역·제목·인용선을 앱과 같은 규칙으로 그리고, 카메라가 연도 재생 → 분야 → RT-1 인용망 → 에이전트 주석 순으로 움직인다. `video.html`을 브라우저로 열면 재생된다(`app-map.js`, `data.js`를 옆에 둔다). 추출은 js-motion-video 스킬의 `render.mjs`(헤드리스 Chrome → ffmpeg)로 한다.
 
 ```sh
 node video/motion/build-data.mjs          # 스냅샷·대화 기록 → video/motion/data.js
+node video/motion/src/build-app-map.mjs   # frontend/src/views/map → video/motion/app-map.js (video 패키지의 esbuild)
 python3 video/motion/src/assemble.py      # src/video.js → video/motion/video.html
 node ~/.claude/skills/js-motion-video/tool/render.mjs video/motion/video.html video   # video/motion/video.mp4
 ```
