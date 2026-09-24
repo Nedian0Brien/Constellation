@@ -8,6 +8,7 @@ html = f.read_text()
 HEAD = """<style>body { --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace; color: #e8e8ec; }</style>
 <script src="app-map.js"></script>
 <script src="data.js"></script>
+<script src="assets.js"></script>
 """
 head_start = html.index("<title>")
 head_end = html.index("</head>")

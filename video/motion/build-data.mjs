@@ -39,6 +39,9 @@ const labels = ann.result.drawn.map((d) => ({
 }));
 if (labels.some((l) => l.i < 0)) throw new Error("라벨 논문이 지도에 없다");
 
+// 앱 화면 캡처의 요소 위치(capture/capture.mjs가 만든다). 영상이 캡처 위에 지도·입력·대화를 맞춰 그린다.
+const capture = await read("assets/rects.json");
+
 const DATA = {
   source: "피지컬 AI 코퍼스(OpenAlex, run " + map.run_id + ") · 에이전트 기록 " + rec.source.slice(0, 40),
   map: {
@@ -63,7 +66,18 @@ const DATA = {
   tools: calls.map((p) => p.toolName),
   flyLevel: fly.args.level,
   labels,
+  capture,
 };
+// 캡처 이미지를 data URI로 묶는다. file://로 연 페이지에서 파일 이미지를 쓰면 캔버스가 오염돼
+// WebGL 텍스처로 올릴 수 없다(SecurityError). data URI는 같은 출처로 취급된다.
+import { readdir } from "node:fs/promises";
+const pngs = (await readdir(new URL("assets/", here))).filter((f) => f.endsWith(".png")).sort();
+const assets = {};
+for (const f of pngs) assets[f.replace(/\.png$/, "")] = "data:image/png;base64," + (await readFile(new URL("assets/" + f, here))).toString("base64");
+const assetText = "// build-data.mjs가 assets/*.png에서 만든다. 직접 고치지 않는다.\nwindow.ASSETS = " + JSON.stringify(assets) + ";\n";
+await writeFile(new URL("assets.js", here), assetText);
+console.log(`assets.js ${(assetText.length / 1024).toFixed(0)}KB · ${pngs.length}장`);
+
 const text = "// build-data.mjs가 만든다. 직접 고치지 않는다.\nwindow.DATA = " + JSON.stringify(DATA) + ";\n";
 await writeFile(new URL("data.js", here), text);
 console.log(
