@@ -14,4 +14,6 @@ date: 2026-09-26
 4. 편마다 MP4에서 한 장을 뽑아 확인하고, 세 편을 사용자에게 보낸다.
 5. `docs/intro-video/` 소스 파일만 커밋한다(`feat:`), MP4·스틸은 제외(`.gitignore`에 `docs/intro-video/**/*.mp4`, `*.stills/`).
 
+구현 중 바뀐 점: 로고는 PNG 대신 아이콘에서 잰 좌표로 선을 그려 등장시킨다. 개요 배율은 `STYLE.map.zMap`으로 편마다 정한다. 설정 필터 결과 수는 `works.rs`의 조건대로 연도 미상 논문을 포함한다.
+
 검증 명령: `node ~/.claude/skills/js-motion-video/tool/render.mjs docs/intro-video/<x>.html {stills …|lint|determinism <t>|video}`

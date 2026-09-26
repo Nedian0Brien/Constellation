@@ -29,3 +29,8 @@ frontend/playwright-report/
 
 # rust
 target/
+
+# intro video render outputs (MP4는 파일로 전달한다)
+docs/intro-video/**/*.mp4
+docs/intro-video/**/*.stills/
+docs/intro-video/**/*.html.bak
