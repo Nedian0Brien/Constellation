@@ -23,7 +23,7 @@ import { AgentSidebar } from "./AgentSidebar";
 import { InspectorDialog } from "./InspectorDialog";
 import { AgentProvider } from "../agent/AgentProvider";
 import { useAgentThread } from "../agent/use-agent-thread";
-import { ExploreToolbar } from "./ExploreToolbar";
+import { StageSearch } from "./StageSearch";
 import { YearRange } from "./YearRange";
 import { PaperListOverlay } from "./PaperListOverlay";
 import { DataState } from "./DataState";
@@ -120,7 +120,6 @@ export function AppShell() {
   const error = a.runs.error ?? a.map.error;
   const stage = (
     <div className="workspace-stage">
-      <ExploreToolbar />
       <div className="analysis-stage">
         {error ? (
           <div className="stage-notice">
@@ -150,6 +149,7 @@ export function AppShell() {
             {state.view === "lineage" && <LineageView key={map.run_id} />}
             {state.view === "sky" && <SkyView key={map.run_id} />}
             <YearRange />
+            <StageSearch />
             {state.list && <PaperListOverlay />}
             {(invalidRegion || invalidPaper) && (
               <div className="invalid-region" role="status">
