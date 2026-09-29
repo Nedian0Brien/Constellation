@@ -8,6 +8,7 @@ import {
   fetchMatches,
 } from "../api";
 import { useExploration } from "./use-exploration";
+import { usePlayhead } from "./use-playhead";
 export function useAnalysis() {
   const { state } = useExploration();
   const runs = useQuery({
@@ -42,6 +43,9 @@ export function useAnalysis() {
     [run, state.q, state.from, state.to],
   );
   const valid = state.q.length !== 1;
+  // 연도 상한. 재생 헤드가 있으면 그 해까지(누적), 없으면 사용자가 정한 `to`.
+  const playhead = usePlayhead();
+  const yearTo = playhead ?? state.to;
   // 검색어 일치 id는 서버에서(두 글자 이상일 때만). 연도는 지도 데이터에 있으니
   // 클라이언트에서 거른다 — 슬라이더·재생 중에 요청이 나가지 않는다.
   const search = useMemo(
@@ -64,14 +68,14 @@ export function useAnalysis() {
       if (
         y !== null &&
         ((state.from !== undefined && y < state.from) ||
-          (state.to !== undefined && y > state.to))
+          (yearTo !== undefined && y > yearTo))
       )
         continue;
       if (hit && !hit.has(m.id[i])) continue;
       out.add(m.id[i]);
     }
     return out;
-  }, [map.data, valid, state.q, state.from, state.to, matches.data]);
+  }, [map.data, valid, state.q, state.from, yearTo, matches.data]);
   // 지금 필터(검색어·연도)에 드는 논문 수. 검색어 응답을 기다리는 동안은 없음.
   const count = state.q && !matches.data ? undefined : ids.size;
   return {
@@ -85,5 +89,6 @@ export function useAnalysis() {
     ids,
     count,
     valid,
+    yearTo,
   };
 }

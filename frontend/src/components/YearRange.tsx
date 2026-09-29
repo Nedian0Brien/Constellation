@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Pause, Play } from "lucide-react";
 import { Button } from "./ui/button";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
+import { setPlayhead, usePlayhead } from "../hooks/use-playhead";
 import { useQuery } from "@tanstack/react-query";
 import { fetchEdges } from "../api";
 import { clusterColor } from "../views/map/regions";
@@ -23,8 +31,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 //   인용한(빨강) 논문. 높이는 피인용수(log)에 비례. 축에서 6px 안에 붙는 표식은 묶음
 //   표식(전경색, 개수 배지) 하나로 접힌다 — 호버하면 기간·편수, 클릭하면 목록 팝오버.
 //   낱개 표식은 호버하면 제목, 클릭하면 그 논문을 선택. 범위 밖이면 옅다.
-// - 재생: 창을 초당 1년씩 앞으로 민다. 범위가 전체면 처음 5년 창으로 시작한다. 끝에
-//   닿거나 손잡이를 잡으면 멈춘다. 선택 노드의 인용선도 그 시점까지만 그려진다.
+// - 재생: 두 손잡이 사이를 동영상 재생 헤드처럼 빨간 세로선이 연속으로 지난다(rAF). 속도는
+//   축 위 픽셀로 일정해(전체 축이 20초) 논문이 몰린 해는 오래, 빈 시대는 순식간에 지나고
+//   지도의 점은 일정한 속도로 는다. 선 위에 지나는 해가 붙고, 지도는 [from, 그 해]의 논문을 보인다 — 헤드의
+//   해는 URL이 아니라 `use-playhead` 스토어에 있고 한 해를 넘을 때만 쓴다. `to` 손잡이에
+//   닿으면 멈추고 헤드가 사라진다. 일시정지하면 헤드가 남고 다시 누르면 이어 간다. 손잡이를
+//   잡거나 범위를 바꾸면 헤드가 사라진다. 선택 노드의 인용선도 헤드의 해까지만 그려진다.
+//   두 손잡이 사이를 클릭(끌지 않고)하면 헤드가 그 자리로 간다 — 재생 중이면 거기서 이어
+//   가고, 아니면 그 자리에 일시정지한 헤드가 생긴다.
 // 범위가 전체와 같으면 URL에서 from·to를 뺀다. 끄는 동안의 갱신은 프레임마다 한 번.
 const MIN_CELL_PX = 2,
   MARKER_MAX = 60,
@@ -37,8 +51,8 @@ const MIN_CELL_PX = 2,
   LINK_OUT = "rgb(57 135 229)",
   LINK_IN = "rgb(230 103 103)",
   LABEL_MIN_PX = 24,
-  PLAY_WINDOW = 5,
-  PLAY_MS = 1000;
+  PLAY_FULL_MS = 20000,
+  SEEK_SLOP_PX = 4;
 export function YearRange() {
   const a = useAnalysis(),
     { state, update } = useExploration();
@@ -257,32 +271,84 @@ export function YearRange() {
       update({ selected: id, cluster: undefined, node: undefined }),
     [update],
   );
-  // 재생. 지금 창을 1초마다 1년 민다. 끝(hi)에 닿으면 멈춘다.
+  // 재생 헤드. 소수 연도 `head`는 ref(프레임마다 바뀐다), 지나는 해(정수)는 스토어,
+  // 도는 중인지는 state. 헤드가 보이는 조건은 스토어에 해가 있는 것(재생·일시정지).
   const [playing, setPlaying] = useState(false);
-  const range = useRef({ from, to });
-  useEffect(() => {
-    range.current = { from, to };
-  }, [from, to]);
+  const headYear = usePlayhead();
+  const head = useRef(0);
+  const live = useRef({ from, to, edges, lo });
+  useLayoutEffect(() => {
+    live.current = { from, to, edges, lo };
+  }, [from, to, edges, lo]);
+  const headEl = useRef<HTMLDivElement>(null);
+  // 소수 연도 ↔ x. `yearAtX`와 같은 계산이지만 ref의 최신 축을 읽어 rAF 루프에서 쓴다.
+  const xAt = useCallback((y: number) => {
+    const { edges, lo } = live.current,
+      k = Math.min(Math.max(Math.floor(y) - lo, 0), edges.length - 2);
+    return edges[k] + (y - lo - k) * (edges[k + 1] - edges[k]);
+  }, []);
+  const yearAtPx = useCallback((x: number) => {
+    const { edges, lo } = live.current;
+    let k = 0;
+    while (k < edges.length - 2 && edges[k + 1] <= x) k++;
+    return lo + k + (x - edges[k]) / Math.max(1e-6, edges[k + 1] - edges[k]);
+  }, []);
+  // 헤드의 폭을 그린다(라벨은 정수 연도라 스토어가 바뀔 때 React가 그린다).
+  const drawHead = useCallback(() => {
+    const el = headEl.current;
+    if (!el) return;
+    el.style.width = `${Math.max(0, xAt(head.current) - xAt(live.current.from))}px`;
+  }, [xAt]);
+  const stopPlay = useCallback(() => {
+    setPlaying(false);
+    setPlayhead(undefined);
+  }, []);
   useEffect(() => {
     if (!playing) return;
-    const t = setInterval(() => {
-      const { from: f, to: t } = range.current;
-      if (t >= hi) {
-        setPlaying(false);
+    let id = 0,
+      last = performance.now();
+    const tick = (now: number) => {
+      const { from, to, edges } = live.current;
+      // 축 위 픽셀로 일정한 속도: 전체 축 폭을 PLAY_FULL_MS에 건넌다.
+      const track = edges[edges.length - 1];
+      if (track > 0)
+        head.current = Math.min(
+          to + 1,
+          yearAtPx(xAt(head.current) + ((now - last) * track) / PLAY_FULL_MS),
+        );
+      last = now;
+      drawHead();
+      if (head.current >= to + 1) {
+        stopPlay();
         return;
       }
-      commit(f + 1, t + 1);
-    }, PLAY_MS);
-    return () => clearInterval(t);
-  }, [playing, hi, commit]);
+      // `head < to + 1`이라 `floor(head) ≤ to`. 소수 값은 지도의 점이 서서히 나타나는 데 쓴다.
+      setPlayhead(Math.max(from, head.current));
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [playing, stopPlay, drawHead, xAt, yearAtPx]);
+  // 처음 그릴 때와 트랙 폭이 바뀔 때 헤드 자리를 맞춘다.
+  useLayoutEffect(drawHead);
+  // 범위가 바뀌면(손잡이·URL·run) 헤드는 의미를 잃는다. 사라질 때도 스토어를 비운다.
+  const hasHead = useRef(false);
+  useLayoutEffect(() => {
+    hasHead.current = headYear !== undefined;
+  }, [headYear]);
+  useEffect(() => {
+    if (hasHead.current) stopPlay();
+  }, [from, to, lo, hi, stopPlay]);
+  useEffect(() => () => setPlayhead(undefined), []);
   const togglePlay = () => {
     if (playing) {
       setPlaying(false);
       return;
     }
-    // 전체 범위거나 이미 끝에 있으면 처음 5년 창부터.
-    if ((from <= lo && to >= hi) || to >= hi)
-      commit(lo, Math.min(hi, lo + PLAY_WINDOW - 1));
+    if (headYear === undefined) {
+      head.current = from;
+      setPlayhead(from);
+    }
     setPlaying(true);
   };
   // 트랙 안 x → 연도(칸 안의 위치를 소수로). 손잡이는 반올림해 칸 경계에 붙는다.
@@ -295,13 +361,20 @@ export function YearRange() {
   };
   const yearAt = (clientX: number) =>
     yearAtX(clientX - track.current!.getBoundingClientRect().left);
-  // 끌기: 손잡이 하나, 또는 가운데 구간(폭 유지).
+  // 탐색: 헤드를 소수 연도 y로 옮긴다. 헤드가 없었으면 일시정지한 헤드가 생긴다.
+  const seek = (y: number) => {
+    head.current = Math.min(Math.max(y, from), to + 1 - 1e-6);
+    setPlayhead(head.current);
+    drawHead();
+  };
+  // 끌기: 손잡이 하나, 또는 가운데 구간(폭 유지). 가운데 구간은 움직임 없는 클릭이면 탐색.
   const drag = useRef<{
     id: number;
     kind: "from" | "to" | "window";
     x0: number;
     from: number;
     to: number;
+    moved: boolean;
   } | null>(null);
   const [dragging, setDragging] = useState<"from" | "to" | "window" | null>(
     null,
@@ -310,14 +383,27 @@ export function YearRange() {
     if (e.button !== 0) return;
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    drag.current = { id: e.pointerId, kind, x0: e.clientX, from, to };
+    drag.current = {
+      id: e.pointerId,
+      kind,
+      x0: e.clientX,
+      from,
+      to,
+      moved: false,
+    };
     setDragging(kind);
-    setPlaying(false);
+    // 가운데 구간은 클릭일 수 있으니 실제로 끌기 시작할 때 멈춘다.
+    if (kind !== "window") stopPlay();
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     if (d.kind === "window") {
+      if (!d.moved && Math.abs(e.clientX - d.x0) < SEEK_SLOP_PX) return;
+      if (!d.moved) {
+        d.moved = true;
+        stopPlay();
+      }
       // 창의 왼쪽 가장자리를 픽셀만큼 옮긴 자리의 연도로. 폭(연도 수)은 그대로.
       const span = d.to - d.from,
         y = Math.floor(yearAtX(xOf(d.from) + (e.clientX - d.x0))),
@@ -330,13 +416,17 @@ export function YearRange() {
     }
   };
   const endDrag = (e: React.PointerEvent) => {
-    if (drag.current?.id !== e.pointerId) return;
+    const d = drag.current;
+    if (d?.id !== e.pointerId) return;
     drag.current = null;
     setDragging(null);
+    if (d.kind === "window" && !d.moved && e.type === "pointerup")
+      seek(yearAt(e.clientX));
   };
   // 트랙의 빈 곳을 누르면 가까운 손잡이가 그리로 온다.
   const onTrackPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    stopPlay();
     const x = e.clientX - track.current!.getBoundingClientRect().left,
       y = Math.floor(yearAtX(x));
     if (Math.abs(x - xOf(from)) <= Math.abs(x - xOf(to + 1))) commit(y, to);
@@ -390,6 +480,7 @@ export function YearRange() {
       data-to={to}
       data-dragging={dragging ?? undefined}
       data-playing={playing || undefined}
+      data-head={headYear}
     >
       <Button
         variant="ghost"
@@ -404,7 +495,7 @@ export function YearRange() {
       <div
         ref={track}
         onDoubleClick={() => {
-          setPlaying(false);
+          stopPlay();
           commit(lo, hi);
         }}
         className="year-track"
@@ -419,6 +510,18 @@ export function YearRange() {
           aria-hidden="true"
           style={{ left: xOf(from), width: xOf(to + 1) - xOf(from) }}
         />
+        {/* 재생 헤드: from에서 지나는 자리까지 빨간 채움, 오른쪽 끝이 세로선. 폭은
+            프레임마다 ref로 쓴다(React가 쓰지 않는다). */}
+        {headYear !== undefined && (
+          <div
+            ref={headEl}
+            className="year-playhead"
+            aria-hidden="true"
+            style={{ left: xOf(from) }}
+          >
+            <span className="year-playhead-year">{headYear}</span>
+          </div>
+        )}
         {/* 가운데 구간: 폭을 유지한 채 이동. */}
         {to > from && (
           <div

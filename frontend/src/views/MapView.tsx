@@ -1,4 +1,5 @@
 import { useReducedMotion } from "../hooks/use-reduced-motion";
+import { usePlayheadExact } from "../hooks/use-playhead";
 import { useFront, useTween, useTyping } from "../hooks/use-tween";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -10,6 +11,10 @@ import {
   type TextLayerProps,
 } from "@deck.gl/layers";
 import { OrthographicView, OrthographicViewport } from "@deck.gl/core";
+import {
+  DataFilterExtension,
+  type DataFilterExtensionProps,
+} from "@deck.gl/extensions";
 import type { PickingInfo } from "@deck.gl/core";
 import {
   Info,
@@ -67,9 +72,11 @@ import {
 import { SnapTextExtension } from "./map/text-snap";
 import { RegionGradientExtension } from "./map/region-gradient";
 import { ZoomDial } from "./map/ZoomDial";
+type Point = { id: string; i: number; position: [number, number, number] };
 const view = new OrthographicView({ id: "research-map" });
 const snapText = new SnapTextExtension(),
-  regionGradient = new RegionGradientExtension();
+  regionGradient = new RegionGradientExtension(),
+  yearFilter = new DataFilterExtension({ filterSize: 1 });
 // 라벨이 켜지고 꺼지는 시간. `.region-name`의 transition과 같다. 호버 연결선과
 // 옅어짐도 같은 시간에 맞춘다.
 const LABEL_FADE_MS = 240;
@@ -614,7 +621,7 @@ export default function MapView() {
   const [lastFocus, setLastFocus] = useState(focusIndex);
   if (focusIndex >= 0 && focusIndex !== lastFocus) setLastFocus(focusIndex);
   const heldIndex = focusIndex >= 0 ? focusIndex : hoverT > 0 ? lastFocus : -1;
-  const points = useMemo(
+  const points: Point[] = useMemo(
     () =>
       map.id.map((id, i) => ({
         id,
@@ -624,24 +631,53 @@ export default function MapView() {
     [map],
   );
   // 발행연도 범위 밖의 논문은 그리지 않는다(옅게가 아니라 아예). 연도가 없는 논문은
-  // 서버 필터와 같이 통과시킨다. 인용 그래프의 이웃도 같은 규칙.
+  // 서버 필터와 같이 통과시킨다. 인용 그래프의 이웃도 같은 규칙. 상한은 재생 중이면
+  // 재생 헤드가 지나는 해(`a.yearTo`).
+  const yearTo = a.yearTo;
   const inYears = useCallback(
     (i: number) => {
       const y = map.year[i];
       return (
         y === null ||
         ((state.from === undefined || y >= state.from) &&
-          (state.to === undefined || y <= state.to))
+          (yearTo === undefined || y <= yearTo))
       );
     },
-    [map, state.from, state.to],
+    [map, state.from, yearTo],
   );
   const shownPoints = useMemo(
     () =>
-      state.from === undefined && state.to === undefined
+      state.from === undefined && yearTo === undefined
         ? points
         : points.filter((p) => inYears(p.i)),
-    [points, inYears, state.from, state.to],
+    [points, inYears, state.from, yearTo],
+  );
+  // 점 레이어의 연도 필터는 GPU에서(`DataFilterExtension`). 재생 중에는 헤드의 소수
+  // 자리 `h`를 상한으로 두고 `[h−1, h]`를 소프트 범위로 주어, 연도 Y의 점이 헤드가 그
+  // 칸을 지나는 동안(0→1) 옅고 작은 모습에서 제 모습으로 나타난다. 값 0인 점은 그리지도
+  // 픽킹하지도 않는다. 연도 없는 논문은 하한(`from − 1`) 값을 주어 늘 통과시킨다 — 하한과
+  // 소프트 상한이 같아지는 첫 프레임(`h = from`)에도 소프트 가장자리 아래라 온전히 보인다.
+  // 범위 아래의 해는 하한보다 더 아래(`from − 2`)로 보내 걸러진다.
+  const playhead = usePlayheadExact();
+  const yearSpan = useMemo(() => {
+    let lo = Infinity,
+      hi = -Infinity;
+    for (const y of map.year)
+      if (y !== null) {
+        if (y < lo) lo = y;
+        if (y > hi) hi = y;
+      }
+    return Number.isFinite(lo) ? [lo, hi] : [0, 0];
+  }, [map]);
+  const yearLower = state.from ?? yearSpan[0],
+    yearUpper = playhead ?? state.to ?? yearSpan[1],
+    yearSoft = playhead !== undefined && !reduced;
+  const yearValue = useCallback(
+    (p: Point) => {
+      const y = map.year[p.i];
+      return y === null ? yearLower - 1 : y < yearLower ? yearLower - 2 : y;
+    },
+    [map, yearLower],
   );
   const nodeClusters = useMemo(
     () =>
@@ -1411,12 +1447,19 @@ export default function MapView() {
         extensions: [regionGradient],
         pickable: false,
         updateTriggers: { getFillColor: [clusterShare] },
+        // 연도 재생으로 비율이 해마다 바뀔 때 계단 없이 이어진다. 블롭은 run마다 고정이라
+        // 인덱스 기준 보간이 옳다.
+        transitions: reduced ? undefined : { getFillColor: LABEL_FADE_MS },
       }),
-    new ScatterplotLayer({
+    new ScatterplotLayer<Point, DataFilterExtensionProps<Point>>({
       id: "papers",
-      data: shownPoints,
+      data: points,
       getPosition: (p) => p.position,
       getFillColor: (p) => colors[p.i],
+      getFilterValue: yearValue,
+      filterRange: [yearLower - 1, yearUpper],
+      filterSoftRange: yearSoft ? [yearLower - 1, yearUpper - 1] : undefined,
+      extensions: [yearFilter],
       getRadius: baseRadius,
       radiusUnits: "pixels",
       radiusScale: scale,
@@ -1434,6 +1477,7 @@ export default function MapView() {
       highlightColor: [255, 255, 255, 255],
       updateTriggers: {
         getFillColor: [colors],
+        getFilterValue: [yearValue],
         getRadius: [topCited],
         getLineWidth: [topCited],
       },

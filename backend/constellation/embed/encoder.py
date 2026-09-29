@@ -93,8 +93,10 @@ def load_model(spec: ModelSpec, device: str | None = None) -> "SentenceTransform
     import torch
     from sentence_transformers import SentenceTransformer, models
 
+    from ..devices import pick_device
+
     if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = pick_device(torch)
 
     word = models.Transformer(spec.hf_id, max_seq_length=512)
     dim = (word.get_embedding_dimension() if hasattr(word, "get_embedding_dimension")

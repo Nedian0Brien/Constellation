@@ -95,28 +95,58 @@ RAG_IR = QuerySet(
 
 PHYSICAL_AI = QuerySet(
     name="physical-ai",
-    description="Physical AI — 로보틱스·구현형 지능·시각운동 정책",
+    description="Physical AI — 로보틱스·구현형 지능·시각운동 정책·휴머노이드·보행",
     terms=[
         '"physical AI"',
         '"embodied AI"',
         '"embodied intelligence"',
+        '"embodied agent"',
         '"vision-language-action"',
         '"robot learning"',
+        '"robotic manipulation"',
+        '"robot manipulation"',
         '"visuomotor policy"',
         '"sim-to-real"',
         '"robot foundation model"',
         '"manipulation policy"',
-        '"imitation learning"',
-        '"world model"',
+        # 넓은 두 말은 로봇 맥락을 붙여 좁힌다 — 그대로 두면 게임 RL·인지과학
+        # 논문이 들어온다(RAG 세트의 "knowledge-intensive"와 같은 충돌).
+        '("imitation learning" AND (robot OR robotic))',
+        '("world model" AND (robot OR robotic OR embodied))',
+        '"humanoid robot"',
+        '"legged locomotion"',
+        '"legged robot"',
+        '"quadruped robot"',
     ],
     year_from=2014,
     year_to=2026,
-    per_year=750,
+    # 자율주행은 따로 모은다(PHYSICAL_AI_DRIVING, 연 400). 한 세트로 OR하면
+    # 2019–2024년에 자율주행이 1.6–1.9배 많아 피인용 상위를 차지한다(2026-09-24 실측).
+    per_year=800,
     facets={
         "vla": ["vision-language-action", "robot foundation model"],
         "policy": ["visuomotor", "manipulation policy", "imitation learning"],
         "sim2real": ["sim-to-real", "domain randomization"],
         "world-model": ["world model", "model-based rl"],
+        "humanoid": ["humanoid"],
+        "locomotion": ["legged", "quadruped", "locomotion"],
+    },
+)
+
+# 같은 데이터 폴더에 PHYSICAL_AI 다음으로 모은다. 수집기가 id로 중복을 거른다.
+PHYSICAL_AI_DRIVING = QuerySet(
+    name="physical-ai-driving",
+    description="Physical AI — 자율주행(PHYSICAL_AI와 한 코퍼스로 모은다)",
+    terms=[
+        '"autonomous driving"',
+        '"self-driving"',
+        '"end-to-end driving"',
+    ],
+    year_from=2014,
+    year_to=2026,
+    per_year=400,
+    facets={
+        "driving": ["autonomous driving", "self-driving", "end-to-end driving"],
     },
 )
 
@@ -149,7 +179,9 @@ ON_DEVICE_AI = QuerySet(
 )
 
 
-SETS: dict[str, QuerySet] = {q.name: q for q in (RAG_IR, PHYSICAL_AI, ON_DEVICE_AI)}
+SETS: dict[str, QuerySet] = {
+    q.name: q for q in (RAG_IR, PHYSICAL_AI, PHYSICAL_AI_DRIVING, ON_DEVICE_AI)
+}
 
 
 def get(name: str) -> QuerySet:
