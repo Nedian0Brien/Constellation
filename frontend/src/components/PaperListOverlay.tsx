@@ -127,7 +127,7 @@ export function PaperListOverlay() {
     <Card
       role="region"
       aria-labelledby="paper-list-heading"
-      className="absolute bottom-5 left-5 z-10 max-h-[min(520px,calc(100%-75px))] w-[min(610px,calc(100%-44px))] gap-0 py-0 max-[960px]:bottom-3 max-[960px]:left-2.5 max-[960px]:w-[calc(100%-20px)]"
+      className="absolute bottom-5 left-5 z-10 max-h-[min(520px,calc(100%-96px))] w-[min(610px,calc(100%-44px))] gap-0 py-0 max-[960px]:bottom-3 max-[960px]:left-2.5 max-[960px]:w-[calc(100%-20px)]"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
