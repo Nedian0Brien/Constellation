@@ -509,3 +509,51 @@ export function clampRegionLabel(
     Math.min(Math.max(y, 55 + h / 2), height - 75 - h / 2),
   ];
 }
+
+// 영역 라벨 배치. 배율 단계마다 한 묶음만 켜진다. 중심이 화면 안이면 그 자리에,
+// 중심은 밖이지만 화면 중앙이 영역 안(반지름 이내)이면 가장자리에 붙인다.
+// 그래서 영역을 확대해 들어가도 이름이 남는다. 겹치는 라벨은 큰 영역이 이긴다.
+// 돌려주는 값은 라벨 id → 화면 좌표(px). `viewport`는 deck 뷰포트의 투영 두 개만 쓴다.
+export interface RegionViewport {
+  project(xyz: number[]): number[];
+  unproject(xy: number[]): number[];
+}
+export function placeRegionLabels(
+  items: ReturnType<typeof regionLabels>,
+  viewport: RegionViewport,
+  size: { width: number; height: number },
+  radii: Map<string, number>,
+  alive: Set<string>,
+  relativeZoom: number,
+): Map<string, [number, number]> {
+  const boxes: { x: number; y: number; w: number; h: number }[] = [];
+  const out = new Map<string, [number, number]>();
+  // 문턱을 넘어도 반 단계까지는 영역 이름이 옅어지며 남는다.
+  if (relativeZoom >= PAPER_LABEL_ZOOM + 0.5) return out;
+  const [cx, cy] = viewport.unproject([size.width / 2, size.height / 2]);
+  for (const n of [...items].sort((a, b) => b.size - a.size)) {
+    if (!alive.has(n.id)) continue;
+    let [x, y] = viewport.project([n.x, n.y, 0]);
+    const w = Math.min(205, n.label.length * 10),
+      h = Math.ceil(n.label.length / 20) * 23;
+    const inside =
+      x > w / 2 &&
+      x < size.width - w / 2 &&
+      y > 55 + h / 2 &&
+      y < size.height - 75 - h / 2;
+    const covering = Math.hypot(cx - n.x, cy - n.y) <= (radii.get(n.id) ?? 0);
+    if (!inside && !covering) continue;
+    if (!inside) [x, y] = clampRegionLabel(x, y, w, h, size.width, size.height);
+    if (
+      boxes.some(
+        (b) =>
+          Math.abs(x - b.x) < (w + b.w) / 2 + 12 &&
+          Math.abs(y - b.y) < (h + b.h) / 2 + 10,
+      )
+    )
+      continue;
+    boxes.push({ x, y, w, h });
+    out.set(n.id, [x, y]);
+  }
+  return out;
+}
