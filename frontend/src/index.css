@@ -528,7 +528,8 @@ main {
   display: flex;
   align-items: baseline;
   gap: 1rem;
-  padding: 0.7rem 1.1rem;
+  /* 위쪽은 검색 pill 줄이 차지한다. 머리줄 글자는 그 아래에 온다. */
+  padding: calc(var(--search-top) + var(--search-h) + 0.7rem) 1.1rem 0.7rem;
   border-bottom: 1px solid var(--rule);
   font-family: var(--mono);
   font-size: 11.5px;
@@ -825,6 +826,13 @@ main {
   gap: 0.4rem;
   z-index: 16;
 }
+/* 3D 조망의 오른쪽 위 버튼(폭 약 170px)도 캡션과 같은 이유로 좁은 스테이지에서는
+   검색 pill 줄 아래로 내린다. */
+@container (max-width: 1259px) {
+  .sky-ctl {
+    top: calc(var(--search-top) * 2 + var(--search-h));
+  }
+}
 .sky-ctl button {
   background: rgba(21, 28, 37, 0.94);
   border: 1px solid var(--rule);
@@ -1027,6 +1035,11 @@ input:focus-visible,
   min-height: 0;
 }
 .analysis-stage {
+  /* 검색 pill 폭(cqi)과 캡션 자리의 기준 폭 */
+  container-type: inline-size;
+  /* 검색 pill 줄의 위 여백과 높이. 캡션·뷰 머리줄이 이 줄 아래로 비켜선다. */
+  --search-top: 18px;
+  --search-h: 40px;
   position: relative;
   flex: 1;
   min-height: 0;
@@ -1061,19 +1074,100 @@ input:focus-visible,
   letter-spacing: 0.12em;
   color: var(--muted-foreground);
 }
-.explore-toolbar {
+/* 검색 pill + 컨트롤 버블: 스테이지 위쪽 가운데. 높이 40은 design-ops 코퍼스
+   Form 기본값(데스크톱 웹 입력 40px, 78개 시스템 최빈값), 위 여백 18은 크롭 마크와
+   맞춘다. 줄 전체는 포인터를 통과시키고 pill·버블만 받는다. */
+.stage-search {
+  position: absolute;
+  top: var(--search-top);
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
   display: flex;
-  gap: 16px;
+  gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
-  min-height: 61px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border);
+  pointer-events: none;
+}
+.search-pill,
+.search-bubble {
+  pointer-events: auto;
+}
+.search-pill {
+  width: clamp(320px, 40cqi, 640px);
+}
+/* 유리 재질: 뒤의 지도가 흐리게 비친다. 바탕 불투명도 .62는 흰 바탕 위에서도
+   흰 글자 대비 약 5.4:1(합성색 #686b70)을 남긴다. */
+.search-pill [data-slot="input-group"],
+.search-bubble {
+  height: var(--search-h);
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  background: rgb(12 17 24 / 0.62);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 8px 24px rgb(0 0 0 / 0.35);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .search-pill [data-slot="input-group"],
+  .search-bubble {
+    background: #0c1118;
+  }
+}
+.search-pill [data-slot="input-group"] {
+  padding-inline: 8px;
+}
+/* 초점은 색 링 대신 유리 테두리를 밝혀 표시한다(사용자 결정: 보라색 링 없음).
+   입력 자체의 전역 초점 외곽선도 끈다. */
+.search-pill [data-slot="input-group-control"]:focus-visible {
+  outline: none;
+}
+.search-pill [data-slot="input-group"]:has(:focus-visible) {
+  border-color: rgb(255 255 255 / 0.32);
+}
+.search-pill [data-slot="input-group"]:has([aria-invalid="true"]) {
+  border-color: var(--destructive);
+}
+.search-bubble {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding-inline: 6px 12px;
+  white-space: nowrap;
+}
+.search-bubble [data-slot="select-trigger"] {
+  border-color: transparent;
+  background: transparent;
+  border-radius: 9999px;
+}
+.search-bubble [data-slot="select-trigger"]:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+.search-bubble [data-slot="button"] {
+  border-radius: 9999px;
 }
 .filter-result {
   font: 10px var(--font-mono);
   color: var(--muted-foreground);
   min-width: 44px;
+}
+/* 아주 좁은 스테이지: 줄을 양옆 16px 안에 채우고 pill이 남는 폭을 쓴다. */
+@container (max-width: 559px) {
+  .stage-search {
+    left: 16px;
+    right: 16px;
+    transform: none;
+  }
+  .search-pill {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+  /* 색상 선택은 아이콘만 남겨 pill에 폭을 준다. 이름은 aria-label과 목록에 있다. */
+  .search-bubble [data-slot="select-value"] {
+    display: none;
+  }
 }
 /* 연도 숫자 입력은 슬라이더와 짝이라 스핀 버튼을 숨긴다. */
 [data-slot="input"][type="number"]::-webkit-inner-spin-button {
@@ -1154,6 +1248,12 @@ input:focus-visible,
 }
 .map-wrap {
   outline-offset: -3px;
+}
+/* 지도와 연도 축 위의 드래그는 이동과 범위 조절이다. 라벨·캡션·눈금 글자가
+   텍스트 선택으로 잡혀 화면 전체가 파랗게 칠해지지 않게 한다. */
+.map-wrap,
+.year-range {
+  user-select: none;
 }
 .map-labels {
   position: absolute;
@@ -1274,6 +1374,14 @@ input:focus-visible,
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted-foreground);
+}
+/* 캡션(왼쪽 위, 오른쪽 끝 실측 약 231–260px)과 pill 줄(너비 0.4W + 8 + 버블 최대
+   약 192px)이 같은 높이에서 겹치지 않으려면 (W − 줄 너비)/2 ≥ 캡션 끝 + 16,
+   즉 W ≥ 약 1260px이다. 그보다 좁으면 캡션을 pill 줄 아래(18 + 40 + 18)로 내린다. */
+@container (max-width: 1259px) {
+  .map-caption {
+    top: calc(var(--search-top) * 2 + var(--search-h));
+  }
 }
 /* 확대 컨트롤: 오른쪽 가운데 세로 배열(확대 · 다이얼 · 축소). 위아래가 대칭이라
    다이얼 바늘이 화면 세로 정가운데에 온다. 전체 보기 버튼은 그 아래 따로. */
@@ -1729,10 +1837,6 @@ input:focus-visible,
     max-width: 110px;
     font-size: 11px;
   }
-  .explore-toolbar {
-    padding: 10px 12px;
-    gap: 10px;
-  }
   .filter-result {
     font-size: 9px;
   }
@@ -1747,9 +1851,9 @@ input:focus-visible,
     font-size: 18px;
     max-width: 185px;
   }
+  /* 세로 자리는 검색 pill 줄 아래 — 스테이지 컨테이너 규칙(top 76px)을 따른다. */
   .map-caption {
     left: 12px;
-    top: 14px;
     font-size: 9px;
     gap: 8px;
   }

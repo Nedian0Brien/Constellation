@@ -188,18 +188,29 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
     if (x > 0 && x < box.width && y > 0 && y < box.height)
       expect(after.has(t.id), t.id).toBe(true);
   }
-  // 제목을 클릭하면 그 논문이 선택된다. 화면 중앙 근처의 제목 하나를 고른다.
+  // 제목을 클릭하면 그 논문이 선택된다. 화면 안에서 위쪽 검색 줄(76px)과 가장자리
+  // 컨트롤(80px)에 가리지 않는 제목 가운데 중앙에 가장 가까운 것을 고른다.
+  // 중앙 ±40px은 피한다.
   const pin = await map.evaluate(
     (el, size) => {
       const b = (el as Bridged).__map!;
+      let best: (ReturnType<typeof b.titles>[number] & {
+        px: number;
+        py: number;
+      }) | null = null;
+      let bestD = Infinity;
       for (const t of b.titles()) {
         const [x, y] = b.project(t.x, t.y)!;
         const dx = Math.abs(x - size[0] / 2),
           dy = Math.abs(y - size[1] / 2);
-        if (dx > 40 && dx < size[0] / 4 && dy < size[1] / 4)
-          return { ...t, px: x, py: y };
+        if (dx <= 40 || x < 80 || x > size[0] - 80) continue;
+        if (y < 76 || y > size[1] - 80) continue;
+        if (dx + dy < bestD) {
+          bestD = dx + dy;
+          best = { ...t, px: x, py: y };
+        }
       }
-      return null;
+      return best;
     },
     [box.width, box.height],
   );
