@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Protocol
 
 from ..db import store
+from ..db.scope import resolve_map
 
 Progress = Callable[[str], None]
 
@@ -467,6 +468,7 @@ def name_batch(
 def run(
     *,
     run_id: str | None = None,
+    corpus: str | None = None,
     model_key: str = "scincl",
     backend: str = DEFAULT_BACKEND,
     model: str | None = None,
@@ -477,14 +479,7 @@ def run(
     namer = namer or make_namer(backend, model)
     conn = store.connect()
     try:
-        if not run_id:
-            row = conn.execute(
-                "SELECT run_id FROM runs WHERE kind='project' AND model=? "
-                "ORDER BY created_at DESC LIMIT 1", (model_key,)
-            ).fetchone()
-            if not row:
-                raise RuntimeError("투영 결과가 없다.")
-            run_id = row[0]
+        run_id = resolve_map(conn, run_id, corpus, model_key)
 
         nodes = conn.execute(
             "SELECT node_id, left_id, right_id, size, n_leaves, cluster_id, "

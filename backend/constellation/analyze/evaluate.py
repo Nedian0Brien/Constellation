@@ -18,21 +18,37 @@ from typing import Callable
 import numpy as np
 
 from ..db import store
+from ..db.scope import corpus_work_ids
 
 Progress = Callable[[str], None]
 
 
-def load_matrix(model_key: str) -> tuple[list[str], np.ndarray]:
-    """works.parquet 순서대로 (work_ids, 정규화된 벡터 행렬)."""
+def load_matrix(
+    model_key: str, work_ids: list[str] | None = None,
+) -> tuple[list[str], np.ndarray]:
+    """works.parquet 순서대로 (work_ids, 정규화된 벡터 행렬).
+
+    work_ids를 주면 그 논문만 고른다(순서는 works.parquet 순서). 코퍼스 하나를
+    투영·평가할 때 쓴다. 임베딩이 없는 id가 있으면 embed를 먼저 돌리라고 알린다.
+    """
     import pyarrow.parquet as pq
 
     from ..embed.cache import EmbeddingStore
 
     st = EmbeddingStore(model_key)
     tbl = pq.read_table(st.dir / "works.parquet")
-    work_ids = tbl.column("work_id").to_pylist()
+    ids = tbl.column("work_id").to_pylist()
     hashes = tbl.column("text_hash").to_pylist()
-    return work_ids, st.matrix_for(hashes)
+    if work_ids is not None:
+        want = set(work_ids)
+        keep = [i for i, w in enumerate(ids) if w in want]
+        if len(keep) < len(want):
+            raise RuntimeError(
+                "%s 임베딩이 없는 논문 %s편 — embed -m %s 를 먼저 돌려라"
+                % (model_key, format(len(want) - len(keep), ","), model_key))
+        ids = [ids[i] for i in keep]
+        hashes = [hashes[i] for i in keep]
+    return ids, st.matrix_for(hashes)
 
 
 def internal_edges(work_ids: list[str]) -> dict[int, set[int]]:
@@ -117,9 +133,14 @@ def citation_neighbor_score(
     return out
 
 
-def evaluate(model_key: str, log: Progress = print) -> dict:
-    log("모델 %s 평가" % model_key)
-    work_ids, vecs = load_matrix(model_key)
+def evaluate(model_key: str, corpus: str, log: Progress = print) -> dict:
+    log("모델 %s 평가 (코퍼스 %s)" % (model_key, corpus))
+    conn = store.connect(read_only=True)
+    try:
+        members = corpus_work_ids(conn, corpus)
+    finally:
+        conn.close()
+    work_ids, vecs = load_matrix(model_key, members)
     log("  벡터 %s × %d" % (format(vecs.shape[0], ","), vecs.shape[1]))
     adj = internal_edges(work_ids)
     log("  인용 연결이 있는 논문 %s편" % format(len(adj), ","))

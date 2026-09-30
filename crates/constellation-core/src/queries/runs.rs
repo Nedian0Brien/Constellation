@@ -11,25 +11,69 @@ pub struct RunInfo {
     pub params: Option<String>,
     pub n_items: Option<i32>,
     pub created_at: String,
+    /// 지도가 속한 코퍼스. 코퍼스 도입 전 DB면 None.
+    pub corpus_id: Option<String>,
+    pub corpus_name: Option<String>,
+    /// 표시 이름. 비어 있으면 "코퍼스 이름 · 모델"로 채운다.
+    pub name: String,
+    /// 클러스터 등 분석 산출물이 있는지(`<run>|cluster` run 존재).
+    pub analyzed: bool,
 }
 
-/// 투영 run 목록. 기본 모델의 run이 먼저, 그 안에서 최신순.
+/// 코퍼스 도입 전 DB도 열 수 있도록 컬럼 존재를 확인한다. 앱 연결은 읽기 전용이라
+/// 스키마를 고칠 수 없다.
+pub(crate) fn has_corpus_columns(conn: &duckdb::Connection) -> Result<bool> {
+    let n: i64 = conn.query_row(
+        "SELECT count(*) FROM information_schema.columns \
+         WHERE table_name = 'runs' AND column_name = 'corpus_id'",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+/// 지도(투영 run) 목록. 분석이 끝난 지도 먼저, 그 안에서 기본 모델 먼저, 최신순.
+/// 첫 항목이 run을 지정하지 않았을 때 여는 기본 지도다.
 pub fn runs(db: &Database) -> Result<Vec<RunInfo>> {
     let conn = db.connect()?;
-    let mut stmt = conn.prepare(
-        "SELECT run_id, kind, model, params_json, n_items, CAST(created_at AS VARCHAR) \
-         FROM runs WHERE kind = 'project' \
-         ORDER BY (model = ?) DESC, created_at DESC",
-    )?;
+    let sql = if has_corpus_columns(&conn)? {
+        "SELECT r.run_id, r.kind, r.model, r.params_json, r.n_items, \
+                CAST(r.created_at AS VARCHAR), r.corpus_id, c.name, r.name, \
+                EXISTS (SELECT 1 FROM runs d WHERE d.run_id = r.run_id || '|cluster') \
+         FROM runs r LEFT JOIN corpora c ON c.id = r.corpus_id \
+         WHERE r.kind = 'project' \
+         ORDER BY 10 DESC, (r.model = ?) DESC, r.created_at DESC"
+    } else {
+        "SELECT r.run_id, r.kind, r.model, r.params_json, r.n_items, \
+                CAST(r.created_at AS VARCHAR), NULL, NULL, NULL, \
+                EXISTS (SELECT 1 FROM runs d WHERE d.run_id = r.run_id || '|cluster') \
+         FROM runs r WHERE r.kind = 'project' \
+         ORDER BY 10 DESC, (r.model = ?) DESC, r.created_at DESC"
+    };
+    let mut stmt = conn.prepare(sql)?;
     let rows = stmt
         .query_map(params![DEFAULT_MODEL], |r| {
+            let model: Option<String> = r.get(2)?;
+            let corpus_name: Option<String> = r.get(7)?;
+            let name: Option<String> = r.get(8)?;
+            let name = name.unwrap_or_else(|| {
+                format!(
+                    "{} · {}",
+                    corpus_name.as_deref().unwrap_or("코퍼스 미지정"),
+                    model.as_deref().unwrap_or("?")
+                )
+            });
             Ok(RunInfo {
                 run_id: r.get(0)?,
                 kind: r.get(1)?,
-                model: r.get(2)?,
+                model,
                 params: r.get(3)?,
                 n_items: r.get(4)?,
                 created_at: r.get(5)?,
+                corpus_id: r.get(6)?,
+                corpus_name,
+                name,
+                analyzed: r.get(9)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;

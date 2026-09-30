@@ -313,16 +313,30 @@ pub fn work(db: &Database, work_id: &str, run: Option<&str>) -> Result<Work> {
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let refs_in_corpus: i64 = conn.query_row(
-        "SELECT count(*) FROM citations c JOIN works w ON w.id = c.cited_id WHERE c.citing_id = ?",
-        params![work_id],
-        |r| r.get(0),
-    )?;
-    let cited_by_in_corpus: i64 = conn.query_row(
-        "SELECT count(*) FROM citations c JOIN works w ON w.id = c.citing_id WHERE c.cited_id = ?",
-        params![work_id],
-        |r| r.get(0),
-    )?;
+    // "코퍼스 안" 인용은 지금 보고 있는 지도에 있는 논문과의 인용이다. DB 하나에
+    // 코퍼스가 여럿이므로 works 전체와 조인하면 다른 코퍼스 논문까지 센다.
+    let in_map = |side: &str, me: &str| -> Result<i64> {
+        Ok(match run.filter(|r| !r.is_empty()) {
+            Some(run) => conn.query_row(
+                &format!(
+                    "SELECT count(*) FROM citations c JOIN projections p \
+                     ON p.work_id = c.{side} AND p.run_id = ? WHERE c.{me} = ?"
+                ),
+                params![run, work_id],
+                |r| r.get(0),
+            )?,
+            None => conn.query_row(
+                &format!(
+                    "SELECT count(*) FROM citations c JOIN works w ON w.id = c.{side} \
+                     WHERE c.{me} = ?"
+                ),
+                params![work_id],
+                |r| r.get(0),
+            )?,
+        })
+    };
+    let refs_in_corpus = in_map("cited_id", "citing_id")?;
+    let cited_by_in_corpus = in_map("citing_id", "cited_id")?;
     Ok(Work {
         id,
         doi,
@@ -404,7 +418,8 @@ pub fn citations(
         let sql = format!(
             "SELECT w.id, w.title, w.year, coalesce(w.cited_by_count, 0), k.cluster_id \
              FROM citations c JOIN works w ON w.id = c.{side} \
-             LEFT JOIN clusters k ON k.run_id = ? AND k.work_id = w.id \
+             JOIN projections p ON p.work_id = w.id AND p.run_id = ? \
+             LEFT JOIN clusters k ON k.run_id = p.run_id AND k.work_id = w.id \
              WHERE c.{me} = ? \
              ORDER BY w.cited_by_count DESC NULLS LAST, w.id LIMIT ?"
         );
@@ -424,9 +439,10 @@ pub fn citations(
     };
     let count = |side: &str, me: &str| -> Result<i64> {
         let sql = format!(
-            "SELECT count(*) FROM citations c JOIN works w ON w.id = c.{side} WHERE c.{me} = ?"
+            "SELECT count(*) FROM citations c JOIN projections p \
+             ON p.work_id = c.{side} AND p.run_id = ? WHERE c.{me} = ?"
         );
-        Ok(conn.query_row(&sql, params![work_id], |r| r.get(0))?)
+        Ok(conn.query_row(&sql, params![run, work_id], |r| r.get(0))?)
     };
     let references = if direction != Direction::CitedBy {
         list("cited_id", "citing_id")?

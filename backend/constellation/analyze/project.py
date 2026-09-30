@@ -16,6 +16,7 @@ import numpy as np
 
 from ..config import DATA
 from ..db import store
+from ..db.scope import corpus_work_ids
 from .evaluate import load_matrix
 
 Progress = Callable[[str], None]
@@ -24,8 +25,13 @@ MODEL_DIR = DATA / "models"
 PCA_DIM = 50
 
 
-def _paths(model_key: str) -> dict[str, "object"]:
-    d = MODEL_DIR / model_key
+def model_dir(corpus: str, model_key: str):
+    """지도의 투영 모델 경로. 코퍼스마다 따로 학습한다."""
+    return MODEL_DIR / corpus / model_key
+
+
+def _paths(corpus: str, model_key: str) -> dict[str, "object"]:
+    d = model_dir(corpus, model_key)
     return {
         "dir": d,
         "pca": d / "pca.pkl",
@@ -36,6 +42,7 @@ def _paths(model_key: str) -> dict[str, "object"]:
 
 def project(
     model_key: str,
+    corpus: str,
     *,
     n_neighbors: int = 15,
     min_dist: float = 0.1,
@@ -46,9 +53,18 @@ def project(
     from sklearn.decomposition import PCA
     import umap
 
-    p = _paths(model_key)
-    work_ids, vecs = load_matrix(model_key)
-    log("벡터 %s × %d" % (format(vecs.shape[0], ","), vecs.shape[1]))
+    p = _paths(corpus, model_key)
+    conn = store.connect(read_only=True)
+    try:
+        members = corpus_work_ids(conn, corpus)
+        cname = conn.execute("SELECT name FROM corpora WHERE id = ?",
+                             (corpus,)).fetchone()[0]
+    finally:
+        conn.close()
+    if not members:
+        raise RuntimeError("%s 코퍼스에 논문이 없다. collect 를 먼저 돌려라." % corpus)
+    work_ids, vecs = load_matrix(model_key, members)
+    log("코퍼스 %s · 벡터 %s × %d" % (corpus, format(vecs.shape[0], ","), vecs.shape[1]))
 
     # ── PCA ──
     if p["pca"].exists() and not refit:
@@ -104,12 +120,14 @@ def project(
         )
         conn.execute(
             "INSERT OR REPLACE INTO runs "
-            "(run_id, kind, model, params_json, n_items, created_at) VALUES (?,?,?,?,?,?)",
+            "(run_id, kind, model, params_json, n_items, created_at, corpus_id, name) "
+            "VALUES (?,?,?,?,?,?,?,?)",
             (run_id, "project", model_key,
              json.dumps({"n_neighbors": n_neighbors, "min_dist": min_dist,
                          "pca_dim": int(reduced.shape[1]), "seed": seed,
                          "refit": refit}),
-             len(work_ids), datetime.now(timezone.utc).replace(tzinfo=None)),
+             len(work_ids), datetime.now(timezone.utc).replace(tzinfo=None),
+             corpus, "%s · %s" % (cname, model_key)),
         )
         conn.commit()
     finally:

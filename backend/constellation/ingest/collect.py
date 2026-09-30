@@ -38,14 +38,26 @@ async def collect(
     qs: QuerySet,
     settings: Settings,
     *,
+    corpus: str | None = None,
     limit: int | None = None,
     log: Progress = print,
 ) -> dict[str, int]:
+    """쿼리 세트로 수집해 코퍼스에 소속시킨다. 코퍼스가 없으면 만든다.
+
+    코퍼스를 생략하면 세트 이름을 코퍼스 id로 쓴다.
+    """
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     raw_dir = RAW / "openalex" / qs.name / run_id
+    corpus = corpus or qs.name
     conn = store.connect()
 
     try:
+        store.ensure_corpus(conn, corpus, corpus, {
+            "kind": "query_set", "set": qs.name, "description": qs.description,
+            "terms": list(qs.terms), "year_from": qs.year_from,
+            "year_to": qs.year_to, "per_year": qs.per_year,
+            "types": list(qs.types)})
+        log("코퍼스: %s" % corpus)
         seen_before = store.existing_ids(conn)
         seen: set[str] = set()
         dedupe: set[str] = set()
@@ -80,8 +92,9 @@ async def collect(
 
                 n_new = sum(1 for w in batch if w.id not in seen_before)
                 store.upsert_works(conn, batch)
+                store.add_members(conn, corpus, (w.id for w in batch), "collect")
                 store.record_collection(
-                    conn, run_id, qs.name, str(year), filt, "openalex",
+                    conn, run_id, corpus, qs.name, str(year), filt, "openalex",
                     len(batch), n_new, matched,
                 )
                 total_new += n_new
@@ -97,30 +110,43 @@ async def collect(
 
 
 async def backfill_citations(
-    settings: Settings, *, max_fetch: int = 2000, log: Progress = print
+    settings: Settings, corpus: str, *, max_fetch: int = 2000,
+    log: Progress = print,
 ) -> dict[str, int]:
     """코퍼스 안 논문들이 자주 인용하는 바깥 논문을 끌어온다.
 
     Flow와 Lineage는 양 끝이 모두 코퍼스 안에 있는 엣지만 쓸 수 있다.
     자주 인용되는 바깥 논문(= 이 분야의 뿌리)을 채우면 내부 엣지 밀도가
-    크게 오른다.
+    크게 오른다. 다른 코퍼스가 이미 받아 둔 논문은 받지 않고 소속만 더한다.
     """
     conn = store.connect()
     try:
         rows = conn.execute(
-            "SELECT c.cited_id, count(*) n FROM citations c "
+            "SELECT c.cited_id, count(*) n, max(w.id IS NOT NULL) have "
+            "FROM citations c "
+            "JOIN corpus_works me ON me.work_id = c.citing_id AND me.corpus_id = ? "
+            "LEFT JOIN corpus_works mine ON mine.work_id = c.cited_id "
+            "  AND mine.corpus_id = ? "
             "LEFT JOIN works w ON w.id = c.cited_id "
-            "WHERE w.id IS NULL GROUP BY c.cited_id "
-            "HAVING n >= 2 ORDER BY n DESC LIMIT ?",
-            (max_fetch,),
+            "WHERE mine.work_id IS NULL GROUP BY c.cited_id "
+            "HAVING n >= 2 ORDER BY n DESC, c.cited_id LIMIT ?",
+            (corpus, corpus, max_fetch),
         ).fetchall()
         if not rows:
             log("보강할 대상이 없다.")
-            return {"fetched": 0}
+            return {"fetched": 0, "linked": 0}
 
-        ids = [r[0] for r in rows]
-        log("코퍼스 밖에서 2회 이상 인용된 논문 %s편을 끌어온다 "
-            "(최다 %d회)" % (format(len(ids), ","), rows[0][1]))
+        have = [r[0] for r in rows if r[2]]
+        ids = [r[0] for r in rows if not r[2]]
+        log("코퍼스 밖에서 2회 이상 인용된 논문 %s편 (최다 %d회)"
+            % (format(len(rows), ","), rows[0][1]))
+        if have:
+            store.add_members(conn, corpus, have, "backfill")
+            conn.commit()
+            log("  이미 DB에 있는 %s편은 소속만 더했다" % format(len(have), ","))
+        if not ids:
+            return {"fetched": 0, "linked": len(have)}
+        log("  %s편을 OpenAlex에서 끌어온다" % format(len(ids), ","))
 
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         raw_dir = RAW / "openalex" / "backfill" / run_id
@@ -132,17 +158,18 @@ async def backfill_citations(
                     log("  %s편..." % format(len(fetched), ","))
 
         store.upsert_works(conn, fetched)
+        store.add_members(conn, corpus, (w.id for w in fetched), "backfill")
         conn.commit()
         n_abs = sum(1 for w in fetched if w.has_abstract)
         log("보강 완료: %s편 (초록 %s편, %.0f%%)"
             % (format(len(fetched), ","), format(n_abs, ","),
                (n_abs / len(fetched) * 100) if fetched else 0))
-        return {"fetched": len(fetched)}
+        return {"fetched": len(fetched), "linked": len(have)}
     finally:
         conn.close()
 
 
-async def enrich_abstracts(*, log: Progress = print) -> dict[str, int]:
+async def enrich_abstracts(corpus: str, *, log: Progress = print) -> dict[str, int]:
     """초록이 없는 논문을 Semantic Scholar로 메운다.
 
     결손의 대부분은 Elsevier·Springer 저널이고, 그건 구조적으로 Scopus의
@@ -153,7 +180,9 @@ async def enrich_abstracts(*, log: Progress = print) -> dict[str, int]:
     conn = store.connect()
     try:
         rows = conn.execute(
-            "SELECT id, doi FROM works WHERE NOT has_abstract AND doi IS NOT NULL"
+            "SELECT w.id, w.doi FROM works w "
+            "JOIN corpus_works m ON m.work_id = w.id AND m.corpus_id = ? "
+            "WHERE NOT w.has_abstract AND w.doi IS NOT NULL", (corpus,)
         ).fetchall()
         if not rows:
             log("보강할 대상이 없다.")

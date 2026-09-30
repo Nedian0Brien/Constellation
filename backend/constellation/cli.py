@@ -23,6 +23,31 @@ app = typer.Typer(add_completion=False, help="Constellation — 연구 지형 �
 console = Console()
 
 
+CORPUS = typer.Option(None, "--corpus", "-c",
+                      help="대상 코퍼스 id. 코퍼스가 하나면 생략 가능")
+MAP = typer.Option(None, "--map",
+                   help="대상 지도(project run id). 생략하면 코퍼스·모델의 최신 지도")
+
+
+def _scoped(fn):
+    """대상 코퍼스·지도를 확정하지 못하면 목록을 보여 주고 종료 코드 1로 끝낸다."""
+    from .db.scope import ScopeError
+    try:
+        return fn()
+    except ScopeError as e:
+        console.print("[red]%s[/]" % e)
+        raise typer.Exit(1)
+
+
+def _corpus(corpus: str | None) -> str:
+    from .db.scope import resolve_corpus
+    conn = store.connect(read_only=True)
+    try:
+        return _scoped(lambda: resolve_corpus(conn, corpus))
+    finally:
+        conn.close()
+
+
 def _settings() -> Settings:
     s = Settings.load()
     if not s.openalex_api_key:
@@ -35,13 +60,16 @@ def _settings() -> Settings:
 @app.command()
 def collect(
     query_set: str = typer.Option("rag-ir", "--set", "-s", help="쿼리 세트 이름"),
+    corpus: str | None = typer.Option(None, "--corpus", "-c",
+                                      help="넣을 코퍼스 id. 생략하면 세트 이름"),
     limit: int = typer.Option(0, "--limit", "-n", help="총 상한 (0 = 세트 기본값)"),
 ) -> None:
-    """OpenAlex에서 논문을 수집해 DuckDB에 넣는다."""
+    """OpenAlex에서 논문을 수집해 코퍼스에 넣는다. 코퍼스가 없으면 만든다."""
     qs = queries.get(query_set)
     s = _settings()
     result = asyncio.run(
-        collect_mod.collect(qs, s, limit=limit or None, log=console.print)
+        collect_mod.collect(qs, s, corpus=corpus, limit=limit or None,
+                            log=console.print)
     )
     console.print()
     console.print("[green]수집 완료[/] — 고유 %s편, 신규 %s편  (run %s)"
@@ -52,17 +80,20 @@ def collect(
 
 @app.command()
 def backfill(
+    corpus: str | None = CORPUS,
     max_fetch: int = typer.Option(2000, "--max", help="끌어올 최대 편수"),
 ) -> None:
     """자주 인용되는 코퍼스 밖 논문을 끌어와 내부 인용 밀도를 올린다."""
     s = _settings()
-    asyncio.run(collect_mod.backfill_citations(s, max_fetch=max_fetch, log=console.print))
+    cid = _corpus(corpus)
+    asyncio.run(collect_mod.backfill_citations(s, cid, max_fetch=max_fetch,
+                                               log=console.print))
 
 
 @app.command()
-def enrich() -> None:
+def enrich(corpus: str | None = CORPUS) -> None:
     """초록 결손분을 Semantic Scholar로 메운다 (실측 적중률 약 31%)."""
-    asyncio.run(collect_mod.enrich_abstracts(log=console.print))
+    asyncio.run(collect_mod.enrich_abstracts(_corpus(corpus), log=console.print))
 
 
 @app.command()
@@ -80,8 +111,10 @@ def embed(
 @app.command()
 def evaluate(
     models: str = typer.Option("", "--models", help="쉼표 구분. 비우면 캐시된 전부"),
+    corpus: str | None = CORPUS,
 ) -> None:
     """인용 이웃 일치도로 임베딩 모델을 비교한다."""
+    cid = _corpus(corpus)
     from .analyze import evaluate as ev
     from .embed.cache import EMB_DIR
     from .embed.encoder import MODELS
@@ -95,7 +128,7 @@ def evaluate(
     results = []
     for k in keys:
         try:
-            results.append(ev.evaluate(k, log=console.print))
+            results.append(ev.evaluate(k, cid, log=console.print))
         except Exception as e:
             console.print("[red]%s 실패:[/] %s" % (k, str(e)[:200]))
     if not results:
@@ -127,14 +160,15 @@ def evaluate(
 @app.command()
 def project(
     model: str = typer.Option("scincl", "--model", "-m"),
+    corpus: str | None = CORPUS,
     neighbors: int = typer.Option(15, "--neighbors"),
     min_dist: float = typer.Option(0.1, "--min-dist"),
     refit: bool = typer.Option(False, "--refit", help="UMAP 전체 재학습 (좌표가 바뀐다)"),
 ) -> None:
     """PCA(50) → UMAP 2D/3D 좌표를 만든다."""
     from .analyze.project import project as run_project
-    run_project(model, n_neighbors=neighbors, min_dist=min_dist,
-                refit=refit, log=console.print)
+    run_project(model, _corpus(corpus), n_neighbors=neighbors,
+                min_dist=min_dist, refit=refit, log=console.print)
 
 
 @app.command()
@@ -154,6 +188,8 @@ def sets() -> None:
 @app.command()
 def cluster(
     model: str = typer.Option("scincl", "--model", "-m"),
+    corpus: str | None = CORPUS,
+    map_id: str | None = MAP,
     space: str = typer.Option("umap10", "--space",
                               help="umap10(기본) | 2d | pca"),
     selection: str = typer.Option("eom", "--selection", help="eom | leaf"),
@@ -168,8 +204,10 @@ def cluster(
     for sp in spaces:
         console.print()
         console.print("[bold]── %s 공간 ──[/]" % sp)
-        r = run_cluster(model, space=sp, min_cluster_size=min_cluster_size,
-                        selection=selection, log=console.print)
+        r = _scoped(lambda: run_cluster(
+            model, run_id=map_id, corpus=corpus, space=sp,
+            min_cluster_size=min_cluster_size, selection=selection,
+            log=console.print))
         ev = evaluate_clusters(r["run_id"], log=console.print)
         results.append((sp, r, ev))
 
@@ -192,12 +230,15 @@ def cluster(
 @app.command()
 def hierarchy(
     model: str = typer.Option("scincl", "--model", "-m"),
+    corpus: str | None = CORPUS,
+    map_id: str | None = MAP,
     levels: str = typer.Option("8,18", "--levels", help="레벨별 노드 수. 잎은 자동"),
 ) -> None:
     """클러스터 위에 ward 트리를 세운다 (bottom-up, 2D 좌표)."""
     from .analyze.hierarchy import build
     ks = tuple(int(x) for x in levels.split(",") if x.strip())
-    r = build(model, levels=ks, log=console.print)
+    r = _scoped(lambda: build(model, run_id=map_id, corpus=corpus, levels=ks,
+                              log=console.print))
     console.print()
     console.print("[green]완료[/] — 노드 %d개(잎 %d), 레벨 %s"
                   % (r["n_nodes"], r["n_leaves"],
@@ -207,6 +248,8 @@ def hierarchy(
 @app.command()
 def name(
     model: str = typer.Option("scincl", "--model", "-m", help="임베딩 모델(run 선택용)"),
+    corpus: str | None = CORPUS,
+    map_id: str | None = MAP,
     backend: str = typer.Option("codex", "--backend", help="codex 또는 claude CLI"),
     llm: str | None = typer.Option(None, "--llm",
                                    help="모델. 기본 codex=gpt-6-luna, claude=opus"),
@@ -219,8 +262,9 @@ def name(
     원래 절단으로 되돌리려면 hierarchy 를 다시 돌린다.
     """
     from .analyze.naming import run as run_naming
-    r = run_naming(model_key=model, backend=backend, model=llm,
-                   leaves=not internal_only, log=console.print)
+    r = _scoped(lambda: run_naming(
+        run_id=map_id, corpus=corpus, model_key=model, backend=backend,
+        model=llm, leaves=not internal_only, log=console.print))
     console.print("[green]완료[/] — %d개, %.0f초, 레벨 %s"
                   % (r["n"], r["seconds"],
                      " / ".join("%d개" % v for v in r["levels"].values())))
@@ -230,6 +274,8 @@ def name(
 @app.command()
 def flow(
     model: str = typer.Option("scincl", "--model", "-m"),
+    corpus: str | None = CORPUS,
+    map_id: str | None = MAP,
     width: int = typer.Option(3, "--width", help="시간 창 폭(년)"),
     year_min: int = typer.Option(2014, "--from", help="이 해부터"),
     min_frac: float = typer.Option(0.012, "--min-frac",
@@ -237,8 +283,9 @@ def flow(
 ) -> None:
     """시간 창별로 나눠 클러스터링하고 갈래 흐름을 계산한다."""
     from .analyze.flow import build
-    r = build(model, width=width, year_min=year_min,
-              min_cluster_frac=min_frac, log=console.print)
+    r = _scoped(lambda: build(model, run_id=map_id, corpus=corpus, width=width,
+                              year_min=year_min, min_cluster_frac=min_frac,
+                              log=console.print))
     console.print()
     console.print("[green]완료[/] — 창 %d개, 클러스터 %d개, 흐름 %d개"
                   % (r["windows"], r["clusters"], r["flows"]))
@@ -247,10 +294,13 @@ def flow(
 @app.command()
 def lineage(
     model: str = typer.Option("scincl", "--model", "-m"),
+    corpus: str | None = CORPUS,
+    map_id: str | None = MAP,
 ) -> None:
     """인용 DAG에 SPC 가중치를 매기고 메인패스를 뽑는다."""
     from .analyze.lineage import build
-    r = build(model_key=model, log=console.print)
+    r = _scoped(lambda: build(run_id=map_id, corpus=corpus, model_key=model,
+                              log=console.print))
     console.print()
     console.print("[green]완료[/] — 노드 %s개, 엣지 %s개, 메인패스 %d편"
                   % (format(r["nodes"], ","), format(r["edges"], ","),
@@ -258,15 +308,16 @@ def lineage(
 
 
 @app.command()
-def stats() -> None:
+def stats(corpus: str | None = CORPUS) -> None:
     """M0의 관문 — 초록 커버리지와 내부 인용 밀도를 잰다."""
     if not DB_PATH.exists():
         console.print("[red]DB가 없다.[/] 먼저 [bold]constellation collect[/]를 돌려라.")
         raise typer.Exit(1)
 
+    cid = _corpus(corpus)
     conn = store.connect(read_only=True)
     try:
-        st = store.stats(conn)
+        st = store.stats(conn, cid)
     finally:
         conn.close()
 
@@ -276,8 +327,8 @@ def stats() -> None:
 
     n = st["n_works"]
     console.print()
-    console.print("[bold]코퍼스[/]  %s편   %d–%d"
-                  % (format(n, ","), st["year_min"], st["year_max"]))
+    console.print("[bold]코퍼스 %s[/]  %s편   %d–%d"
+                  % (cid, format(n, ","), st["year_min"], st["year_max"]))
     console.print()
 
     # ── 관문 1: 초록 커버리지 ──
@@ -341,6 +392,66 @@ def stats() -> None:
                    str(vn)[:34], format(vc, ",") if vc != "" else "")
     console.print(t2)
     console.print()
+
+
+corpus_app = typer.Typer(help="코퍼스 목록과 이전(adopt·import)")
+app.add_typer(corpus_app, name="corpus")
+
+
+@corpus_app.command("list")
+def corpus_list() -> None:
+    """코퍼스와 지도 목록."""
+    from .db.scope import corpora
+    conn = store.connect(read_only=True)
+    try:
+        rows = corpora(conn)
+        maps = dict(conn.execute(
+            "SELECT corpus_id, count(*) FROM runs WHERE kind = 'project' "
+            "GROUP BY corpus_id").fetchall())
+    finally:
+        conn.close()
+    t = Table(box=None, pad_edge=False)
+    t.add_column("id", style="bold")
+    t.add_column("이름")
+    t.add_column("논문", justify="right")
+    t.add_column("지도", justify="right")
+    for cid, name, n in rows:
+        t.add_row(cid, name, format(n, ","), str(maps.get(cid, 0)))
+    console.print(t)
+    if maps.get(None):
+        console.print("[yellow]코퍼스 없는 지도 %d개[/] — constellation corpus adopt 로 배정한다"
+                      % maps[None])
+
+
+@corpus_app.command("adopt")
+def corpus_adopt(
+    corpus_id: str = typer.Option(..., "--id", help="코퍼스 id (ASCII kebab-case)"),
+    name: str = typer.Option(..., "--name", help="표시 이름"),
+) -> None:
+    """소속 없는 논문과 코퍼스 없는 지도를 이 코퍼스에 배정한다."""
+    from .db.migrate import adopt
+    conn = store.connect()
+    try:
+        adopt(conn, corpus_id, name, log=console.print)
+    finally:
+        conn.close()
+
+
+@corpus_app.command("import")
+def corpus_import(
+    path: str = typer.Argument(..., help="옮겨 올 분석 DB 파일"),
+    corpus_id: str = typer.Option(..., "--id", help="코퍼스 id (ASCII kebab-case)"),
+    name: str = typer.Option(..., "--name", help="표시 이름"),
+) -> None:
+    """다른 분석 DB와 그 옆의 embeddings/·models/를 현재 DB의 코퍼스로 옮긴다."""
+    from pathlib import Path
+
+    from .db.migrate import import_db
+    conn = store.connect()
+    try:
+        import_db(conn, Path(path).expanduser(), corpus_id, name, log=console.print)
+    finally:
+        conn.close()
 
 
 def main() -> None:

@@ -170,6 +170,13 @@ export interface RunInfo {
   params: string | null;
   n_items: number;
   created_at: string;
+  /** 지도가 속한 코퍼스. 코퍼스 도입 전 DB면 null. */
+  corpus_id: string | null;
+  corpus_name: string | null;
+  /** 표시 이름. 서버가 "코퍼스 이름 · 모델"로 채운다. */
+  name: string;
+  /** 클러스터 등 분석 산출물이 있는지. */
+  analyzed: boolean;
 }
 
 export class ApiError extends Error {

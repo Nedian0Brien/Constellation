@@ -1,7 +1,7 @@
-use duckdb::{params, OptionalExt};
+use duckdb::params;
 use serde::Serialize;
 
-use crate::{Database, Error, Result, DEFAULT_MODEL};
+use crate::{Database, Error, Result};
 
 /// 좌표와 메타데이터를 열 단위 배열로 준다.
 ///
@@ -22,38 +22,19 @@ pub struct MapData {
     pub cluster: Vec<i32>,
 }
 
-/// run이 없으면 기본 모델의 최신 run, 그것도 없으면 가장 최근 run을 고른다.
+/// run이 없으면 지도 목록(`runs`)의 첫 항목 — 분석이 끝난 기본 모델의 최신 지도.
 pub fn map(db: &Database, run: Option<&str>) -> Result<MapData> {
-    let conn = db.connect()?;
     let run = match run.filter(|r| !r.is_empty()) {
         Some(r) => r.to_string(),
-        None => {
-            let preferred: Option<String> = conn
-                .query_row(
-                    "SELECT run_id FROM runs WHERE kind = 'project' AND model = ? \
-                     ORDER BY created_at DESC LIMIT 1",
-                    params![DEFAULT_MODEL],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            let fallback = || -> Result<Option<String>> {
-                Ok(conn
-                    .query_row(
-                        "SELECT run_id FROM runs WHERE kind = 'project' \
-                         ORDER BY created_at DESC LIMIT 1",
-                        [],
-                        |r| r.get(0),
-                    )
-                    .optional()?)
-            };
-            match preferred {
-                Some(r) => r,
-                None => fallback()?.ok_or_else(|| {
-                    Error::not_found("투영 결과가 없다. constellation project 를 돌려라.")
-                })?,
-            }
-        }
+        None => super::runs(db)?
+            .into_iter()
+            .next()
+            .map(|r| r.run_id)
+            .ok_or_else(|| {
+                Error::not_found("투영 결과가 없다. constellation project 를 돌려라.")
+            })?,
     };
+    let conn = db.connect()?;
 
     let mut stmt = conn.prepare(
         "SELECT p.work_id, p.x, p.y, p.z, w.year, w.cited_by_count, \

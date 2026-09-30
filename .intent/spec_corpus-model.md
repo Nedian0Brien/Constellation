@@ -27,7 +27,7 @@ date: 2026-09-30
    - `list`: id, 이름, 논문 수, 지도 수
    - `adopt --id C --name N`: 현재 DB에서 아직 어느 코퍼스에도 속하지 않은 논문과 `corpus_id`가 빈 run·수집 이력을 C에 배정한다. `data/models/<model>/`을 `data/models/C/<model>/`로 옮긴다.
    - `import PATH --id C --name N`: 다른 분석 DB와 그 옆의 `embeddings/`·`models/`를 현재 DB로 옮긴다. 원본은 읽기만 한다.
-     - `works`: 같은 id가 있으면 초록이 있는 쪽을 남긴다.
+     - `works`: 같은 id가 있으면 초록이 있는 쪽을 남기고, 둘 다 같으면 나중에 수집한(`collected_at`) 쪽을 남긴다. 피인용 수와 제목은 OpenAlex에서 계속 바뀌므로 새 값을 쓴다.
      - `authors`·`work_authors`·`citations`·`work_topics`: 합집합.
      - 원본의 논문 전부를 `via='import'`로 C에 소속시킨다.
      - `runs`와 run_id 키 산출물(projections, clusters, cluster_meta, cluster_tree, tree_levels, flow_*, citation_spc, naming_audit)은 그대로 복사하고 `corpus_id=C`로 둔다. run_id가 이미 있으면 그 run은 건너뛰고 알린다.
@@ -66,7 +66,7 @@ date: 2026-09-30
 
 - 이전한 DB에서 두 코퍼스의 기존 지도 모두 `/api/map`, `/api/clusters`, `/api/tree`, `/api/flow`, `/api/lineage` 응답이 이전 전 각 DB의 응답과 같다(JSON 비교).
 - 허용하는 차이는 두 가지다.
-  - 두 DB에 같이 있는 논문의 `works` 필드(초록 보유 여부 등)가 서로 달랐던 경우. `import`가 초록이 있는 쪽을 남기기 때문이다. 차이 난 논문 수를 기록한다.
+  - 두 DB에 같이 있는 논문의 `works` 필드(피인용 수, 제목 등)가 서로 달랐던 경우. `import`가 초록이 있는 쪽, 같으면 나중에 수집한 쪽을 남기기 때문이다. 차이 난 논문 수를 기록한다.
   - 인용 목록·개수가 "현재 지도 안"으로 좁혀지는 변화. 이전 전에는 DB와 지도가 1:1이었으므로 이 변화는 나타나지 않아야 한다.
 - 헤더 선택기로 RAG/IR와 Physical AI 지도를 오간다. 브라우저 모드와 데스크톱 앱 모두 같다.
 - `adopt`·`import`를 두 번 실행해도 행 수가 같다.

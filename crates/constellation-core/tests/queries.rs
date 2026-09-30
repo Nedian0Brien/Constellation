@@ -221,9 +221,11 @@ fn citations_lists_both_directions_in_corpus() {
             .collect::<Vec<_>>(),
         vec!["1"]
     );
-    // 다른 run에서는 주제가 없다.
+    // 목록과 총계는 그 지도에 있는 논문으로 좁힌다. run b에는 논문 4만 있어서
+    // 3이 인용한 1도, 3을 인용한 논문도 없다.
     let b = queries::citations(&f.db, "b", "3", Direction::Both, 20).unwrap();
-    assert_eq!(b.references[0].cluster, None);
+    assert!(b.references.is_empty());
+    assert_eq!((b.ref_total, b.cited_by_total), (0, 0));
     assert_eq!(
         queries::citations(&f.db, "a", "nope", Direction::Both, 20)
             .unwrap_err()
@@ -326,4 +328,29 @@ fn missing_database_is_503() {
     let err = queries::runs(&db).unwrap_err();
     assert_eq!(err.status, 503);
     assert!(!queries::health(&db).unwrap().ok);
+}
+
+#[test]
+fn runs_carry_corpus_and_analysis_state() {
+    let f = populate();
+    let conn = Connection::open(f.db.path()).unwrap();
+    conn.execute_batch(
+        "INSERT INTO corpora (id,name,created_at) VALUES ('rag','RAG/IR',CURRENT_TIMESTAMP);\
+         UPDATE runs SET corpus_id = 'rag' WHERE run_id = 'a';\
+         INSERT INTO runs (run_id,kind,model,created_at) VALUES \
+           ('a|cluster','cluster','scincl',CURRENT_TIMESTAMP);",
+    )
+    .unwrap();
+    drop(conn);
+    let runs = queries::runs(&f.db).unwrap();
+    // 분석이 끝난 지도가 먼저 온다. 이름이 비면 "코퍼스 · 모델"로 채운다.
+    assert_eq!(runs[0].run_id, "a");
+    assert!(runs[0].analyzed);
+    assert_eq!(runs[0].corpus_name.as_deref(), Some("RAG/IR"));
+    assert_eq!(runs[0].name, "RAG/IR · scincl");
+    assert_eq!(runs[1].run_id, "b");
+    assert!(!runs[1].analyzed);
+    assert_eq!(runs[1].name, "코퍼스 미지정 · specter");
+    // run을 지정하지 않으면 목록의 첫 지도를 연다.
+    assert_eq!(queries::map(&f.db, None).unwrap().run_id, "a");
 }

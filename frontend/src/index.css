@@ -1020,6 +1020,32 @@ input:focus-visible,
   align-items: center;
   gap: 5px;
 }
+/* 지도 선택기: 이름이 "코퍼스 · 모델"이라 길다. 트리거는 폭을 제한하고 줄임표로 자른다. */
+.map-select {
+  max-width: 240px;
+}
+.map-select [data-slot="select-value"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 목록 항목의 편수·분석 상태. 트리거에는 이름만 보인다. */
+[data-slot="select-content"] [data-slot="select-item"]:has(.map-select-meta) {
+  white-space: nowrap;
+}
+.map-select-meta {
+  margin-left: auto;
+  padding-left: 12px;
+  font: 10px var(--font-mono);
+  color: var(--muted-foreground);
+}
+[data-highlighted] > .map-select-meta {
+  color: inherit;
+  opacity: 0.7;
+}
+[data-slot="select-trigger"] .map-select-meta {
+  display: none;
+}
 .shell-body {
   flex: 1;
   min-height: 0;

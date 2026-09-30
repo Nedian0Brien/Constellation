@@ -29,6 +29,7 @@ from typing import Callable
 import numpy as np
 
 from ..db import store
+from ..db.scope import resolve_map
 from .evaluate import load_matrix
 
 Progress = Callable[[str], None]
@@ -120,6 +121,7 @@ def cluster(
     model_key: str,
     *,
     run_id: str | None = None,
+    corpus: str | None = None,
     space: str = "umap10",
     min_cluster_size: int = 30,
     min_samples: int | None = None,
@@ -130,14 +132,7 @@ def cluster(
 
     conn = store.connect()
     try:
-        if not run_id:
-            row = conn.execute(
-                "SELECT run_id FROM runs WHERE kind='project' AND model=? "
-                "ORDER BY created_at DESC LIMIT 1", (model_key,)
-            ).fetchone()
-            if not row:
-                raise RuntimeError("%s 의 투영 결과가 없다. project 를 먼저 돌려라." % model_key)
-            run_id = row[0]
+        run_id = resolve_map(conn, run_id, corpus, model_key)
 
         rows = conn.execute(
             "SELECT p.work_id, p.x, p.y, w.title, w.abstract, w.year, "
@@ -230,6 +225,7 @@ def cluster(
                          "noise": n_noise}),
              len(work_ids), datetime.now(timezone.utc).replace(tzinfo=None)),
         )
+        store.inherit_corpus(conn, run_id)
         conn.commit()
 
         log("")

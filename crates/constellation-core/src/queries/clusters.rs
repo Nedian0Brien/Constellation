@@ -24,7 +24,7 @@ pub fn clusters(db: &Database, run: &str) -> Result<Vec<ClusterInfo>> {
         "SELECT m.cluster_id, m.label, m.keywords, m.size, m.x, m.y, \
                 m.year_median, m.top_work_id, w.title \
          FROM cluster_meta m LEFT JOIN works w ON w.id = m.top_work_id \
-         WHERE m.run_id = ? ORDER BY m.size DESC",
+         WHERE m.run_id = ? ORDER BY m.size DESC, m.cluster_id",
     )?;
     let rows = stmt
         .query_map(params![run], |r| {
@@ -79,7 +79,7 @@ pub fn cluster_detail(db: &Database, run: &str, cluster_id: i32) -> Result<Clust
             "SELECT w.id, w.title, w.year, coalesce(w.cited_by_count, 0) \
              FROM clusters c JOIN works w ON w.id = c.work_id \
              WHERE c.run_id = ? AND c.cluster_id = ? \
-             ORDER BY w.cited_by_count DESC NULLS LAST LIMIT 12",
+             ORDER BY w.cited_by_count DESC NULLS LAST, w.id LIMIT 12",
         )?
         .query_map(params![run, cluster_id], |r| {
             Ok(WorkBrief {

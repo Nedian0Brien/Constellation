@@ -101,6 +101,7 @@ def upsert_works(conn: duckdb.DuckDBPyConnection, works: Sequence[Work]) -> int:
 def record_collection(
     conn: duckdb.DuckDBPyConnection,
     run_id: str,
+    corpus_id: str,
     query_set: str,
     query_name: str,
     filter_expr: str,
@@ -111,10 +112,10 @@ def record_collection(
 ) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO collections "
-        "(run_id, query_set, query_name, filter_expr, source, n_returned, n_new, "
-        " total_matched, collected_at) VALUES (?,?,?,?,?,?,?,?,?)",
-        (run_id, query_set, query_name, filter_expr, source, n_returned, n_new,
-         total_matched, datetime.now(timezone.utc).replace(tzinfo=None)),
+        "(run_id, corpus_id, query_set, query_name, filter_expr, source, n_returned, "
+        " n_new, total_matched, collected_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (run_id, corpus_id, query_set, query_name, filter_expr, source, n_returned,
+         n_new, total_matched, datetime.now(timezone.utc).replace(tzinfo=None)),
     )
 
 
@@ -122,45 +123,113 @@ def existing_ids(conn: duckdb.DuckDBPyConnection) -> set[str]:
     return {r[0] for r in conn.execute("SELECT id FROM works").fetchall()}
 
 
+# ── 코퍼스 ─────────────────────────────────────────────────
+
+def ensure_corpus(
+    conn: duckdb.DuckDBPyConnection,
+    corpus_id: str,
+    name: str,
+    definition: dict[str, Any] | None = None,
+) -> None:
+    """코퍼스가 없으면 만든다. 있으면 그대로 둔다."""
+    import json
+    conn.execute(
+        "INSERT OR IGNORE INTO corpora (id, name, definition_json, created_at) "
+        "VALUES (?,?,?,?)",
+        (corpus_id, name,
+         json.dumps(definition, ensure_ascii=False) if definition else None,
+         datetime.now(timezone.utc).replace(tzinfo=None)),
+    )
+
+
+def add_members(
+    conn: duckdb.DuckDBPyConnection,
+    corpus_id: str,
+    work_ids: Iterable[str],
+    via: str,
+) -> int:
+    """논문을 코퍼스에 소속시킨다. 이미 소속이면 처음 기록(via, 시각)을 남긴다."""
+    ids = sorted(set(work_ids))
+    if not ids:
+        return 0
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    tbl = pa.table({
+        "corpus_id": pa.array([corpus_id] * len(ids)),
+        "work_id": pa.array(ids),
+        "via": pa.array([via] * len(ids)),
+        "added_at": pa.array([now] * len(ids)),
+    })
+    conn.register(_STAGE, tbl)
+    try:
+        before = conn.execute(
+            "SELECT count(*) FROM corpus_works WHERE corpus_id = ?", (corpus_id,)
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT OR IGNORE INTO corpus_works (corpus_id, work_id, via, added_at) "
+            "SELECT * FROM %s" % _STAGE)
+        after = conn.execute(
+            "SELECT count(*) FROM corpus_works WHERE corpus_id = ?", (corpus_id,)
+        ).fetchone()[0]
+    finally:
+        conn.unregister(_STAGE)
+    return after - before
+
+
+def inherit_corpus(conn: duckdb.DuckDBPyConnection, map_run: str) -> None:
+    """파생 run(`<지도>|cluster` 등)에 지도의 코퍼스를 적는다."""
+    conn.execute(
+        "UPDATE runs SET corpus_id = (SELECT corpus_id FROM runs WHERE run_id = ?) "
+        "WHERE starts_with(run_id, ? || '|')", (map_run, map_run))
+
+
 # ── 통계 ────────────────────────────────────────────────────
 
-def stats(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
-    """M0의 관문. 초록 커버리지와 내부 인용 밀도를 잰다."""
+def stats(conn: duckdb.DuckDBPyConnection, corpus: str) -> dict[str, Any]:
+    """M0의 관문. 초록 커버리지와 내부 인용 밀도를 잰다.
+
+    코퍼스 소속 논문만 센다. 인용 엣지도 코퍼스 논문이 인용한 것만 센다.
+    """
+    conn.execute(
+        "CREATE OR REPLACE TEMP TABLE sw AS SELECT w.* FROM works w "
+        "JOIN corpus_works m ON m.work_id = w.id WHERE m.corpus_id = ?", (corpus,))
+    conn.execute(
+        "CREATE OR REPLACE TEMP TABLE sc AS SELECT c.* FROM citations c "
+        "JOIN sw ON sw.id = c.citing_id")
     one = lambda q: conn.execute(q).fetchone()
 
     n_works, n_abs, y_min, y_max = one(
-        "SELECT count(*), count(*) FILTER (WHERE has_abstract), min(year), max(year) FROM works"
+        "SELECT count(*), count(*) FILTER (WHERE has_abstract), min(year), max(year) FROM sw"
     )
     if not n_works:
         return {"n_works": 0}
 
-    n_edges = one("SELECT count(*) FROM citations")[0]
+    n_edges = one("SELECT count(*) FROM sc")[0]
     # 양 끝이 모두 코퍼스 안에 있는 엣지 — Flow/Lineage가 실제로 쓸 수 있는 것
     n_internal = one(
-        "SELECT count(*) FROM citations c "
-        "JOIN works a ON a.id = c.citing_id JOIN works b ON b.id = c.cited_id"
+        "SELECT count(*) FROM sc c "
+        "JOIN sw a ON a.id = c.citing_id JOIN sw b ON b.id = c.cited_id"
     )[0]
     n_cited_in = one(
-        "SELECT count(DISTINCT c.cited_id) FROM citations c JOIN works b ON b.id = c.cited_id"
+        "SELECT count(DISTINCT c.cited_id) FROM sc c JOIN sw b ON b.id = c.cited_id"
     )[0]
 
     by_year = conn.execute(
         "SELECT year, count(*), count(*) FILTER (WHERE has_abstract) "
-        "FROM works WHERE year IS NOT NULL GROUP BY year ORDER BY year"
+        "FROM sw WHERE year IS NOT NULL GROUP BY year ORDER BY year"
     ).fetchall()
 
     top_topics = conn.execute(
-        "SELECT topic, count(*) n FROM work_topics WHERE kind = 'topic' "
+        "SELECT topic, count(*) n FROM work_topics t JOIN sw ON sw.id = t.work_id WHERE kind = 'topic' "
         "GROUP BY topic ORDER BY n DESC LIMIT 12"
     ).fetchall()
 
     top_venues = conn.execute(
-        "SELECT venue, count(*) n FROM works WHERE venue IS NOT NULL "
+        "SELECT venue, count(*) n FROM sw WHERE venue IS NOT NULL "
         "GROUP BY venue ORDER BY n DESC LIMIT 10"
     ).fetchall()
 
     no_abs_by_year = conn.execute(
-        "SELECT year, count(*) n FROM works WHERE NOT has_abstract AND year IS NOT NULL "
+        "SELECT year, count(*) n FROM sw WHERE NOT has_abstract AND year IS NOT NULL "
         "GROUP BY year ORDER BY n DESC LIMIT 5"
     ).fetchall()
 

@@ -28,6 +28,7 @@ from typing import Callable
 import numpy as np
 
 from ..db import store
+from ..db.scope import resolve_map
 
 Progress = Callable[[str], None]
 
@@ -64,6 +65,7 @@ def build(
     model_key: str = "scincl",
     *,
     run_id: str | None = None,
+    corpus: str | None = None,
     levels: tuple[int, ...] = DEFAULT_LEVELS,
     log: Progress = print,
 ) -> dict:
@@ -72,14 +74,7 @@ def build(
 
     conn = store.connect()
     try:
-        if not run_id:
-            row = conn.execute(
-                "SELECT run_id FROM runs WHERE kind='project' AND model=? "
-                "ORDER BY created_at DESC LIMIT 1", (model_key,)
-            ).fetchone()
-            if not row:
-                raise RuntimeError("%s 의 투영 결과가 없다." % model_key)
-            run_id = row[0]
+        run_id = resolve_map(conn, run_id, corpus, model_key)
 
         meta = conn.execute(
             "SELECT cluster_id, label, keywords, size, x, y "
@@ -187,6 +182,7 @@ def build(
                          "n_leaves": n}),
              total, datetime.now(timezone.utc).replace(tzinfo=None)),
         )
+        store.inherit_corpus(conn, run_id)
         conn.commit()
 
         log("")
