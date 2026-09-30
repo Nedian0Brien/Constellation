@@ -34,6 +34,7 @@ from typing import Callable
 import numpy as np
 
 from ..db import store
+from ..db.scope import resolve_map
 from .cluster import _fit_labels
 from .evaluate import load_matrix
 
@@ -65,6 +66,7 @@ def build(
     model_key: str = "scincl",
     *,
     run_id: str | None = None,
+    corpus: str | None = None,
     width: int = 3,
     year_min: int = 2014,
     min_cluster_frac: float = 0.012,
@@ -76,13 +78,7 @@ def build(
 
     conn = store.connect()
     try:
-        if not run_id:
-            row = conn.execute(
-                "SELECT run_id FROM runs WHERE kind='project' AND model=? "
-                "ORDER BY created_at DESC LIMIT 1", (model_key,)).fetchone()
-            if not row:
-                raise RuntimeError("투영 결과가 없다.")
-            run_id = row[0]
+        run_id = resolve_map(conn, run_id, corpus, model_key)
 
         rows = conn.execute(
             "SELECT w.id, w.year, w.title, w.abstract "
@@ -243,6 +239,7 @@ def build(
                          "min_weight": MIN_WEIGHT,
                          "windows": [list(w) for w in wins]}),
              len(flows), datetime.now(timezone.utc).replace(tzinfo=None)))
+        store.inherit_corpus(conn, run_id)
         conn.commit()
 
         n_cite = sum(1 for f in flows if f[6] > 0)

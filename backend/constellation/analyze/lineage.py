@@ -28,6 +28,7 @@ from typing import Callable
 import numpy as np
 
 from ..db import store
+from ..db.scope import resolve_map
 
 Progress = Callable[[str], None]
 NEG_INF = -1e30
@@ -36,18 +37,13 @@ NEG_INF = -1e30
 def build(
     *,
     run_id: str | None = None,
+    corpus: str | None = None,
     model_key: str = "scincl",
     log: Progress = print,
 ) -> dict:
     conn = store.connect()
     try:
-        if not run_id:
-            row = conn.execute(
-                "SELECT run_id FROM runs WHERE kind='project' AND model=? "
-                "ORDER BY created_at DESC LIMIT 1", (model_key,)).fetchone()
-            if not row:
-                raise RuntimeError("투영 결과가 없다.")
-            run_id = row[0]
+        run_id = resolve_map(conn, run_id, corpus, model_key)
 
         works = conn.execute(
             "SELECT w.id, w.year FROM projections p JOIN works w ON w.id = p.work_id "
@@ -142,6 +138,7 @@ def build(
                          "same_year_dropped": same_year,
                          "main_path_len": len(path)}),
              len(edges), datetime.now(timezone.utc).replace(tzinfo=None)))
+        store.inherit_corpus(conn, run_id)
         conn.commit()
 
         titles = {w: t for w, t in conn.execute(

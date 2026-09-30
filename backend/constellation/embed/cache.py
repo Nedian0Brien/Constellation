@@ -21,14 +21,19 @@ EMB_DIR = DATA / "embeddings"
 
 
 class EmbeddingStore:
-    def __init__(self, model_key: str) -> None:
+    def __init__(self, model_key: str, directory: Path | None = None) -> None:
         self.model_key = model_key
-        self.dir = EMB_DIR / model_key
+        self.dir = directory or EMB_DIR / model_key
         self.vec_path = self.dir / "vectors.npy"
         self.idx_path = self.dir / "index.parquet"
         self.vectors: np.ndarray | None = None
         self.row_of: dict[str, int] = {}      # text_hash -> row
         self._load()
+
+    @classmethod
+    def at(cls, directory: Path, model_key: str) -> "EmbeddingStore":
+        """기본 위치(DATA/embeddings) 밖의 캐시를 연다. 이전 작업에 쓴다."""
+        return cls(model_key, directory)
 
     def _load(self) -> None:
         if self.vec_path.exists() and self.idx_path.exists():

@@ -17,6 +17,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
 } from "./ui/select";
 import { AppSidebar, viewNames } from "./AppSidebar";
 import { AgentSidebar } from "./AgentSidebar";
@@ -27,7 +28,7 @@ import { StageSearch } from "./StageSearch";
 import { YearRange } from "./YearRange";
 import { PaperListOverlay } from "./PaperListOverlay";
 import { DataState } from "./DataState";
-import { chooseDatabase, desktop, fetchDbStatus } from "../api";
+import { chooseDatabase, desktop, fetchDbStatus, type RunInfo } from "../api";
 import { useAnalysis } from "../hooks/use-analysis";
 import { useExploration } from "../hooks/use-exploration";
 import { usePersistentLayout } from "../hooks/use-persistent-layout";
@@ -84,6 +85,16 @@ function NavToggle() {
     </Tooltip>
   );
 }
+/** 지도 목록을 코퍼스별로 묶는다. 서버가 준 순서(분석된 지도·기본 모델 먼저)를 유지한다. */
+function mapGroups(runs: RunInfo[]): [string, RunInfo[]][] {
+  const groups = new Map<string, RunInfo[]>();
+  for (const r of runs) {
+    const key = r.corpus_name ?? "코퍼스 미지정";
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  return [...groups];
+}
+
 export function AppShell() {
   const a = useAnalysis(),
     { state, update } = useExploration();
@@ -236,20 +247,33 @@ export function AppShell() {
                   if (run) update({ run });
                 }}
               >
-                <SelectTrigger aria-label="임베딩 모델">
+                <SelectTrigger aria-label="지도" className="map-select">
                   <SelectValue>
-                    {a.runs.data?.find((r) => r.run_id === a.run)?.model ??
-                      (state.run ? "알 수 없는 분석" : "모델 선택")}
+                    {a.runs.data?.find((r) => r.run_id === a.run)?.name ??
+                      (state.run ? "알 수 없는 지도" : "지도 선택")}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {a.runs.data?.map((r) => (
-                      <SelectItem key={r.run_id} value={r.run_id}>
-                        {r.model ?? r.run_id}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
+                {/* 항목에 편수·분석 상태가 붙어 트리거보다 넓다. 트리거 폭을 최소로 두고
+                    오른쪽 끝을 맞춘다. */}
+                <SelectContent
+                  align="end"
+                  alignItemWithTrigger={false}
+                  className="w-auto min-w-(--anchor-width)"
+                >
+                  {mapGroups(a.runs.data ?? []).map(([corpus, maps]) => (
+                    <SelectGroup key={corpus}>
+                      <SelectLabel>{corpus}</SelectLabel>
+                      {maps.map((r) => (
+                        <SelectItem key={r.run_id} value={r.run_id}>
+                          {r.name}
+                          <span className="map-select-meta">
+                            {r.n_items.toLocaleString()}편
+                            {r.analyzed ? "" : " · 분석 없음"}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
                 </SelectContent>
               </Select>
               <NavToggle />

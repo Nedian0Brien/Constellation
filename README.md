@@ -87,48 +87,54 @@ Windows에서는 Python 경로를 `.venv/Scripts/python.exe`, CLI 경로를 `.ve
 
 ## 수집과 분석
 
-새 코퍼스는 OpenAlex API 키를 `.env.example`을 참고해 설정한 뒤 수집한다. 임베딩 단계는 별도의 모델 의존성과 실행 장치가 필요하다.
+분석 DB(`data/constellation.duckdb`) 하나에 코퍼스를 여러 개 둔다. 논문·인용·임베딩 캐시는 코퍼스끼리 공유하고, 어느 논문이 어느 코퍼스에 속하는지는 `corpus_works`가 정한다. 지도는 코퍼스 하나를 임베딩 모델 하나로 투영한 결과이고, 앱 헤더의 지도 선택기로 오간다.
+
+새 코퍼스는 OpenAlex API 키를 `.env.example`을 참고해 설정한 뒤 수집한다. `collect`는 쿼리 세트 이름과 같은 id의 코퍼스를 만든다(`--corpus`로 바꿀 수 있다). 코퍼스가 둘 이상이면 이후 명령은 `--corpus`로 대상을 받는다. 임베딩 단계는 별도의 모델 의존성과 실행 장치가 필요하다.
 
 ```sh
 .venv/bin/constellation sets
 .venv/bin/constellation collect --set rag-ir
-.venv/bin/constellation stats
-.venv/bin/constellation backfill
+.venv/bin/constellation corpus list
+.venv/bin/constellation stats --corpus rag-ir
+.venv/bin/constellation backfill --corpus rag-ir
 uv pip install --python .venv/bin/python -e '.[embed]'
-.venv/bin/constellation embed --model scincl --batch 128
-.venv/bin/constellation project --model scincl
-.venv/bin/constellation cluster
-.venv/bin/constellation hierarchy
-.venv/bin/constellation flow
-.venv/bin/constellation lineage
+.venv/bin/constellation embed --model scincl --batch 128        # works 전체. 캐시에 있는 논문은 건너뛴다
+.venv/bin/constellation project --corpus rag-ir --model scincl
+.venv/bin/constellation cluster --corpus rag-ir
+.venv/bin/constellation hierarchy --corpus rag-ir
+.venv/bin/constellation name --corpus rag-ir
+.venv/bin/constellation flow --corpus rag-ir
+.venv/bin/constellation lineage --corpus rag-ir
 ```
+
+`cluster`부터 `lineage`까지는 그 코퍼스·모델의 최신 지도에 작업한다. 특정 지도를 고르려면 `--map <run_id>`를 쓴다. 투영 모델은 `data/models/<코퍼스>/<모델>/`에 저장한다.
 
 API 조회에는 GPU가 필요 없다. 재수집·임베딩·분석은 명시적으로 실행하며 기존 데이터를 자동 변경하지 않는다. Scopus 어댑터는 후속 작업이다.
 
-임베딩은 CUDA, Apple GPU(MPS), CPU 순으로 장치를 고른다.
+임베딩은 CUDA, Apple GPU(MPS), CPU 순으로 장치를 고른다. MPS가 지원하지 않는 연산이 있으면 `PYTORCH_ENABLE_MPS_FALLBACK=1`로 CPU에 넘긴다.
 
-### 코퍼스를 하나 더 만들기
-
-파이프라인의 각 단계는 DB 전체를 읽는다. 다른 분야 코퍼스는 데이터 폴더를 따로 두어야 기존 지도와 섞이지 않는다. 피지컬 AI 코퍼스([결과](docs/PHYSICAL-AI-RESULTS.md))는 이렇게 만들었다.
+피지컬 AI 코퍼스([결과](docs/PHYSICAL-AI-RESULTS.md))는 쿼리 세트 두 개를 한 코퍼스로 모았다.
 
 ```sh
-export CONSTELLATION_DATA_DIR=data/physical-ai     # 명령마다 같은 폴더. .env에는 넣지 않는다
-export PYTORCH_ENABLE_MPS_FALLBACK=1              # MPS가 지원하지 않는 연산은 CPU로
-.venv/bin/constellation collect --set physical-ai            # 로봇·체화 AI, 연 800편
-.venv/bin/constellation collect --set physical-ai-driving    # 자율주행, 연 400편
-.venv/bin/constellation backfill --max 1500
-.venv/bin/constellation enrich
-.venv/bin/constellation embed --model scincl --batch 128
-.venv/bin/constellation project --model scincl
-.venv/bin/constellation cluster
-.venv/bin/constellation hierarchy
-.venv/bin/constellation name
-.venv/bin/constellation flow
-.venv/bin/constellation lineage
-cargo run -p constellation-serve -- --db data/physical-ai/constellation.duckdb --port 8003
+.venv/bin/constellation collect --set physical-ai                                 # 로봇·체화 AI, 연 800편
+.venv/bin/constellation collect --set physical-ai-driving --corpus physical-ai    # 자율주행, 연 400편
+.venv/bin/constellation backfill --corpus physical-ai --max 1500
+.venv/bin/constellation enrich --corpus physical-ai
 ```
 
-데스크톱 앱에서는 **데이터베이스 열기**로 `data/physical-ai/constellation.duckdb`를 고른다.
+### 코퍼스 도입 전 DB 옮기기
+
+코퍼스 구조 이전의 DB는 코퍼스 정보가 없다. 앱은 그런 DB도 열지만 지도 이름에 "코퍼스 미지정"이 붙는다. 기존 DB를 코퍼스로 배정하고, 따로 만든 DB를 합친다. 두 명령 모두 다시 실행해도 결과가 같고, 분석 결과(좌표·클러스터·이름)는 다시 계산하지 않고 그대로 옮긴다.
+
+DuckDB는 쓰는 연결이 있으면 다른 연결을 받지 않는다. 먼저 데스크톱 앱과 이 DB를 연 `constellation-serve`를 모두 종료한다. `adopt`를 `import`보다 먼저 실행한다.
+
+```sh
+cp data/constellation.duckdb data/constellation.duckdb.bak-$(date +%Y%m%d)
+.venv/bin/constellation corpus adopt --id rag-ir --name "RAG/IR"
+.venv/bin/constellation corpus import data/physical-ai/constellation.duckdb --id physical-ai --name "Physical AI"
+```
+
+`import`는 옆의 `embeddings/`·`models/`도 함께 옮긴다. 같은 논문이 두 DB에 있으면 초록이 있는 쪽, 둘 다 같으면 나중에 수집한 쪽을 남긴다.
 
 ## 검증
 

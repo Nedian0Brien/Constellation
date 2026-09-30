@@ -1,9 +1,12 @@
 import { test, expect } from "@playwright/test";
 const run = "project-scincl-20260826T084511Z";
+// DB에 코퍼스가 여럿이면 run 없이 열 때 가장 최근에 분석한 지도가 뜬다. 아래 검사는
+// RAG/IR 코퍼스(10,604편)를 전제로 하므로 그 지도를 명시해서 연다.
+const home = (query = "") => "/?run=" + run + (query ? "&" + query : "");
 test("real corpus: map, list, selection, history, reload and panels", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto(home());
   const map = page.getByTestId("research-map");
   await expect(map).toBeVisible();
   await expect(page.locator(".workspace-status")).toContainText("10,604");
@@ -80,7 +83,7 @@ test("query filters, empty results, sort, paging and scoped IDs", async ({
   page,
   request,
 }) => {
-  await page.goto("/");
+  await page.goto(home());
   await expect(page.getByTestId("research-map")).toBeVisible();
   await page
     .getByRole("textbox", { name: "논문 검색", exact: true })
@@ -115,7 +118,7 @@ test("query filters, empty results, sort, paging and scoped IDs", async ({
 test("analysis views and missing artifacts in a different model", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto(home());
   await expect(page.getByTestId("research-map")).toBeVisible();
   for (const [name, selector] of [
     ["갈래 흐름", ".flow-wrap"],
@@ -128,8 +131,8 @@ test("analysis views and missing artifacts in a different model", async ({
     ).toBeVisible();
   }
   await page.getByRole("button", { name: "갈래 흐름", exact: true }).click();
-  await page.getByRole("combobox", { name: "임베딩 모델" }).click();
-  await page.getByRole("option", { name: "specter", exact: true }).click();
+  await page.getByRole("combobox", { name: "지도", exact: true }).click();
+  await page.getByRole("option", { name: /· specter\b/ }).click();
   await expect(page.locator(".analysis-stage")).toContainText(
     "결과가 없습니다",
   );
@@ -147,7 +150,7 @@ type Bridged = HTMLElement & { __map?: Bridge };
 test("semantic zoom, reversibility, and list does not replace the map", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto(home());
   const map = page.getByTestId("research-map");
   await expect(map).toHaveAttribute("data-label-level", "field");
   await map.focus();
@@ -317,7 +320,7 @@ test("semantic zoom, reversibility, and list does not replace the map", async ({
 });
 test("mobile overlays and no horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto(home());
   await expect(page.getByTestId("research-map")).toBeVisible();
   expect(
     await page.evaluate(
@@ -353,7 +356,7 @@ test("failed request can recover without resetting URL state", async ({
         })
       : route.continue(),
   );
-  await page.goto("/?q=retrieval");
+  await page.goto(home("q=retrieval"));
   await expect(page.getByText("테스트 연결 오류")).toBeVisible();
   failed = false;
   await page.getByRole("button", { name: "다시 시도", exact: true }).click();
@@ -372,19 +375,19 @@ test("late old-model response cannot overwrite the active run", async ({
       await route.fulfill({ response }).catch(() => {});
     } else await route.continue();
   });
-  await page.goto("/");
+  await page.goto(home());
   await expect(page.getByTestId("research-map")).toBeVisible();
-  await page.getByRole("combobox", { name: "임베딩 모델" }).click();
-  await page.getByRole("option", { name: "bge-m3", exact: true }).click();
-  await page.getByRole("combobox", { name: "임베딩 모델" }).click();
-  await page.getByRole("option", { name: "specter", exact: true }).click();
+  await page.getByRole("combobox", { name: "지도", exact: true }).click();
+  await page.getByRole("option", { name: /· bge-m3\b/ }).click();
+  await page.getByRole("combobox", { name: "지도", exact: true }).click();
+  await page.getByRole("option", { name: /· specter\b/ }).click();
   await expect(page.getByTestId("research-map")).toBeVisible();
   await expect(page).toHaveURL(new RegExp(fast));
   await expect(page.locator(".workspace-status")).toContainText("specter");
   await page.waitForTimeout(850);
   await expect(page.locator(".workspace-status")).toContainText("specter");
   await expect(
-    page.getByRole("combobox", { name: "임베딩 모델" }),
+    page.getByRole("combobox", { name: "지도", exact: true }),
   ).toContainText("specter");
 });
 test("unknown selection and malformed persisted layout remain recoverable", async ({
@@ -393,7 +396,7 @@ test("unknown selection and malformed persisted layout remain recoverable", asyn
   await page.addInitScript(() =>
     localStorage.setItem("constellation.layout.v3", "{broken"),
   );
-  await page.goto("/?node=999999&page=-5&view=bad");
+  await page.goto(home("node=999999&page=-5&view=bad"));
   await expect(page.getByTestId("research-map")).toBeVisible();
   await expect(page.locator(".invalid-region")).toBeVisible();
   await page
@@ -417,7 +420,7 @@ test("unknown selection and malformed persisted layout remain recoverable", asyn
 test("wheel over a region name zooms the map and the name still opens the region", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto(home());
   const map = page.getByTestId("research-map");
   await expect(map).toHaveAttribute("data-label-level", "field");
   const zoomOf = async () =>
@@ -446,7 +449,7 @@ test("wheel over a region name zooms the map and the name still opens the region
 test("drag over a region name pans the map without opening the region", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto(home());
   const map = page.getByTestId("research-map");
   await expect(map).toHaveAttribute("data-label-level", "field");
   const targetOf = async () =>
@@ -485,7 +488,7 @@ test("explicit region selection replaces paper detail with the real cluster", as
   const clusters = await (
     await request.get("/api/clusters", { params: { run } })
   ).json();
-  await page.goto("/");
+  await page.goto(home());
   await expect(page.getByTestId("research-map")).toBeVisible();
   await page
     .getByRole("button", { name: "논문 목록 열기", exact: true })
@@ -544,7 +547,7 @@ test("agent chat: canned stream renders, runs a frontend tool, and survives relo
       ].join("\n"),
     }),
   );
-  await page.goto("/");
+  await page.goto(home());
   const map = page.getByTestId("research-map");
   await expect(map).toBeVisible();
   const before = await map.getAttribute("data-camera");
@@ -575,7 +578,7 @@ test("year playhead runs between the thumbs and leaves the range alone", async (
   page,
 }) => {
   // 속도는 축 비례(전체 축 20초)라 넓은 구간을 잡아야 일시정지를 끼워 넣을 틈이 있다.
-  await page.goto("/?from=1995&to=2020");
+  await page.goto(home("from=1995&to=2020"));
   const range = page.getByTestId("year-range");
   await expect(range).toHaveAttribute("data-to", "2020");
   await expect(page.locator(".workspace-status")).toContainText("10,604");

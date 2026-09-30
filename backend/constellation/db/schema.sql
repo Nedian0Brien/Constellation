@@ -210,3 +210,29 @@ CREATE TABLE IF NOT EXISTS citation_spc (
 
 CREATE INDEX IF NOT EXISTS idx_spc_cited  ON citation_spc (run_id, cited_id);
 CREATE INDEX IF NOT EXISTS idx_spc_citing ON citation_spc (run_id, citing_id);
+
+-- ── 코퍼스와 지도 ───────────────────────────────────────────
+-- DB 하나에 코퍼스를 여러 개 둔다. works·citations 같은 원천 데이터는
+-- 코퍼스끼리 공유하고, 어느 논문이 어느 코퍼스에 속하는지는 corpus_works가
+-- 정한다. 지도는 코퍼스 하나를 모델 하나로 투영한 project run이다.
+
+CREATE TABLE IF NOT EXISTS corpora (
+    id              TEXT PRIMARY KEY,   -- ASCII kebab-case, 예: 'rag-ir'
+    name            TEXT NOT NULL,      -- 표시 이름, 예: 'RAG/IR'
+    definition_json TEXT,               -- 수집 정의(쿼리 세트 등)
+    created_at      TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS corpus_works (
+    corpus_id  TEXT NOT NULL,
+    work_id    TEXT NOT NULL,
+    via        TEXT NOT NULL,           -- collect | backfill | import | adopt
+    added_at   TIMESTAMP NOT NULL,
+    PRIMARY KEY (corpus_id, work_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cw_work ON corpus_works (work_id);
+
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS corpus_id TEXT;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS corpus_id TEXT;
