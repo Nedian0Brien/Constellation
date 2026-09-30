@@ -52,7 +52,17 @@ def adopt(
     data_dir: Path = DATA,
     log: Progress = print,
 ) -> dict[str, int]:
-    """소속 없는 논문과 코퍼스 없는 run·수집 이력을 corpus에 배정한다."""
+    """소속 없는 논문과 코퍼스 없는 run·수집 이력을 corpus에 배정한다.
+
+    import 보다 먼저 실행한다. import 가 먼저 들어오면 두 DB에 같이 있던 논문은
+    이미 그 코퍼스 소속이라 여기서 배정되지 않는다.
+    """
+    others = [r[0] for r in conn.execute(
+        "SELECT id FROM corpora WHERE id <> ?", (corpus,)).fetchall()]
+    if others:
+        log("[경고] 다른 코퍼스(%s)가 이미 있다. 그 코퍼스에 속한 논문은 %s에 "
+            "배정되지 않는다 — adopt는 import보다 먼저 돌린다."
+            % (", ".join(others), corpus))
     store.ensure_corpus(conn, corpus, name, {"kind": "adopted"})
     orphans = [r[0] for r in conn.execute(
         "SELECT w.id FROM works w WHERE NOT EXISTS "

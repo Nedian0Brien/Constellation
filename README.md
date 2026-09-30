@@ -126,6 +126,8 @@ API 조회에는 GPU가 필요 없다. 재수집·임베딩·분석은 명시적
 
 코퍼스 구조 이전의 DB는 코퍼스 정보가 없다. 앱은 그런 DB도 열지만 지도 이름에 "코퍼스 미지정"이 붙는다. 기존 DB를 코퍼스로 배정하고, 따로 만든 DB를 합친다. 두 명령 모두 다시 실행해도 결과가 같고, 분석 결과(좌표·클러스터·이름)는 다시 계산하지 않고 그대로 옮긴다.
 
+DuckDB는 쓰는 연결이 있으면 다른 연결을 받지 않는다. 먼저 데스크톱 앱과 이 DB를 연 `constellation-serve`를 모두 종료한다. `adopt`를 `import`보다 먼저 실행한다.
+
 ```sh
 cp data/constellation.duckdb data/constellation.duckdb.bak-$(date +%Y%m%d)
 .venv/bin/constellation corpus adopt --id rag-ir --name "RAG/IR"
