@@ -487,7 +487,8 @@ def _definition(path: str):
     try:
         return parse(json.loads(Path(path).expanduser().read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError, DefinitionError) as e:
-        console.print("[red]정의를 읽지 못했다:[/] %s" % e)
+        # 앱 실행기는 종료 코드 2를 422로 바꾸고 표준 오류를 그대로 보여 준다.
+        sys.stderr.write("%s\n" % e)
         raise typer.Exit(2)
 
 
@@ -502,6 +503,8 @@ def build(
     definition: str = typer.Option(..., "--definition", "-d", help="지도 정의 JSON 파일"),
     events: bool = typer.Option(False, "--events",
                                 help="진행 상황을 표준 출력에 JSON 줄로 쓴다(앱 작업 실행기용)"),
+    check: bool = typer.Option(False, "--check",
+                               help="정의만 검증하고 정규화한 정의를 JSON으로 쓴다"),
 ) -> None:
     """정의 하나로 collect부터 lineage까지 실행해 새 지도를 만든다."""
     import json
@@ -511,6 +514,9 @@ def build(
     from . import pipeline
 
     defn = _definition(definition)
+    if check:
+        _json_out(defn.to_json())
+        return
     if events:
         # 이벤트만 표준 출력으로 낸다. 나머지 출력(print, 진행 막대, 라이브러리
         # 경고)은 표준 오류로 돌려 이벤트 줄이 섞이지 않게 한다.

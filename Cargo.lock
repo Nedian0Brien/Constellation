@@ -764,6 +764,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "constellation-jobs"
+version = "0.1.0"
+dependencies = [
+ "constellation-core",
+ "duckdb",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "constellation-serve"
 version = "0.1.0"
 dependencies = [
