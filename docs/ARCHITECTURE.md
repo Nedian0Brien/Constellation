@@ -225,3 +225,21 @@ frontend/src/components/assistant-ui/  # @acf 레지스트리 설치본 (NOTE(co
 - `GET /api/citations?run=&id=&direction=&limit=` / Tauri `citations` — `queries::citations`. `citations` 테이블에서 코퍼스 안 논문만 피인용 순으로 `limit`개(1–500, 기본 20). 총계는 limit·방향과 무관하다. 논문 id에 `/`가 올 수 있어 `/works/{*work_id}` 아래가 아니라 쿼리로 받는다.
 - 도구 `get_citations`(주제 라벨 결합), `get_lineage`(`/lineage`의 엣지 `from`=피인용·`to`=인용을 씨앗 기준 `cites`/`cited_by`로), `compare_papers`(논문마다 `fetchWork` + 참고문헌 500개를 받아 집합 안 인용 쌍을 만들고, 투영 좌표 유클리드 거리와 지도 대각선 `map_span`을 함께 준다). 모델이 `W123`으로 부르면 `openalex:W123`으로 맞춘다(`paperId`).
 - 서버는 내장 도구 중 `WebSearch`·`WebFetch`만 연다(`tools`·`allowedTools`). 둘은 `claude` 프로세스 안에서 돌고 결과는 브리지가 `setResponse`로 돌려준다(중계 도구와 달리 서버가 결과를 보낸다). 프롬프트가 OpenAlex API(`openalex:` 접두사 제거)와 DOI 리다이렉트 처리를 안내한다.
+
+## 새 지도 만들기 — 2026-10-06
+
+앱이 Python 파이프라인을 실행해 새 지도를 만든다(연구 도구 기획 로드맵 2단계, `.intent/*_new-map.md`).
+
+```
+backend/constellation/ingest/definition.py   # 지도 정의(terms·topics·seeds) 검증과 수집 필터
+backend/constellation/ingest/seeds.py        # 시드 DOI → 참고문헌·피인용 한 단계 확장
+backend/constellation/pipeline.py            # build(): 10단계 실행, JSON 이벤트, estimate, 토픽 검색
+crates/constellation-jobs/                   # 작업 실행기. serve와 Tauri가 같이 쓴다
+```
+
+- **역할 분담.** OpenAlex 호출(예상 편수, 토픽 검색, 수집)은 모두 Python이 한다. 예상 편수와 실제 수집이 같은 필터 함수를 써야 하기 때문이다. Rust 실행기는 `constellation build --events`를 자식 프로세스로 띄우고 표준 출력의 JSON 이벤트(`stage`·`progress`·`log`·`corpus`·`done`·`error`)로 상태를 갱신한다. `--events` 모드에서 Python은 다른 출력을 모두 표준 오류로 보낸다.
+- **잠금.** `constellation_core::Gate`를 조회(`Database`)와 실행기가 공유한다. 실행기가 Gate를 닫으면 `connect()`가 DB를 열지 않고 503을 돌려준다. 닫기 전에 열린 연결이 0이 되기를 5초까지 기다린다. 파이프라인 단계마다 쓰기 연결을 열기 때문에 작업 전체 동안 닫는다. Gate는 작업 스레드의 drop 가드가 연다.
+- **정리.** 코퍼스는 `corpora.status = 'building'`으로 시작한다. `queries::runs`는 building 코퍼스의 지도를 뺀다. 실패·취소하면 실행기가 `corpus drop --only-building`을 실행한다. 이 명령은 소속, run과 run 산출물, 수집 이력, `models/<코퍼스>/`를 지우고, 공유하는 `works`·`citations`·임베딩 캐시는 남긴다.
+- **프로세스 수명.** 파이프라인은 자기 프로세스 그룹에서 띄운다. 취소하면 그룹에 SIGTERM을 보내고(Python은 `SystemExit`으로 받아 연결을 닫는다), 10초 뒤에는 SIGKILL을 보낸다. 상태 파일에 pid를 남긴다. 앱·서버가 시작할 때 `running`으로 남은 작업이 있으면, 그 pid의 명령줄이 파이프라인인지 확인하고 종료시킨 뒤 실패로 바꾼다.
+- **코퍼스 단위 임베딩.** `embed_corpus(work_ids=…)`는 새 코퍼스 논문만 계산하고, 모델별 `works.parquet`에는 기존 행을 남긴 채 그 논문의 행만 합친다.
+- **API.** serve는 `POST /api/maps/estimate`, `GET /api/openalex/topics?q=`, `GET|POST /api/jobs`, `GET /api/jobs/{id}`, `GET /api/jobs/{id}/log`, `POST /api/jobs/{id}/cancel`을 제공한다. Tauri는 `estimate_map`·`search_topics`·`create_map`(Python을 기다리므로 async)·`jobs`·`job`·`job_log`·`cancel_job`을 제공한다.

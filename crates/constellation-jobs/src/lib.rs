@@ -100,6 +100,9 @@ impl Runner {
             .env("PYTORCH_ENABLE_MPS_FALLBACK", "1")
             .env("PYTHONUNBUFFERED", "1")
             .env("PATH", cli_path())
+            // 로그 파일에 rich의 색 코드가 섞이지 않게 한다.
+            .env("NO_COLOR", "1")
+            .env("TERM", "dumb")
             .stdin(Stdio::null());
         Ok(cmd)
     }
@@ -412,7 +415,7 @@ impl Runner {
         if self.cancelled(&id) {
             job.status = Status::Cancelled;
             job.error = None;
-            store.append_log(&id, "[취소] 사용자가 작업을 취소했다");
+            store.append_log(&id, "[취소] 작업을 취소했다");
         } else if ok {
             job.status = Status::Succeeded;
         } else {

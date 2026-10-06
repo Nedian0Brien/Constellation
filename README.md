@@ -122,6 +122,42 @@ API 조회에는 GPU가 필요 없다. 재수집·임베딩·분석은 명시적
 .venv/bin/constellation enrich --corpus physical-ai
 ```
 
+### 정의 하나로 새 지도 만들기
+
+`build`는 지도 정의(JSON) 하나로 collect → backfill → enrich → embed → project → cluster → hierarchy → name → flow → lineage를 차례로 실행한다. 앱의 새 지도 만들기도 같은 명령을 부른다. 정의는 코퍼스의 `definition_json`에 남는다.
+
+```sh
+.venv/bin/constellation build -d gnn.json            # 실행
+.venv/bin/constellation build -d gnn.json --check    # 검증만, 정규화한 정의를 출력
+.venv/bin/constellation estimate -d gnn.json         # 예상 편수(OpenAlex count)
+.venv/bin/constellation topics "robot learning"      # 토픽·서브필드·필드 id 찾기
+.venv/bin/constellation corpus drop --id gnn --only-building   # 만들다 만 코퍼스 지우기
+```
+
+정의는 세 종류다. 공통 필드는 `name`(코퍼스 이름)과 `model`(기본 `scincl`)이다.
+
+- `{"kind": "terms", "terms": [...], "year_from", "year_to", "per_year"}`: 제목·초록 구절 검색(OR), 연도마다 피인용 상위 `per_year`편.
+- `{"kind": "topics", "topics": ["T10181" | "subfields/1702" | "fields/17", ...], "year_from", "year_to", "per_year"}`: OpenAlex 대표 토픽 기준. 한 수준만 고른다.
+- `{"kind": "seeds", "dois": [...], "limit": 3000}`: 시드의 참고문헌과 시드를 인용한 논문 가운데 피인용 상위 `limit`편(100–10000).
+
+새 코퍼스는 `building` 상태로 만들어지고 모든 단계가 끝나야 `ready`가 된다. 앱의 지도 목록은 `building` 코퍼스를 보이지 않는다. 이름 짓기(`codex` CLI)가 실패하면 c-TF-IDF 라벨을 그대로 두고 끝까지 간다.
+
+앱(데스크톱·브라우저 모드)에서는 작업 실행기가 이 명령을 띄운다.
+- 작업 하나만 실행할 수 있다.
+- 실행하는 동안 지도·논문 조회는 503("새 지도를 만드는 중")을 돌려준다.
+- 상태와 로그는 분석 DB 옆 `jobs/`에 남는다. 최근 20개를 보관한다.
+- 실패하거나 취소한 작업의 코퍼스는 지운다. 앱을 끄면 실행 중인 작업을 취소하고, 다음 실행 때 남은 작업을 정리한다.
+- 데스크톱 앱은 빌드한 저장소의 `.venv/bin/constellation`을 부른다. 다른 경로는 `settings.json`의 `pipeline_path`로 지정한다.
+- `constellation-serve`는 `--pipeline`(기본 `.venv/bin/constellation`)으로 지정한다.
+
+```sh
+curl -X POST localhost:8000/api/maps/estimate -H 'content-type: application/json' -d @gnn.json
+curl -X POST localhost:8000/api/jobs -H 'content-type: application/json' -d @gnn.json   # 202, 작업
+curl localhost:8000/api/jobs/<id>          # status·stage·progress·error·map_id
+curl localhost:8000/api/jobs/<id>/log      # 마지막 500줄
+curl -X POST localhost:8000/api/jobs/<id>/cancel
+```
+
 ### 코퍼스 도입 전 DB 옮기기
 
 코퍼스 구조 이전의 DB는 코퍼스 정보가 없다. 앱은 그런 DB도 열지만 지도 이름에 "코퍼스 미지정"이 붙는다. 기존 DB를 코퍼스로 배정하고, 따로 만든 DB를 합친다. 두 명령 모두 다시 실행해도 결과가 같고, 분석 결과(좌표·클러스터·이름)는 다시 계산하지 않고 그대로 옮긴다.

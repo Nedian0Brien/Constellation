@@ -78,3 +78,15 @@ npm --prefix frontend run test:e2e
 ```
 
 실데이터 검증은 9단계의 serve 위에서 `curl`로 작업을 제출하고 `GET /api/jobs/{id}`로 상태를 확인한다. 브라우저 확인은 Browser pane으로 한다.
+
+## 검증 결과 (2026-10-06)
+
+- Python `unittest` 39개, `cargo test --workspace` 25개(core 14, jobs 9, Tauri 2), vitest 56개, `npm run build` 통과. Playwright E2E 13/13(워크트리 serve, 실제 DB 조회 전용).
+- 스크래치 데이터(`data/` 복사본) 위의 serve(8012)에서:
+  - terms "Graph Neural Networks" 2020–2024 × 300편: 예상 1,500편 → 10단계 성공(3분 23초). backfill 후 3,047편, 클러스터 18개. 실행 중 `/api/map` 503, `/api/health` `ok:false`. 이 기계의 `~/.local/bin/codex`가 사라진 경로를 가리켜 이름 짓기를 건너뛰었다(`naming: ctfidf`). 이 결과로 codex → claude 순서와 PATH 보강을 더했다.
+  - seeds(ResNet·AlexNet·AlphaGo DOI, `limit` 1500): 시드 3편 해석, 후보 3,971편 중 1,500편 → 2,911편, 클러스터 29개, claude로 이름 57개(`naming: llm`). 브라우저에서 다섯 뷰가 열린다.
+  - backfill 중 취소: `cancelled`, 코퍼스·소속 1,992편·`models/cancel-test` 삭제, 남은 프로세스 없음.
+  - serve 정상 종료(SIGTERM): 실행 중 작업이 `cancelled`로 끝나고 정리된다.
+  - serve 강제 종료(SIGKILL) 뒤 재시작: 남은 파이프라인 프로세스를 끝내고 `failed`("앱이 종료되어 중단됨")로 바꾼 뒤 코퍼스를 지운다.
+  - 수준을 섞은 topics 정의는 422, 토픽 검색은 `/topics` 결과를 경로와 함께 돌려준다.
+- 남은 한계: 작업 중 열려 있던 화면은 작업이 끝난 뒤 새로고침해야 갱신된다. 작업 진행 표시와 조회 재시도는 3번 intent(사이드바 개편) 화면에서 다룬다.
