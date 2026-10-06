@@ -146,6 +146,11 @@ impl Runner {
         self.run_json(&["topics", q])
     }
 
+    /// 실행 중이거나 제출을 검증하는 중인 작업이 있는지.
+    pub fn busy(&self) -> bool {
+        self.inner.current.lock().unwrap().is_some()
+    }
+
     pub fn jobs(&self) -> Vec<Job> {
         self.store().list()
     }

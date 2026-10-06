@@ -31,6 +31,16 @@ fn invoke(
     .map(|b| b.deserialize::<Value>().unwrap())
 }
 
+/// `generate_context!`는 크레이트에서 한 번만 쓸 수 있어 여기 모은다.
+fn mock_app(
+    db: std::path::PathBuf,
+    pipeline: Option<std::path::PathBuf>,
+) -> tauri::App<tauri::test::MockRuntime> {
+    constellation_app::configure(mock_builder(), Some(db), pipeline)
+        .build(tauri::generate_context!())
+        .expect("앱 빌드")
+}
+
 #[test]
 fn commands_accept_frontend_argument_shapes() {
     let dir = tempfile::tempdir().unwrap();
@@ -52,9 +62,7 @@ fn commands_accept_frontend_argument_shapes() {
     .unwrap();
     drop(conn);
 
-    let app = constellation_app::configure(mock_builder(), Some(path.clone()))
-        .build(tauri::generate_context!())
-        .expect("앱 빌드");
+    let app = mock_app(path.clone(), None);
     let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();
@@ -133,4 +141,53 @@ fn commands_accept_frontend_argument_shapes() {
     assert_eq!(err["message"], "검색어는 두 글자 이상 입력해주세요.");
     let err = invoke(&webview, "work", json!({ "id": "9", "run": "a" })).unwrap_err();
     assert_eq!(err["status"], 404);
+}
+
+/// 새 지도 만들기 명령. 파이프라인은 실행기 테스트의 가짜 CLI를 쓴다.
+#[test]
+fn job_commands_accept_frontend_argument_shapes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.duckdb");
+    Connection::open(&path).unwrap().execute_batch(SCHEMA).unwrap();
+    let fake = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../crates/constellation-jobs/tests/fake-pipeline.sh");
+    let app = mock_app(path, Some(fake));
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+
+    // api.ts 의 estimateMap · searchTopics · createMap 이 보내는 모양.
+    let definition = json!({ "kind": "terms", "name": "x", "mode": "ok" });
+    let est = invoke(&webview, "estimate_map", json!({ "definition": definition })).unwrap();
+    assert_eq!(est["expected"], 123);
+    let topics = invoke(&webview, "search_topics", json!({ "q": "robot" })).unwrap();
+    assert_eq!(topics[0]["name"], "robot");
+    let err = invoke(
+        &webview,
+        "create_map",
+        json!({ "definition": { "kind": "terms", "mode": "bad" } }),
+    )
+    .unwrap_err();
+    assert_eq!(err["status"], 422);
+
+    let job = invoke(&webview, "create_map", json!({ "definition": definition })).unwrap();
+    let id = job["id"].as_str().unwrap().to_string();
+    let start = std::time::Instant::now();
+    let done = loop {
+        let j = invoke(&webview, "job", json!({ "id": id })).unwrap();
+        if j["status"] == "succeeded" || j["status"] == "failed" {
+            break j;
+        }
+        assert!(start.elapsed().as_secs() < 30, "{j}");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert_eq!(done["status"], "succeeded", "{done}");
+    assert_eq!(done["map_id"], "project-fake");
+    let jobs = invoke(&webview, "jobs", json!({})).unwrap();
+    assert_eq!(jobs[0]["id"], id.as_str());
+    let log = invoke(&webview, "job_log", json!({ "id": id })).unwrap();
+    assert!(log["lines"].as_array().unwrap().len() > 3);
+    let cancelled = invoke(&webview, "cancel_job", json!({ "id": id })).unwrap();
+    assert_eq!(cancelled["status"], "succeeded");
+    assert_eq!(invoke(&webview, "job", json!({ "id": "../x" })).unwrap_err()["status"], 404);
 }

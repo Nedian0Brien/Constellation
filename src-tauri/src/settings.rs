@@ -1,4 +1,4 @@
-//! 앱 설정. 지금은 DB 파일 경로 하나다.
+//! 앱 설정. DB 파일 경로와 파이프라인(`constellation` CLI) 경로.
 //!
 //! `<app_config_dir>/settings.json`에 직접 읽고 쓴다. 값 하나에 플러그인을
 //! 들일 이유가 없다.
@@ -12,6 +12,9 @@ use tauri::{AppHandle, Manager, Runtime};
 pub struct Settings {
     #[serde(default)]
     pub db_path: Option<PathBuf>,
+    /// 새 지도 만들기가 부르는 `constellation` CLI. 없으면 [`default_pipeline`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline_path: Option<PathBuf>,
 }
 
 fn file<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
@@ -43,4 +46,15 @@ pub fn default_db_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
         .app_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("constellation.duckdb")
+}
+
+/// 앱을 빌드한 저장소의 `.venv/bin/constellation`. 본인 전용 단계에서는 저장소에서
+/// 빌드한 앱만 쓰므로 빌드 시점 경로로 충분하다(연구 도구 기획 9절).
+pub fn default_pipeline() -> PathBuf {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    if cfg!(windows) {
+        root.join(".venv/Scripts/constellation.exe")
+    } else {
+        root.join(".venv/bin/constellation")
+    }
 }
