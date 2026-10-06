@@ -14,6 +14,7 @@ tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
 constellation-core = { path = "../crates/constellation-core" }
+constellation-jobs = { path = "../crates/constellation-jobs" }
 tauri = { version = "2.11", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"

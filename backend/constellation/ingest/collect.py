@@ -13,10 +13,19 @@ from typing import Callable
 from ..config import RAW, Settings
 from ..db import store
 from ..queries import QuerySet
+from .definition import TermsDef, TopicsDef
+
+YearlyDef = TermsDef | TopicsDef
 from ..sources.base import Topic, Work, dedupe_key
 from ..sources.openalex import OpenAlexSource
 
 Progress = Callable[[str], None]
+# 편수 진행률. (지금까지, 전체)
+Count = Callable[[int, int], None]
+
+
+def _no_count(done: int, total: int) -> None:
+    pass
 
 
 def tag_facets(w: Work, facets: dict[str, list[str]]) -> None:
@@ -35,28 +44,38 @@ def tag_facets(w: Work, facets: dict[str, list[str]]) -> None:
 
 
 async def collect(
-    qs: QuerySet,
+    qs: QuerySet | YearlyDef,
     settings: Settings,
     *,
     corpus: str | None = None,
     limit: int | None = None,
     log: Progress = print,
+    progress: Count = _no_count,
 ) -> dict[str, int]:
-    """쿼리 세트로 수집해 코퍼스에 소속시킨다. 코퍼스가 없으면 만든다.
+    """쿼리 세트나 앱의 지도 정의(terms·topics)로 수집해 코퍼스에 소속시킨다.
+    코퍼스가 없으면 만든다.
 
-    코퍼스를 생략하면 세트 이름을 코퍼스 id로 쓴다.
+    쿼리 세트는 코퍼스를 생략하면 세트 이름을 코퍼스 id로 쓴다. 지도 정의는
+    코퍼스를 파이프라인이 먼저 만들어 두고 id를 넘긴다.
     """
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    raw_dir = RAW / "openalex" / qs.name / run_id
-    corpus = corpus or qs.name
+    if isinstance(qs, QuerySet):
+        label = qs.name
+        corpus = corpus or qs.name
+    else:
+        if not corpus:
+            raise ValueError("지도 정의로 수집할 때는 코퍼스 id가 필요하다.")
+        label = corpus
+    raw_dir = RAW / "openalex" / label / run_id
     conn = store.connect()
 
     try:
-        store.ensure_corpus(conn, corpus, corpus, {
-            "kind": "query_set", "set": qs.name, "description": qs.description,
-            "terms": list(qs.terms), "year_from": qs.year_from,
-            "year_to": qs.year_to, "per_year": qs.per_year,
-            "types": list(qs.types)})
+        if isinstance(qs, QuerySet):
+            store.ensure_corpus(conn, corpus, corpus, {
+                "kind": "query_set", "set": qs.name, "description": qs.description,
+                "terms": list(qs.terms), "year_from": qs.year_from,
+                "year_to": qs.year_to, "per_year": qs.per_year,
+                "types": list(qs.types)})
         log("코퍼스: %s" % corpus)
         seen_before = store.existing_ids(conn)
         seen: set[str] = set()
@@ -65,7 +84,7 @@ async def collect(
         total_seen = 0
         budget = limit if limit is not None else qs.target
 
-        log("수집 세트: %s — %s" % (qs.name, qs.description))
+        log("수집: %s — %s" % (label, qs.description))
         log("연도 %d–%d, 연도당 %d편, 목표 %s편"
             % (qs.year_from, qs.year_to, qs.per_year, format(budget, ",")))
         log("원본 보관: %s" % raw_dir)
@@ -94,9 +113,10 @@ async def collect(
                 store.upsert_works(conn, batch)
                 store.add_members(conn, corpus, (w.id for w in batch), "collect")
                 store.record_collection(
-                    conn, run_id, corpus, qs.name, str(year), filt, "openalex",
+                    conn, run_id, corpus, label, str(year), filt, "openalex",
                     len(batch), n_new, matched,
                 )
+                progress(min(total_seen, budget), budget)
                 total_new += n_new
                 n_abs = sum(1 for w in batch if w.has_abstract)
                 log("  %d  매칭 %8s  수집 %4d  신규 %4d  초록 %3d (%.0f%%)"
@@ -111,7 +131,7 @@ async def collect(
 
 async def backfill_citations(
     settings: Settings, corpus: str, *, max_fetch: int = 2000,
-    log: Progress = print,
+    log: Progress = print, progress: Count = _no_count,
 ) -> dict[str, int]:
     """코퍼스 안 논문들이 자주 인용하는 바깥 논문을 끌어온다.
 
@@ -154,6 +174,8 @@ async def backfill_citations(
         async with OpenAlexSource(settings, raw_dir=raw_dir) as src:
             async for w in src.fetch_by_ids(ids):
                 fetched.append(w)
+                if len(fetched) % 50 == 0:
+                    progress(len(fetched), len(ids))
                 if len(fetched) % 500 == 0:
                     log("  %s편..." % format(len(fetched), ","))
 

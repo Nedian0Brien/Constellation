@@ -5,14 +5,15 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{FromRef, Path, Query, State};
 use axum::http::{HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Parser;
 use constellation_core::queries::{self, Direction, Order, PaperFilter, Sort};
 use constellation_core::{Database, Error};
+use constellation_jobs::{Job, Runner};
 use serde::Serialize;
 use tower_http::cors::CorsLayer;
 
@@ -28,6 +29,32 @@ struct Args {
     db: PathBuf,
     #[arg(long, default_value_t = 8000)]
     port: u16,
+    /// 새 지도 만들기가 부르는 `constellation` CLI
+    #[arg(
+        long,
+        env = "CONSTELLATION_PIPELINE",
+        default_value = ".venv/bin/constellation"
+    )]
+    pipeline: PathBuf,
+}
+
+/// 조회는 `Database`, 작업은 `Runner`를 받는다. 둘은 같은 Gate를 쓴다.
+#[derive(Clone)]
+struct App {
+    db: Database,
+    runner: Runner,
+}
+
+impl FromRef<App> for Database {
+    fn from_ref(app: &App) -> Self {
+        app.db.clone()
+    }
+}
+
+impl FromRef<App> for Runner {
+    fn from_ref(app: &App) -> Self {
+        app.runner.clone()
+    }
 }
 
 /// FastAPI처럼 `{"detail": message}`로 돌려준다. 프론트의 `ApiError`가 이 모양을 읽는다.
@@ -212,16 +239,99 @@ async fn health(State(db): State<Database>) -> Reply<queries::Health> {
     ok(queries::health(&db)?)
 }
 
+// ── 새 지도 만들기 ─────────────────────────────────────────
+// 실행기 호출은 Python 프로세스를 띄우고 기다리므로 blocking 스레드에서 한다.
+
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, Error> + Send + 'static,
+) -> Result<T, ApiError> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| ApiError(Error::new(500, e.to_string())))?
+        .map_err(ApiError)
+}
+
+async fn estimate_map(
+    State(runner): State<Runner>,
+    Json(definition): Json<serde_json::Value>,
+) -> Reply<serde_json::Value> {
+    ok(blocking(move || runner.estimate(&definition)).await?)
+}
+
+async fn search_topics(State(runner): State<Runner>, Query(p): Params) -> Reply<serde_json::Value> {
+    let q = required(&p, "q")?;
+    ok(blocking(move || runner.topics(&q)).await?)
+}
+
+async fn create_map(
+    State(runner): State<Runner>,
+    Json(definition): Json<serde_json::Value>,
+) -> Result<(StatusCode, Json<Job>), ApiError> {
+    let job = blocking(move || runner.submit(definition)).await?;
+    Ok((StatusCode::ACCEPTED, Json(job)))
+}
+
+async fn jobs(State(runner): State<Runner>) -> Reply<Vec<Job>> {
+    ok(runner.jobs())
+}
+
+async fn job(State(runner): State<Runner>, Path(id): Path<String>) -> Reply<Job> {
+    ok(runner.job(&id)?)
+}
+
+#[derive(Serialize)]
+struct JobLog {
+    id: String,
+    lines: Vec<String>,
+}
+
+async fn job_log(State(runner): State<Runner>, Path(id): Path<String>) -> Reply<JobLog> {
+    let lines = runner.log(&id)?;
+    ok(JobLog { id, lines })
+}
+
+async fn cancel_job(State(runner): State<Runner>, Path(id): Path<String>) -> Reply<Job> {
+    ok(runner.cancel(&id)?)
+}
+
+/// Ctrl+C 또는 SIGTERM. 받으면 서버를 멈추고 실행 중인 작업을 취소한다.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let term = async {
+        if let Ok(mut s) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            s.recv().await;
+        }
+    };
+    #[cfg(not(unix))]
+    let term = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = term => {},
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
     let db = Database::new(&args.db);
+    let runner = Runner::new(db.clone(), &args.pipeline);
+    {
+        let runner = runner.clone();
+        tokio::task::spawn_blocking(move || runner.recover())
+            .await
+            .expect("작업 복구");
+    }
     let cors = CorsLayer::new()
         .allow_origin([
             HeaderValue::from_static("http://localhost:5173"),
             HeaderValue::from_static("http://127.0.0.1:5173"),
         ])
-        .allow_methods([Method::GET])
+        .allow_methods([Method::GET, Method::POST])
         .allow_headers(tower_http::cors::Any);
     let app = Router::new()
         .route("/api/runs", get(runs))
@@ -238,8 +348,17 @@ async fn main() {
         .route("/api/works/{*work_id}", get(work))
         .route("/api/citations", get(citations))
         .route("/api/health", get(health))
+        .route("/api/maps/estimate", post(estimate_map))
+        .route("/api/openalex/topics", get(search_topics))
+        .route("/api/jobs", get(jobs).post(create_map))
+        .route("/api/jobs/{id}", get(job))
+        .route("/api/jobs/{id}/log", get(job_log))
+        .route("/api/jobs/{id}/cancel", post(cancel_job))
         .layer(cors)
-        .with_state(db);
+        .with_state(App {
+            db,
+            runner: runner.clone(),
+        });
     let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -248,5 +367,11 @@ async fn main() {
         "constellation-serve: http://{addr} (db: {})",
         args.db.display()
     );
-    axum::serve(listener, app).await.expect("서버 종료");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("서버 종료");
+    tokio::task::spawn_blocking(move || runner.shutdown())
+        .await
+        .expect("작업 종료");
 }

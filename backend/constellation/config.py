@@ -26,7 +26,9 @@ DATA = Path(_data_override).expanduser() if _data_override else ROOT / "data"
 if not DATA.is_absolute():
     DATA = ROOT / DATA
 RAW = DATA / "raw"
-DB_PATH = DATA / "constellation.duckdb"
+# 앱의 작업 실행기는 앱이 연 DB 파일을 그대로 넘긴다. 파일 이름이 달라도 된다.
+_db_override = os.environ.get("CONSTELLATION_DB")
+DB_PATH = Path(_db_override).expanduser() if _db_override else DATA / "constellation.duckdb"
 
 
 @dataclass(frozen=True)

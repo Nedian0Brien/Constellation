@@ -98,12 +98,12 @@ class OpenAlexSource:
 
     # ── HTTP ────────────────────────────────────────────────
 
-    async def _get(self, params: dict[str, Any]) -> dict[str, Any]:
+    async def _get(self, params: dict[str, Any], endpoint: str = "/works") -> dict[str, Any]:
         delay = 1.0
         for attempt in range(MAX_RETRIES):
             await self._limiter.wait()
             try:
-                r = await self._client.get(BASE + "/works", params=params)
+                r = await self._client.get(BASE + endpoint, params=params)
             except httpx.TransportError as e:
                 if attempt == MAX_RETRIES - 1:
                     raise
@@ -185,7 +185,8 @@ class OpenAlexSource:
     # ── 공개 API ────────────────────────────────────────────
 
     async def search(
-        self, query: str, limit: int, sort: str | None = None
+        self, query: str, limit: int, sort: str | None = None,
+        select: str = SELECT,
     ) -> AsyncIterator[Work]:
         """filter 기반 수집.
 
@@ -212,7 +213,7 @@ class OpenAlexSource:
         while yielded < limit:
             params: dict[str, Any] = {
                 "filter": query,
-                "select": SELECT,
+                "select": select,
                 "per-page": page_size,
             }
             if sort:
@@ -240,6 +241,31 @@ class OpenAlexSource:
                 page_no += 1
             else:
                 cursor = (payload.get("meta") or {}).get("next_cursor")
+
+    async def rows(
+        self, query: str, limit: int, sort: str, select: str,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """원본 행을 그대로 준다. 후보 목록처럼 id·피인용 수만 필요할 때 쓴다."""
+        page_no = 1
+        yielded = 0
+        while yielded < limit:
+            payload = await self._get({"filter": query, "select": select,
+                                       "per-page": PER_PAGE, "sort": sort,
+                                       "page": page_no})
+            results = payload.get("results") or []
+            for r in results:
+                if yielded >= limit:
+                    return
+                yield r
+                yielded += 1
+            if len(results) < PER_PAGE:
+                return
+            page_no += 1
+
+    async def entities(self, kind: str, search: str, limit: int = 10) -> list[dict[str, Any]]:
+        """토픽·서브필드·필드 검색. kind는 topics | subfields | fields."""
+        payload = await self._get({"search": search, "per-page": limit}, "/" + kind)
+        return payload.get("results") or []
 
     async def count(self, query: str) -> int:
         payload = await self._get({"filter": query, "per-page": 1, "select": "id"})

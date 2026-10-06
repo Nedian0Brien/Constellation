@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/constellation-core", "crates/constellation-serve", "src-tauri"]
+members = ["crates/constellation-core", "crates/constellation-jobs", "crates/constellation-serve", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

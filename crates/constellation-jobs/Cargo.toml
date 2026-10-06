@@ -1,0 +1,16 @@
+[package]
+name = "constellation-jobs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Constellation 작업 실행기 — 앱이 Python 파이프라인을 띄워 새 지도를 만들고 진행 상황을 기록한다"
+
+[dependencies]
+constellation-core = { path = "../constellation-core" }
+serde.workspace = true
+serde_json.workspace = true
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+duckdb.workspace = true

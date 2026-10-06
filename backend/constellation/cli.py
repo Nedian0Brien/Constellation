@@ -454,6 +454,128 @@ def corpus_import(
         conn.close()
 
 
+@corpus_app.command("drop")
+def corpus_drop(
+    corpus_id: str = typer.Option(..., "--id", help="지울 코퍼스 id"),
+    only_building: bool = typer.Option(False, "--only-building",
+                                       help="만드는 중(building)인 코퍼스만 지운다"),
+) -> None:
+    """코퍼스와 그 지도·산출물·투영 모델을 지운다. 공유 논문·인용·임베딩은 남긴다."""
+    import shutil
+
+    from .analyze.project import MODEL_DIR
+    conn = store.connect()
+    try:
+        try:
+            r = store.drop_corpus(conn, corpus_id, only_building=only_building)
+        except ValueError as e:
+            console.print("[red]%s[/]" % e)
+            raise typer.Exit(1)
+        conn.commit()
+    finally:
+        conn.close()
+    shutil.rmtree(MODEL_DIR / corpus_id, ignore_errors=True)
+    console.print("지웠다 — 지도·산출물 run %d개, 소속 %s편"
+                  % (r["runs"], format(r["members"], ",")))
+
+
+def _definition(path: str):
+    import json
+    from pathlib import Path
+
+    from .ingest.definition import DefinitionError, parse
+    try:
+        return parse(json.loads(Path(path).expanduser().read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, DefinitionError) as e:
+        # 앱 실행기는 종료 코드 2를 422로 바꾸고 표준 오류를 그대로 보여 준다.
+        sys.stderr.write("%s\n" % e)
+        raise typer.Exit(2)
+
+
+def _json_out(value) -> None:
+    import json
+    sys.stdout.write(json.dumps(value, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+@app.command()
+def build(
+    definition: str = typer.Option(..., "--definition", "-d", help="지도 정의 JSON 파일"),
+    events: bool = typer.Option(False, "--events",
+                                help="진행 상황을 표준 출력에 JSON 줄로 쓴다(앱 작업 실행기용)"),
+    check: bool = typer.Option(False, "--check",
+                               help="정의만 검증하고 정규화한 정의를 JSON으로 쓴다"),
+) -> None:
+    """정의 하나로 collect부터 lineage까지 실행해 새 지도를 만든다."""
+    import json
+    import os
+    import signal
+
+    from . import pipeline
+
+    defn = _definition(definition)
+    if check:
+        _json_out(defn.to_json())
+        return
+    if events:
+        # 이벤트만 표준 출력으로 낸다. 나머지 출력(print, 진행 막대, 라이브러리
+        # 경고)은 표준 오류로 돌려 이벤트 줄이 섞이지 않게 한다.
+        out = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
+        os.dup2(2, 1)
+        sys.stdout = sys.stderr
+
+        def emit(ev):
+            out.write(json.dumps(ev, ensure_ascii=False) + "\n")
+    else:
+        def emit(ev):
+            kind = ev["event"]
+            if kind == "stage":
+                console.print("[bold]── %d/%d %s ──[/]" % (ev["index"] + 1, ev["count"], ev["stage"]))
+            elif kind == "log":
+                console.print(ev["message"])
+            elif kind == "done":
+                console.print("[green]완료[/] — 코퍼스 %s, 지도 %s, 이름 %s"
+                              % (ev["corpus_id"], ev["map_id"], ev["naming"]))
+            elif kind == "error":
+                console.print("[red]%s 단계 실패:[/] %s" % (ev["stage"], ev["message"]))
+
+    # 실행기가 취소하면 SIGTERM이 온다. SystemExit으로 바꿔 finally(연결 닫기)가 돌게 한다.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    try:
+        pipeline.build(defn, emit)
+    except pipeline.StageError as e:
+        emit({"event": "error", "stage": e.stage, "message": str(e)})
+        raise typer.Exit(1)
+
+
+@app.command()
+def estimate(
+    definition: str = typer.Option(..., "--definition", "-d", help="지도 정의 JSON 파일"),
+) -> None:
+    """정의로 수집할 예상 편수를 JSON으로 쓴다."""
+    from . import pipeline
+    defn = _definition(definition)
+    try:
+        _json_out(asyncio.run(pipeline.estimate(defn, _settings())))
+    except RuntimeError as e:
+        console.print("[red]%s[/]" % e)
+        raise typer.Exit(1)
+
+
+@app.command()
+def topics(
+    query: str = typer.Argument(..., help="찾을 이름"),
+    limit: int = typer.Option(8, "--limit", help="수준(필드·서브필드·토픽)별 최대 개수"),
+) -> None:
+    """OpenAlex 토픽·서브필드·필드를 이름으로 찾아 JSON으로 쓴다."""
+    from . import pipeline
+    try:
+        _json_out(asyncio.run(pipeline.search_topics(_settings(), query, limit)))
+    except RuntimeError as e:
+        console.print("[red]%s[/]" % e)
+        raise typer.Exit(1)
+
+
 def main() -> None:
     app()
 

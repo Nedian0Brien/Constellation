@@ -236,3 +236,4 @@ CREATE INDEX IF NOT EXISTS idx_cw_work ON corpus_works (work_id);
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS corpus_id TEXT;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE collections ADD COLUMN IF NOT EXISTS corpus_id TEXT;
+ALTER TABLE corpora ADD COLUMN IF NOT EXISTS status TEXT;       -- building | ready. NULL은 ready

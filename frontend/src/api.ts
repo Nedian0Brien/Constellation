@@ -186,8 +186,23 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
-export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(BASE + path, { signal });
+export async function get<T>(
+  path: string,
+  signal?: AbortSignal,
+  body?: unknown,
+): Promise<T> {
+  // body가 있으면 POST(JSON). 작업 제출·예상 편수·취소가 쓴다.
+  const response = await fetch(
+    BASE + path,
+    body === undefined
+      ? { signal }
+      : {
+          signal,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+  );
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const detail = body?.detail;
@@ -214,8 +229,9 @@ async function call<T>(
   path: string,
   args: Record<string, unknown>,
   signal?: AbortSignal,
+  body?: unknown,
 ): Promise<T> {
-  if (!desktop) return get<T>(path, signal);
+  if (!desktop) return get<T>(path, signal, body);
   try {
     return await invoke<T>(command, args);
   } catch (e) {
@@ -344,3 +360,103 @@ export interface DbStatus {
 }
 export const fetchDbStatus = () => invoke<DbStatus>("db_status");
 export const chooseDatabase = () => invoke<DbStatus>("choose_database");
+
+// ── 새 지도 만들기 ─────────────────────────────────────────
+// 앱이 Python 파이프라인을 실행해 수집부터 인용 계보까지 만든다. 작업 동안 다른
+// 조회는 503("새 지도를 만드는 중")이고, 작업 API는 계속 응답한다.
+// 명령·경로는 src-tauri/src/commands.rs, crates/constellation-serve/src/main.rs와 같다.
+
+interface MapDefinitionBase {
+  /** 코퍼스 이름. 지도 이름은 `<이름> · <모델>`이 된다. */
+  name: string;
+  /** 임베딩 모델 키. 기본 scincl. */
+  model?: string;
+}
+/** 검색어(OR 결합, 구절 검색) + 연도 범위 + 연도별 편수(피인용순). */
+export interface TermsDefinition extends MapDefinitionBase {
+  kind: "terms";
+  terms: string[];
+  year_from: number;
+  year_to: number;
+  per_year: number;
+}
+/** OpenAlex 대표 토픽. 한 수준(토픽·서브필드·필드)만 고른다. */
+export interface TopicsDefinition extends MapDefinitionBase {
+  kind: "topics";
+  /** `T10181`, `subfields/1702`, `fields/17` */
+  topics: string[];
+  year_from: number;
+  year_to: number;
+  per_year: number;
+}
+/** 시드 DOI의 참고문헌·피인용 논문으로 한 단계 넓힌다. */
+export interface SeedsDefinition extends MapDefinitionBase {
+  kind: "seeds";
+  dois: string[];
+  /** 시드 밖에서 받을 편수(100–10000, 기본 3000). */
+  limit?: number;
+}
+export type MapDefinition =
+  | TermsDefinition
+  | TopicsDefinition
+  | SeedsDefinition;
+
+export interface MapEstimate {
+  expected: number;
+  per_year?: Record<string, number>;
+  seeds_found?: number;
+  seeds_missing?: number;
+  api_calls: number;
+  warning?: string;
+}
+export interface TopicMatch {
+  id: string;
+  name: string;
+  level: "field" | "subfield" | "topic";
+  /** 도메인 → 필드 → 서브필드 중 상위 이름들. */
+  path: string[];
+  works_count: number | null;
+}
+export type JobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+export interface Job {
+  id: string;
+  status: JobStatus;
+  definition: MapDefinition;
+  stage: string | null;
+  stage_index: number | null;
+  stage_count: number;
+  /** collect·backfill·embed 단계에서만 온다. */
+  progress: { done: number; total: number } | null;
+  /** UNIX 밀리초 */
+  started_at: number;
+  ended_at: number | null;
+  error: { stage: string | null; message: string } | null;
+  corpus_id: string | null;
+  map_id: string | null;
+  /** llm: 이름 짓기 성공, ctfidf: 건너뛰고 키워드 라벨 */
+  naming: "llm" | "ctfidf" | null;
+  pid: number | null;
+}
+export interface JobLog {
+  id: string;
+  lines: string[];
+}
+export const estimateMap = (definition: MapDefinition) =>
+  call<MapEstimate>("estimate_map", "/maps/estimate", { definition }, undefined, definition);
+export const searchTopics = (q: string, signal?: AbortSignal) =>
+  call<TopicMatch[]>("search_topics", "/openalex/topics?" + params({ q }), { q }, signal);
+export const createMap = (definition: MapDefinition) =>
+  call<Job>("create_map", "/jobs", { definition }, undefined, definition);
+export const fetchJobs = (signal?: AbortSignal) =>
+  call<Job[]>("jobs", "/jobs", {}, signal);
+export const fetchJob = (id: string, signal?: AbortSignal) =>
+  call<Job>("job", "/jobs/" + encodeURIComponent(id), { id }, signal);
+export const fetchJobLog = (id: string, signal?: AbortSignal) =>
+  call<JobLog>("job_log", `/jobs/${encodeURIComponent(id)}/log`, { id }, signal);
+export const cancelJob = (id: string) =>
+  call<Job>("cancel_job", `/jobs/${encodeURIComponent(id)}/cancel`, { id }, undefined, {});
