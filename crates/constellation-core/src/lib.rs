@@ -7,7 +7,7 @@ mod db;
 mod error;
 pub mod queries;
 
-pub use db::Database;
+pub use db::{Conn, Database, Gate};
 pub use error::{Error, Result};
 
 /// 확정된 기본 임베딩 모델. `runs`·`map`이 이 모델의 최신 run을 우선한다.

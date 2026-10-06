@@ -32,25 +32,44 @@ pub(crate) fn has_corpus_columns(conn: &duckdb::Connection) -> Result<bool> {
     Ok(n > 0)
 }
 
-/// 지도(투영 run) 목록. 분석이 끝난 지도 먼저, 그 안에서 기본 모델 먼저, 최신순.
+/// 앱이 만드는 중인 코퍼스(`corpora.status = 'building'`)를 거를 수 있는지.
+fn has_corpus_status(conn: &duckdb::Connection) -> Result<bool> {
+    let n: i64 = conn.query_row(
+        "SELECT count(*) FROM information_schema.columns \
+         WHERE table_name = 'corpora' AND column_name = 'status'",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+/// 지도(투영 run) 목록. 만드는 중인 코퍼스의 지도는 빼고, 분석이 끝난 지도 먼저, 그 안에서 기본 모델 먼저, 최신순.
 /// 첫 항목이 run을 지정하지 않았을 때 여는 기본 지도다.
 pub fn runs(db: &Database) -> Result<Vec<RunInfo>> {
     let conn = db.connect()?;
+    let building = if has_corpus_status(&conn)? {
+        "AND (c.status IS NULL OR c.status <> 'building') "
+    } else {
+        ""
+    };
     let sql = if has_corpus_columns(&conn)? {
-        "SELECT r.run_id, r.kind, r.model, r.params_json, r.n_items, \
-                CAST(r.created_at AS VARCHAR), r.corpus_id, c.name, r.name, \
-                EXISTS (SELECT 1 FROM runs d WHERE d.run_id = r.run_id || '|cluster') \
-         FROM runs r LEFT JOIN corpora c ON c.id = r.corpus_id \
-         WHERE r.kind = 'project' \
-         ORDER BY 10 DESC, (r.model = ?) DESC, r.created_at DESC"
+        format!(
+            "SELECT r.run_id, r.kind, r.model, r.params_json, r.n_items, \
+                    CAST(r.created_at AS VARCHAR), r.corpus_id, c.name, r.name, \
+                    EXISTS (SELECT 1 FROM runs d WHERE d.run_id = r.run_id || '|cluster') \
+             FROM runs r LEFT JOIN corpora c ON c.id = r.corpus_id \
+             WHERE r.kind = 'project' {building}\
+             ORDER BY 10 DESC, (r.model = ?) DESC, r.created_at DESC"
+        )
     } else {
         "SELECT r.run_id, r.kind, r.model, r.params_json, r.n_items, \
                 CAST(r.created_at AS VARCHAR), NULL, NULL, NULL, \
                 EXISTS (SELECT 1 FROM runs d WHERE d.run_id = r.run_id || '|cluster') \
          FROM runs r WHERE r.kind = 'project' \
          ORDER BY 10 DESC, (r.model = ?) DESC, r.created_at DESC"
+            .to_string()
     };
-    let mut stmt = conn.prepare(sql)?;
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
         .query_map(params![DEFAULT_MODEL], |r| {
             let model: Option<String> = r.get(2)?;
@@ -92,6 +111,14 @@ pub struct Health {
 }
 
 pub fn health(db: &Database) -> Result<Health> {
+    if let Some(reason) = db.gate().reason() {
+        return Ok(Health {
+            ok: false,
+            reason: Some(reason),
+            works: None,
+            projection_runs: None,
+        });
+    }
     if !db.exists() {
         return Ok(Health {
             ok: false,

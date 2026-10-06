@@ -354,3 +354,46 @@ fn runs_carry_corpus_and_analysis_state() {
     // run을 지정하지 않으면 목록의 첫 지도를 연다.
     assert_eq!(queries::map(&f.db, None).unwrap().run_id, "a");
 }
+
+#[test]
+fn building_corpus_maps_are_hidden() {
+    let f = populate();
+    let conn = Connection::open(f.db.path()).unwrap();
+    conn.execute_batch(
+        "INSERT INTO corpora (id,name,created_at,status) VALUES \
+           ('rag','RAG/IR',CURRENT_TIMESTAMP,NULL),('new','New',CURRENT_TIMESTAMP,'building');\
+         UPDATE runs SET corpus_id = 'rag' WHERE run_id = 'a';\
+         UPDATE runs SET corpus_id = 'new' WHERE run_id = 'b';",
+    )
+    .unwrap();
+    drop(conn);
+    let ids: Vec<_> = queries::runs(&f.db).unwrap().into_iter().map(|r| r.run_id).collect();
+    assert_eq!(ids, ["a"]);
+    let conn = Connection::open(f.db.path()).unwrap();
+    conn.execute_batch("UPDATE corpora SET status = 'ready' WHERE id = 'new'")
+        .unwrap();
+    drop(conn);
+    assert_eq!(queries::runs(&f.db).unwrap().len(), 2);
+}
+
+#[test]
+fn closed_gate_refuses_queries_and_waits_for_open_connections() {
+    use std::time::Duration;
+
+    let f = populate();
+    let gate = f.db.gate().clone();
+    assert!(gate.close("새 지도를 만드는 중입니다", Duration::from_secs(1)));
+    let err = queries::runs(&f.db).unwrap_err();
+    assert_eq!((err.status, err.message.as_str()), (503, "새 지도를 만드는 중입니다"));
+    let health = queries::health(&f.db).unwrap();
+    assert_eq!((health.ok, health.reason.as_deref()), (false, Some("새 지도를 만드는 중입니다")));
+    gate.open();
+    assert!(queries::runs(&f.db).is_ok());
+
+    // 질의가 연결을 들고 있는 동안 close는 기다리고, 시간 안에 안 닫히면 다시 연다.
+    let held = f.db.connect().unwrap();
+    assert!(!gate.close("x", Duration::from_millis(100)));
+    assert!(gate.reason().is_none());
+    drop(held);
+    assert!(gate.close("x", Duration::from_millis(100)));
+}
