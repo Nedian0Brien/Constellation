@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -30,6 +31,7 @@ Emit = Callable[[dict[str, Any]], None]
 STAGES = ("collect", "backfill", "enrich", "embed", "project", "cluster",
           "hierarchy", "name", "flow", "lineage")
 BACKFILL_MAX = 2000
+NAMING_BACKENDS = ("codex", "claude")
 
 
 class StageError(RuntimeError):
@@ -120,11 +122,21 @@ def build(defn: Definition, emit: Emit, settings: Settings | None = None) -> dic
             conn.close()
 
     def name(log, progress):
-        try:
-            naming_mod.run(run_id=state["map"], model_key=defn.model, log=log)
-        except Exception as e:  # noqa: BLE001 — 이름 짓기는 실패해도 지도는 완성한다
-            state["naming"] = "ctfidf"
-            log("이름 짓기를 건너뛴다 — c-TF-IDF 라벨을 그대로 쓴다. (%s)" % e)
+        # codex를 먼저, 없거나 실패하면 claude. 둘 다 안 되면 c-TF-IDF 라벨로 완성한다.
+        reasons = []
+        for backend in NAMING_BACKENDS:
+            if shutil.which(backend) is None:
+                reasons.append("%s CLI 없음" % backend)
+                continue
+            try:
+                log("이름 짓기: %s CLI" % backend)
+                naming_mod.run(run_id=state["map"], model_key=defn.model,
+                               backend=backend, log=log)
+                return
+            except Exception as e:  # noqa: BLE001 — 다음 백엔드로 넘어간다
+                reasons.append("%s: %s" % (backend, str(e).splitlines()[0][:200]))
+        state["naming"] = "ctfidf"
+        log("이름 짓기를 건너뛴다 — c-TF-IDF 라벨을 그대로 쓴다. (%s)" % "; ".join(reasons))
 
     stage("collect", collect)
     stage("backfill", lambda log, progress: asyncio.run(collect_mod.backfill_citations(

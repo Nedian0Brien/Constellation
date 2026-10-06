@@ -22,7 +22,7 @@ date: 2026-10-06
    `collect → backfill → enrich → embed → project → cluster → hierarchy → name → flow → lineage`
    - 코퍼스 id는 이름에서 ASCII kebab-case로 만들고, 비거나 겹치면 `map-<UTC 시각>`을 쓴다. 코퍼스 이름은 정의의 `name`이고, 지도 이름은 기존 지도와 같이 `<이름> · <모델>`이다(`project`가 채운다).
    - embed는 새 코퍼스 소속 논문만 계산한다. CLI `embed` 명령은 지금처럼 `works` 전체를 계산한다.
-   - name은 CLI 기본값과 같은 `codex` 백엔드로 실행한다.
+   - name은 `codex` CLI로 실행하고, 없거나 실패하면 `claude` CLI로 실행한다(2026-10-06 실측: 이 기계의 `~/.local/bin/codex`가 사라진 경로를 가리켜 codex만으로는 이름을 짓지 못했다).
    - flow의 시작 연도는 terms·topics면 `year_from`, seeds면 코퍼스 출판 연도의 5백분위수다.
    - `name` 단계가 실패하면(CLI 없음, 로그인 없음, 시간 초과) c-TF-IDF 라벨을 그대로 두고 다음 단계로 간다. 작업 결과의 `naming`을 `ctfidf`로, 성공하면 `llm`으로 둔다.
 5. **작업 상태.** `{id, status(queued|running|succeeded|failed|cancelled), definition, stage, stage_index, stage_count, progress?{done,total}, started_at, ended_at, error?{stage,message}, corpus_id, map_id?, naming?}`. progress는 편수를 셀 수 있는 collect·backfill·embed에서만 채우고 나머지 단계는 비워 둔다. 로그는 별도 조회로 마지막 500줄을 돌려준다.
@@ -68,6 +68,7 @@ date: 2026-10-06
 
 - `embed`는 코퍼스가 아니라 `works` 전체를 임베딩한다(캐시 재사용). 다른 코퍼스의 결손분도 이때 계산된다.
 - `works.parquet`는 모델별로 하나다. 코퍼스 단위 임베딩이 이 파일을 새 코퍼스 논문만으로 덮어쓰면 다른 코퍼스의 지도를 다시 투영할 때 행이 빠진다.
+- Finder로 연 `.app`은 PATH가 `/usr/bin:/bin:/usr/sbin:/sbin`뿐이라 `~/.local/bin`의 `claude`를 찾지 못한다. 실행기가 `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `~/.npm-global/bin`을 PATH 뒤에 덧붙인다.
 - `std::process::Child::kill`은 Unix에서 SIGKILL이다. SIGTERM은 `libc::kill`로 보낸다.
 - 토픽 검색은 호출마다 Python 프로세스를 띄운다(약 1초). 3번 intent의 화면은 입력을 debounce해서 부른다.
 - `Database`는 질의마다 연결을 연다(`db.rs`). 파이프라인 단계 사이에 앱이 연결을 열면 다음 단계의 쓰기 연결이 실패한다. 그래서 잠금은 단계마다가 아니라 작업 전체에 건다.

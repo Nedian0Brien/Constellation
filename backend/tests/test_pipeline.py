@@ -67,10 +67,13 @@ class BuildTests(unittest.TestCase):
             c.commit()
             c.close()
 
+        self.backends = []
+
         def naming(**k):
             calls.append("name")
+            self.backends.append(k["backend"])
             if naming_fails:
-                raise RuntimeError("codex CLI가 PATH에 없다.")
+                raise RuntimeError("%s 로그인이 필요하다." % k["backend"])
 
         self.embedded = []
 
@@ -90,6 +93,7 @@ class BuildTests(unittest.TestCase):
             mock.patch("constellation.analyze.naming.run", naming),
             mock.patch("constellation.analyze.flow.build", rec("flow")),
             mock.patch("constellation.analyze.lineage.build", rec("lineage")),
+            mock.patch("shutil.which", lambda name: "/bin/" + name),
         ]
 
     def _build(self, **stub):
@@ -113,7 +117,9 @@ class BuildTests(unittest.TestCase):
     def test_runs_all_stages_in_order_and_marks_ready(self):
         events, err = self._build(naming_fails=True)
         self.assertIsNone(err)
-        self.assertEqual(self.calls, list(pipeline.STAGES))
+        # 이름 짓기는 codex, claude 순으로 시도하고 둘 다 실패하면 c-TF-IDF로 넘어간다.
+        self.assertEqual(self.backends, ["codex", "claude"])
+        self.assertEqual(self.calls, list(pipeline.STAGES[:7]) + ["name"] + list(pipeline.STAGES[7:]))
         stages = [e for e in events if e["event"] == "stage"]
         self.assertEqual([e["index"] for e in stages], list(range(10)))
         self.assertTrue(all(e["count"] == 10 for e in stages))
@@ -131,6 +137,7 @@ class BuildTests(unittest.TestCase):
     def test_naming_success_reports_llm(self):
         events, _ = self._build()
         self.assertEqual(events[-1]["naming"], "llm")
+        self.assertEqual(self.backends, ["codex"])
 
     def test_failure_keeps_corpus_building_and_names_stage(self):
         events, err = self._build(fail_at="cluster")

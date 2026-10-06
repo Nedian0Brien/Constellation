@@ -99,6 +99,7 @@ impl Runner {
             .env("CONSTELLATION_DATA_DIR", &data)
             .env("PYTORCH_ENABLE_MPS_FALLBACK", "1")
             .env("PYTHONUNBUFFERED", "1")
+            .env("PATH", cli_path())
             .stdin(Stdio::null());
         Ok(cmd)
     }
@@ -448,6 +449,30 @@ impl Runner {
             .as_ref()
             .is_some_and(|c| c.id == id && c.cancelled)
     }
+}
+
+/// 이름 짓기가 부르는 `codex`·`claude` CLI를 찾을 수 있는 PATH.
+///
+/// Finder로 연 `.app`은 셸 설정을 읽지 않아 PATH가 `/usr/bin:/bin:/usr/sbin:/sbin`
+/// 뿐이다. 두 CLI의 설치 위치(claude 설치기 `~/.local/bin`, Homebrew, npm 전역)를
+/// 뒤에 덧붙인다. 이미 있는 항목은 다시 넣지 않는다.
+pub fn cli_path() -> std::ffi::OsString {
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let extra = [
+        home.as_ref().map(|h| h.join(".local/bin")),
+        Some(PathBuf::from("/opt/homebrew/bin")),
+        Some(PathBuf::from("/usr/local/bin")),
+        home.as_ref().map(|h| h.join(".npm-global/bin")),
+    ];
+    for d in extra.into_iter().flatten() {
+        if !dirs.contains(&d) {
+            dirs.push(d);
+        }
+    }
+    std::env::join_paths(dirs).unwrap_or_default()
 }
 
 fn absolute(p: &Path) -> PathBuf {

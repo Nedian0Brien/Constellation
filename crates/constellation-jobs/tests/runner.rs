@@ -187,3 +187,16 @@ fn keeps_only_recent_jobs() {
     assert_eq!(jobs.len(), constellation_jobs::KEEP);
     assert_eq!(jobs[0].id, "job-124");
 }
+
+#[test]
+fn cli_path_appends_install_dirs_once() {
+    let path = constellation_jobs::cli_path();
+    let dirs: Vec<_> = std::env::split_paths(&path).collect();
+    let local = PathBuf::from(std::env::var("HOME").unwrap()).join(".local/bin");
+    let before = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .filter(|d| *d == local)
+        .count();
+    assert_eq!(dirs.iter().filter(|d| **d == local).count(), before.max(1));
+    assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
+    assert!(dirs.contains(&PathBuf::from("/usr/bin")));
+}
