@@ -13,14 +13,14 @@ date: 2026-10-06
 
 1. **지도 정의(JSON).** 공통 필드는 `name`(표시 이름)과 `model`(`embed/encoder.py`의 `MODELS` 키, 기본 `scincl`)이다. `kind`에 따라 다음 필드를 받는다.
    - `terms`: `terms`(1개 이상), `year_from`, `year_to`, `per_year`. 수집 필터는 지금 `QuerySet.filter_for_year`와 같다.
-   - `topics`: `topics`(`T10181`, `subfields/1702`, `fields/17` 형식, 1개 이상), `year_from`, `year_to`, `per_year`. 수집 필터는 `primary_topic.id` / `primary_topic.subfield.id` / `primary_topic.field.id`를 OR로 묶는다.
+   - `topics`: `topics`(`T10181`, `subfields/1702`, `fields/17` 형식, 1개 이상), `year_from`, `year_to`, `per_year`. 수집 필터는 `primary_topic.id` / `primary_topic.subfield.id` / `primary_topic.field.id` 가운데 하나에 id를 OR로 묶는다. OpenAlex는 서로 다른 필터를 AND로 묶으므로 수준을 섞은 정의는 422다.
    - `seeds`: `dois`(1–50개), `limit`(기본 3000). 시드의 `referenced_works`와 시드를 인용한 논문(`cites:W…`)을 모아 피인용 수 상위 `limit`편과 시드를 수집한다. 확장은 한 단계만 한다. 해석하지 못한 DOI는 로그에 남기고, 하나도 해석하지 못하면 실패한다.
    - 잘못된 정의(빈 목록, `year_from > year_to`, 모르는 모델, `per_year` 1–2000 밖)는 실행 전에 422와 이유를 돌려준다.
 2. **예상 편수.** `estimate`는 정의를 받아 `{expected, per_year?, api_calls, warning?}`를 돌려준다. terms·topics는 연도마다 OpenAlex `count`를 `per_year`로 자른 합이고, seeds는 시드의 참고문헌 수와 피인용 수 합을 `limit`로 자른 값이다. 예상이 1,000편 미만이면 `warning`에 지도 품질이 떨어질 수 있다는 문구를 넣는다.
 3. **토픽 검색.** `topics?q=`는 OpenAlex `/topics`, `/subfields`, `/fields`를 `search`로 조회해 `{id, name, level(topic|subfield|field), path, works_count}` 목록을 돌려준다.
 4. **작업 실행.** 정의를 제출하면 작업이 만들어지고 다음 단계를 차례로 실행한다.
    `collect → backfill → enrich → embed → project → cluster → hierarchy → name → flow → lineage`
-   - 코퍼스 id는 이름에서 ASCII kebab-case로 만들고, 비거나 겹치면 `map-<UTC 시각>`을 쓴다. 지도 이름은 `runs.name`에 정의의 `name`으로 남긴다.
+   - 코퍼스 id는 이름에서 ASCII kebab-case로 만들고, 비거나 겹치면 `map-<UTC 시각>`을 쓴다. 코퍼스 이름은 정의의 `name`이고, 지도 이름은 기존 지도와 같이 `<이름> · <모델>`이다(`project`가 채운다).
    - embed는 새 코퍼스 소속 논문만 계산한다. CLI `embed` 명령은 지금처럼 `works` 전체를 계산한다.
    - name은 CLI 기본값과 같은 `codex` 백엔드로 실행한다.
    - flow의 시작 연도는 terms·topics면 `year_from`, seeds면 코퍼스 출판 연도의 5백분위수다.

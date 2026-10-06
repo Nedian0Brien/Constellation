@@ -130,16 +130,64 @@ def ensure_corpus(
     corpus_id: str,
     name: str,
     definition: dict[str, Any] | None = None,
+    status: str | None = None,
 ) -> None:
     """코퍼스가 없으면 만든다. 있으면 그대로 둔다."""
     import json
     conn.execute(
-        "INSERT OR IGNORE INTO corpora (id, name, definition_json, created_at) "
-        "VALUES (?,?,?,?)",
+        "INSERT OR IGNORE INTO corpora (id, name, definition_json, created_at, status) "
+        "VALUES (?,?,?,?,?)",
         (corpus_id, name,
          json.dumps(definition, ensure_ascii=False) if definition else None,
-         datetime.now(timezone.utc).replace(tzinfo=None)),
+         datetime.now(timezone.utc).replace(tzinfo=None), status),
     )
+
+
+def set_corpus_status(conn: duckdb.DuckDBPyConnection, corpus_id: str, status: str) -> None:
+    """앱이 만드는 코퍼스는 `building`으로 시작해 모든 단계가 끝나면 `ready`가 된다.
+    앱의 지도 목록은 `building` 코퍼스의 지도를 보이지 않는다."""
+    conn.execute("UPDATE corpora SET status = ? WHERE id = ?", (status, corpus_id))
+
+
+# 지도(run)에 딸린 산출물. `db/migrate.py`의 RUN_TABLES와 같다.
+_RUN_TABLES = (
+    "projections", "clusters", "cluster_meta", "cluster_tree", "tree_levels",
+    "flow_windows", "flow_clusters", "flow_members", "flows", "citation_spc",
+    "naming_audit",
+)
+
+
+def drop_corpus(
+    conn: duckdb.DuckDBPyConnection, corpus_id: str, *, only_building: bool = False,
+) -> dict[str, int]:
+    """코퍼스와 그 지도·산출물·소속·수집 이력을 지운다.
+
+    다른 코퍼스와 공유하는 `works`·`citations`·임베딩 캐시는 지우지 않는다.
+    투영 모델 폴더는 호출한 쪽이 지운다(경로가 analyze 모듈에 있다).
+    """
+    row = conn.execute("SELECT status FROM corpora WHERE id = ?", (corpus_id,)).fetchone()
+    if row is None:
+        return {"runs": 0, "members": 0}
+    if only_building and row[0] != "building":
+        raise ValueError("%s 코퍼스는 만드는 중이 아니다 (status=%s)." % (corpus_id, row[0]))
+    runs = [r[0] for r in conn.execute(
+        "SELECT run_id FROM runs WHERE corpus_id = ? OR run_id IN ("
+        "  SELECT d.run_id FROM runs d JOIN runs p ON starts_with(d.run_id, p.run_id || '|') "
+        "  WHERE p.corpus_id = ?)", (corpus_id, corpus_id)).fetchall()]
+    have = {r[0] for r in conn.execute(
+        "SELECT table_name FROM information_schema.tables").fetchall()}
+    if runs:
+        marks = ",".join("?" * len(runs))
+        for t in _RUN_TABLES:
+            if t in have:
+                conn.execute("DELETE FROM %s WHERE run_id IN (%s)" % (t, marks), runs)
+        conn.execute("DELETE FROM runs WHERE run_id IN (%s)" % marks, runs)
+    members = conn.execute(
+        "SELECT count(*) FROM corpus_works WHERE corpus_id = ?", (corpus_id,)).fetchone()[0]
+    conn.execute("DELETE FROM corpus_works WHERE corpus_id = ?", (corpus_id,))
+    conn.execute("DELETE FROM collections WHERE corpus_id = ?", (corpus_id,))
+    conn.execute("DELETE FROM corpora WHERE id = ?", (corpus_id,))
+    return {"runs": len(runs), "members": members}
 
 
 def add_members(

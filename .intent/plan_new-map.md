@@ -38,7 +38,7 @@ date: 2026-10-06
 ## 순서
 
 1. **Python 정의와 수집.** `definition.py`, `openalex.py`의 `select` 인자와 토픽 검색, `seeds.py`, `collect.py`의 정의 수용과 progress를 만든다.
-   - 확인: `test_definition.py`(검증 오류, 종류별 필터 문자열, 시드 확장을 가짜 소스로), 기존 `pytest backend/tests` 통과.
+   - 확인: `test_definition.py`(검증 오류, 종류별 필터 문자열, 시드 확장을 가짜 소스로), 기존 `unittest` 통과.
 2. **스키마와 정리.** `corpora.status`, `drop_corpus`, `corpus drop --id C --only-building`.
    - 확인: 테스트 DB에 코퍼스 둘을 만든다. building 코퍼스를 drop하면 공유 `works`는 남고 그 코퍼스의 소속·run·산출물·수집 이력은 사라진다. ready 코퍼스는 `--only-building`에서 거부된다.
 3. **코퍼스 단위 임베딩.** `embed_corpus(work_ids=…)`와 `works.parquet` 병합.
@@ -70,7 +70,7 @@ date: 2026-10-06
 ## 검증 명령
 
 ```sh
-.venv/bin/python -m pytest backend/tests -q
+PYTHONPATH=$PWD/backend ../../.venv/bin/python -m unittest discover -s backend/tests   # 워크트리. 저장소 venv는 원래 checkout을 설치본으로 쓴다
 cargo test --workspace
 npm --prefix frontend run build
 npm --prefix frontend test
