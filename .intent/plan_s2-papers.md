@@ -63,11 +63,22 @@ E2E_PORT=5183 npm --prefix frontend run test:e2e   # 워크트리 serve를 8000�
 ## 검증 결과 (2026-10-07)
 
 - Python `unittest` 59개, `cargo test --workspace`(core 16, jobs 12, Tauri 2), vitest 56, `npm run build` 통과. Playwright E2E 13/13(워크트리 serve, 실제 DB 조회 전용).
-- 실제 응답으로 확인한 것
-  - **S2 기록**: Self-RAG(arXiv 2310.11511)의 기록·초록이 있다(피인용 2,773). 참고문헌 57편 가운데 48편에 DOI나 MAG가 있다.
-  - **arXiv**: `arxiv.abstract("2310.11511")`이 초록을 돌려준다.
-  - **DOI 조회**: 스크래치 serve(8014)에서 `10.1145/3065386`은 `source: openalex`, `in_map: true`.
-- **S2 공용 한도**: 2026-10-07 20:58–21:15 사이 거의 모든 요청이 429였다. 확인용 요청이 200을 받은 직후에도 다음 요청은 429였다.
-  - 스크래치 지도에 Self-RAG를 추가하는 작업을 세 번 실행했다. 세 번 모두 resolve 단계에서 재시도 6번이 429로 끝나 `not_found`가 됐다. 작업 자체는 `succeeded`로 끝났고 지도는 바뀌지 않았다(10,604편, `added` 0).
-  - 이 결과로 참고문헌·피인용을 받지 못해도 논문은 추가하고 `warnings`에 남기도록 고쳤다.
-- **확인하지 못한 것**: S2 논문이 실데이터 지도에 배치되고 인용선이 이어지는 과정 전체. 가짜 S2 응답 테스트(`test_s2.AddS2Tests`)로만 확인했다. 사용자 결정(2026-10-07)에 따라 사이드바 작업 때 S2 키로 확인한다.
+- **S2 공용 한도**: 20:58–21:15 사이 대부분의 요청이 429였다. 확인용 요청이 200을 받은 직후에도 다음 요청은 429였다.
+  - Self-RAG(arXiv 2310.11511) 추가 작업을 S2가 응답할 때 다시 실행하는 방식으로 네 번 실행했다.
+  - 앞의 세 번은 resolve 단계에서 재시도 6번이 모두 429여서 `not_found`로 끝났다. 작업은 `succeeded`였고 지도는 바뀌지 않았다.
+  - 네 번째에 성공했다. fetch 단계에서도 429 대기가 여러 번 있었지만 재시도로 넘어갔다.
+- **스크래치 RAG/IR 지도에 Self-RAG 추가**(job-1791375060464)
+  - resolve: OpenAlex에서 같은 제목의 기록을 찾지 못해 `s2:ddbd8fe782ac98e9c64dd98710687a962195dd9b`로 정했다.
+  - 저장: `works.source = semanticscholar`, 초록, 저자 5명.
+  - 인용 연결: 참고문헌 57편 중 20편, 피인용 2,780편 중 126편이 지도 안 논문과 이어졌다. `/api/citations`가 Llama 2, GPT-4 Technical Report(참고문헌), Adaptive-RAG(피인용) 등을 돌려준다.
+  - 배정: "Question Answering"(최근접 유사도 0.95), `warnings` 없음.
+  - 기존 10,604편의 모든 열이 같았다. 빼면 `/api/map` JSON이 추가 전과 완전히 같아졌다.
+- **지도에 있는 id를 다시 넣었을 때**: 이미 지도에 있는 `s2:` id를 다시 넣자 resolve가 S2에 먼저 물었다. 429를 받아 `skipped`가 아니라 `not_found`가 됐다.
+  - 고침: 지도에 이미 있는 id는 외부 조회 없이 건너뛴다.
+  - 실측: `openalex:W2163605009`가 0.3초 만에 `skipped`.
+- 그 밖의 실측
+  - arXiv 초록 조회
+  - DOI 조회(`10.1145/3065386` → `source: openalex`, `in_map: true`)
+- **확인하지 못한 것**
+  - 다른 출처 id로 들어온 같은 논문(DOI·제목+연도 일치)의 건너뛰기는 가짜 응답 테스트로만 확인했다.
+  - `source=s2` 검색어 검색은 S2 429로 실측하지 못했다.

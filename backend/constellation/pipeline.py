@@ -301,11 +301,17 @@ def add_papers(run_id: str, ids: list[str], emit: Emit,
     not_found: list[str] = []
     skipped: list[dict[str, str]] = []
     warnings: list[str] = []
+    early_skip: list[dict[str, str]] = []
 
     def resolve(log, progress):
         async def go():
             async with OpenAlexSource(settings) as src:
                 for n, raw in enumerate(ids):
+                    # 지도에 이미 있는 id(openalex:… · s2:…)는 외부 조회 없이 건너뛴다.
+                    if raw in in_map:
+                        early_skip.append({"id": raw, "reason": "이미 지도에 있다"})
+                        progress(n + 1, len(ids))
+                        continue
                     q = raw.removeprefix("openalex:") if raw.startswith("openalex:") else raw
                     try:
                         kind, rec, source = await lookup(src, q, s2_fetch, log)
@@ -337,6 +343,7 @@ def add_papers(run_id: str, ids: list[str], emit: Emit,
         c.close()
     targets: list[str] = []
     records: dict[str, dict[str, Any]] = {}
+    skipped.extend(early_skip)
     for (wid, rec), twin in zip(found.values(), same):
         if wid in in_map:
             skipped.append({"id": wid, "reason": "이미 지도에 있다"})

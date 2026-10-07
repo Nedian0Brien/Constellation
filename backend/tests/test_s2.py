@@ -249,6 +249,10 @@ class AddS2Tests(unittest.TestCase):
         self.assertEqual(again["skipped"], [{"id": "s2:" + "f" * 40,
                                              "reason": "이미 지도에 있다 (%s)" % sid}])
         self.assertEqual(result["warnings"], [])
+        # 지도에 이미 있는 id는 외부 조회 없이 건너뛴다(조회하면 lookup이 None을 준다).
+        again, _ = self._run([sid], {})
+        self.assertEqual((again["skipped"], again["not_found"]),
+                         ([{"id": sid, "reason": "이미 지도에 있다"}], []))
         with ExitStack() as s:
             for p in fx.patches():
                 s.enter_context(p)
