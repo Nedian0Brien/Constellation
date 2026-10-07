@@ -302,7 +302,12 @@ def add_papers(run_id: str, ids: list[str], emit: Emit,
                         not_found.append(raw)
                         log("  식별자가 아니다: %s" % raw)
                         continue
-                    _, row = await lookup(src, raw.removeprefix("openalex:"), s2_fetch)
+                    try:
+                        _, row = await lookup(src, raw.removeprefix("openalex:"), s2_fetch, log)
+                    except RuntimeError as e:
+                        # 한 편을 못 찾았다고 작업 전체를 멈추지 않는다(S2 공용 풀 429 등).
+                        log("  조회 실패: %s (%s)" % (raw, str(e)[:160]))
+                        row = None
                     if not row:
                         not_found.append(raw)
                         log("  찾지 못했다: %s" % raw)

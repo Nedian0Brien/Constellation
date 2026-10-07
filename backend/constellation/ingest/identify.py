@@ -71,13 +71,15 @@ def summarize(r: dict[str, Any]) -> dict[str, Any]:
 
 
 async def resolve_arxiv(
-    src: OpenAlexSource, arxiv_id: str, s2_fetch=None,
+    src: OpenAlexSource, arxiv_id: str, s2_fetch=None, log=None,
 ) -> dict[str, Any] | None:
-    """arXiv ID → OpenAlex 원본 행. 찾지 못하면 None."""
+    """arXiv ID → OpenAlex 원본 행. 찾지 못하면 None이고, 이유는 log로 남긴다."""
     if s2_fetch is None:
         from ..sources.semanticscholar import fetch_paper as s2_fetch
+    log = log or (lambda msg: None)
     paper = await s2_fetch("arXiv:" + arxiv_id)
     if not paper or not paper.get("title"):
+        log("  Semantic Scholar에 arXiv:%s 가 없다" % arxiv_id)
         return None
     want = norm_title(paper["title"])
     year = paper.get("year")
@@ -102,11 +104,15 @@ async def resolve_arxiv(
             and (year is None or r.get("publication_year") is None
                  or abs(r["publication_year"] - year) <= 1)]
     if not same:
+        log("  arXiv:%s(%s)는 Semantic Scholar에 있지만 OpenAlex에서 같은 제목의 기록을 찾지 못했다"
+            % (arxiv_id, paper["title"][:80]))
         return None
     return max(same, key=lambda r: r.get("cited_by_count") or 0)
 
 
-async def lookup(src: OpenAlexSource, q: str, s2_fetch=None) -> tuple[str, dict[str, Any] | None]:
+async def lookup(
+    src: OpenAlexSource, q: str, s2_fetch=None, log=None,
+) -> tuple[str, dict[str, Any] | None]:
     """식별자 하나 → (종류, OpenAlex 원본 행). 검색어면 ("search", None)."""
     kind, value = classify(q)
     if kind == "openalex":
@@ -114,7 +120,7 @@ async def lookup(src: OpenAlexSource, q: str, s2_fetch=None) -> tuple[str, dict[
     if kind == "doi":
         return kind, await src.get_work("doi:" + value, RESULT_SELECT)
     if kind == "arxiv":
-        return kind, await resolve_arxiv(src, value, s2_fetch)
+        return kind, await resolve_arxiv(src, value, s2_fetch, log)
     return kind, None
 
 

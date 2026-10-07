@@ -158,6 +158,27 @@ curl localhost:8000/api/jobs/<id>/log      # 마지막 500줄
 curl -X POST localhost:8000/api/jobs/<id>/cancel
 ```
 
+### 외부 논문 검색과 지도에 논문 추가
+
+이미 만든 지도에 논문을 더한다. 기존 논문의 좌표·클러스터·영역 이름은 바뀌지 않는다.
+
+```sh
+.venv/bin/constellation papers search "retrieval augmented generation"   # OpenAlex 전문 검색, 25편씩
+.venv/bin/constellation papers search 2005.11401                         # DOI·arXiv ID·OpenAlex ID는 그 논문 하나
+.venv/bin/constellation papers add --map <run_id> -i ids.json            # {"ids": ["openalex:W…", "10.…", "arXiv:…"]}
+.venv/bin/constellation papers remove --map <run_id> -i ids.json         # 추가한 논문만 뺄 수 있다
+```
+
+- **좌표**: 지도를 만들 때 저장한 PCA·UMAP(`models/<코퍼스>/<모델>/`)으로 `transform`한다.
+- **주제**: 임베딩이 가장 가까운 지도 안 논문 15편의 클러스터 다수결로 정한다. 이웃 과반이 미분류면 미분류다. 클러스터링 모델은 저장돼 있지 않아 HDBSCAN 예측을 쓰지 않는다.
+- **소속**: 논문은 코퍼스에 `via='manual'`로 소속되고, 지금 지도에만 배치된다.
+- **표시**: `/api/map`의 `added`, `/api/works?added=true`, 상세의 `added_at`으로 구분한다.
+- **갱신하지 않는 것**: 계층 트리·갈래 흐름·인용 계보는 바뀌지 않는다. 추가한 논문이 수집 논문의 10%를 넘으면 결과에 `recompute_suggested`가 붙는다. 그때는 `build`로 지도를 다시 만든다.
+- **arXiv ID**: Semantic Scholar에서 제목을 받아, 제목이 같은 OpenAlex 기록을 쓴다. OpenAlex의 arXiv DOI 기록이 다른 논문으로 덮인 경우가 있기 때문이다. OpenAlex에 없는 논문(예: arXiv에만 있는 논문)은 찾지 못한 것으로 둔다.
+- **비용**: OpenAlex 검색은 1,000회에 $1(무료 예산 하루 $1)이고, DOI·ID 단건 조회는 무료다.
+
+앱에서는 작업 실행기가 추가·빼기를 실행한다(`POST /api/maps/{run}/papers`, `/papers/remove`, Tauri `add_papers`·`remove_papers`). 검색은 `GET /api/papers/search?q=&page=&run=`(Tauri `search_papers`)이고, `run`을 주면 결과마다 `in_map`·`added`가 붙는다.
+
 ### 코퍼스 도입 전 DB 옮기기
 
 코퍼스 구조 이전의 DB는 코퍼스 정보가 없다. 앱은 그런 DB도 열지만 지도 이름에 "코퍼스 미지정"이 붙는다. 기존 DB를 코퍼스로 배정하고, 따로 만든 DB를 합친다. 두 명령 모두 다시 실행해도 결과가 같고, 분석 결과(좌표·클러스터·이름)는 다시 계산하지 않고 그대로 옮긴다.

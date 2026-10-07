@@ -106,8 +106,10 @@ class ResolveTests(unittest.TestCase):
         r = asyncio.run(identify.resolve_arxiv(FakeSource(), "1111.1111", s2))
         self.assertEqual(r["id"], "https://openalex.org/W1")
 
-    def test_unknown_arxiv_is_none(self):
-        self.assertIsNone(asyncio.run(identify.resolve_arxiv(FakeSource(), "9999.99999", s2)))
+    def test_unknown_arxiv_is_none_with_reason(self):
+        logs = []
+        self.assertIsNone(asyncio.run(identify.resolve_arxiv(FakeSource(), "9999.99999", s2, logs.append)))
+        self.assertIn("Semantic Scholar에 arXiv:9999.99999 가 없다", logs[0])
 
     def test_search_returns_summaries_or_single_lookup(self):
         r = asyncio.run(identify.search(FakeSource(), "graph", 1, s2))
@@ -316,8 +318,10 @@ class PlaceTests(unittest.TestCase):
         def fake_embed(model, log, progress, work_ids):
             fx.write_vectors(work_ids, np.array([fx.near(1, i) for i, _ in enumerate(work_ids)]))
 
-        async def lookup(src, q, s2_fetch=None):
+        async def lookup(src, q, s2_fetch=None, log=None):
             kind, value = identify.classify(q)
+            if value == "W500":
+                raise RuntimeError("Semantic Scholar HTTP 429")
             return kind, FakeSource.works.get(value)
 
         with ExitStack() as s:
@@ -334,11 +338,12 @@ class PlaceTests(unittest.TestCase):
                 return e, events
 
     def test_add_papers_pipeline(self):
-        result, events = self._run_add(["W1", "openalex:W9", "W404", "graph search"])
+        result, events = self._run_add(["W1", "openalex:W9", "W404", "graph search", "W500"])
         self.assertEqual([e["stage"] for e in events if e["event"] == "stage"], list(pipeline.ADD_STAGES))
         self.assertEqual([a["id"] for a in result["added"]], ["openalex:W1", "openalex:W9"])
         self.assertTrue(all(a["cluster"] == 1 and a["label"] == "one" for a in result["added"]))
-        self.assertEqual(result["not_found"], ["W404", "graph search"])
+        self.assertEqual(result["not_found"], ["W404", "graph search", "W500"])
+        self.assertTrue(any("조회 실패: W500" in e.get("message", "") for e in events))
         self.assertEqual(result["skipped"], [])
         self.assertFalse(result["recompute_suggested"])
         self.assertEqual(events[-1]["event"], "done")
