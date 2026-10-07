@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use constellation_core::{queries, Database};
-use constellation_jobs::{Job, Runner, Status, BUSY};
+use constellation_jobs::{Job, Kind, Runner, Status, BUSY, BUSY_PAPERS};
 use duckdb::Connection;
 use serde_json::json;
 
@@ -145,7 +145,7 @@ fn recover_kills_leftover_pipeline_and_fails_job() {
         assert!(start.elapsed() < Duration::from_secs(10));
         std::thread::sleep(Duration::from_millis(20));
     }
-    let mut job = Job::new("job-1".into(), def("slow"));
+    let mut job = Job::new("job-1".into(), Kind::Build, def("slow"));
     job.status = Status::Running;
     job.pid = Some(child.id());
     job.corpus_id = Some("fake".into());
@@ -177,7 +177,7 @@ fn missing_pipeline_is_503_and_bad_ids_are_404() {
 fn keeps_only_recent_jobs() {
     let fx = setup();
     for i in 0..25u64 {
-        let mut job = Job::new(format!("job-{}", 100 + i), json!({}));
+        let mut job = Job::new(format!("job-{}", 100 + i), Kind::Build, json!({}));
         job.status = Status::Succeeded;
         job.started_at = 100 + i;
         fx.runner.store().save(&job).unwrap();
@@ -199,4 +199,72 @@ fn cli_path_appends_install_dirs_once() {
     assert_eq!(dirs.iter().filter(|d| **d == local).count(), before.max(1));
     assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
     assert!(dirs.contains(&PathBuf::from("/usr/bin")));
+}
+
+#[test]
+fn add_and_remove_jobs_report_results_without_corpus_cleanup() {
+    let fx = setup();
+    let job = fx.runner.add_papers("m", json!({"mode": "ok"})).unwrap();
+    assert_eq!(job.kind, Kind::Add);
+    assert_eq!(job.definition["map_id"], "m");
+    let done = wait(&fx.runner, &job.id);
+    assert_eq!(done.status, Status::Succeeded, "{done:?}");
+    assert_eq!(done.map_id.as_deref(), Some("m"));
+    let result = done.result.unwrap();
+    assert_eq!((result["verb"].as_str(), result["added"][0]["cluster"].as_i64()), (Some("add"), Some(3)));
+
+    let job = fx.runner.remove_papers("m", json!({"mode": "ok"})).unwrap();
+    let done = wait(&fx.runner, &job.id);
+    assert_eq!((done.kind, done.result.unwrap()["verb"].as_str()), (Kind::Remove, Some("remove")));
+
+    let job = fx.runner.add_papers("m", json!({"mode": "fail"})).unwrap();
+    let done = wait(&fx.runner, &job.id);
+    assert_eq!(done.status, Status::Failed);
+    assert_eq!(done.error.unwrap().message, "찾지 못했다");
+    // add는 마지막 단계에서 한 번에 쓰므로 코퍼스를 지우지 않는다.
+    assert!(read(fx.dir.path(), "drops.txt").is_empty());
+
+    let err = fx.runner.add_papers("m", json!({"mode": "bad"})).unwrap_err();
+    assert_eq!(err.status, 422);
+    assert!(!BUSY_PAPERS.is_empty());
+}
+
+#[test]
+fn old_job_files_without_kind_read_as_build() {
+    let fx = setup();
+    let dir = fx.runner.store().dir().to_path_buf();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("job-7.json"),
+        r#"{"id":"job-7","status":"succeeded","definition":{},"stage":null,"stage_index":null,
+            "stage_count":10,"progress":null,"started_at":7,"ended_at":8,"error":null,
+            "corpus_id":"c","map_id":"m","naming":"llm","pid":null}"#,
+    )
+    .unwrap();
+    let job = fx.runner.job("job-7").unwrap();
+    assert_eq!((job.kind, job.result), (Kind::Build, None));
+}
+
+#[test]
+fn search_marks_map_membership_when_database_is_open() {
+    let fx = setup();
+    let conn = Connection::open(fx.db.path()).unwrap();
+    conn.execute_batch(
+        "INSERT INTO runs (run_id,kind,model,created_at) VALUES ('m','project','scincl',CURRENT_TIMESTAMP);\
+         INSERT INTO works (id,title,has_abstract,source,collected_at) VALUES ('openalex:W1','t',true,'x',CURRENT_TIMESTAMP);\
+         INSERT INTO projections VALUES ('m','openalex:W1',0,0,0);",
+    )
+    .unwrap();
+    drop(conn);
+    let r = fx.runner.search("graph", 1, Some("m")).unwrap();
+    let flags: Vec<_> = r["items"].as_array().unwrap().iter().map(|i| i["in_map"].clone()).collect();
+    assert_eq!(flags, [json!(true), json!(false)]);
+    let r = fx.runner.search("graph", 1, None).unwrap();
+    assert!(r["items"][0]["in_map"].is_null());
+    // 작업 중이면 DB를 열지 않고 표시를 비운다.
+    fx.db.gate().close(BUSY, Duration::from_secs(1));
+    assert!(fx.runner.search("graph", 1, Some("m")).unwrap()["items"][0]["added"].is_null());
+    fx.db.gate().open();
+    assert_eq!(fx.runner.search(" ", 1, None).unwrap_err().status, 422);
+    assert_eq!(fx.runner.search("graph", 1, Some("nope")).unwrap_err().status, 404);
 }
