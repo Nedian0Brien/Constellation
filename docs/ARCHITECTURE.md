@@ -257,3 +257,21 @@ backend/constellation/analyze/place.py     # 저장된 PCA·UMAP transform, 이�
 - **추가한 논문**은 지도 코퍼스의 `corpus_works.via = 'manual'`이다. core 질의가 `added_expr`로 판정한다(`MapData.added`, `PaperFilter.added`, `Work.added_at`, `membership`). 코퍼스 테이블이 없는 예전 DB에서는 항상 거짓이다.
 - **작업 종류.** `Job.kind`(build·add·remove)와 `result`가 있다. 예전 상태 파일은 build로 읽는다. 작업 중 조회 문구는 종류마다 다르다.
 - **검색 경로.** Python(`papers search`)이 OpenAlex·S2를 부르고 DB는 열지 않는다. Rust가 결과 id로 `membership`을 질의한다. 그래서 작업 중에도 검색할 수 있고, 그때 `in_map`은 null이다.
+
+### OpenAlex에 없는 논문 — 2026-10-07
+
+`.intent/*_s2-papers.md`.
+
+```
+backend/constellation/sources/semanticscholar.py   # S2Client: x-api-key, 키가 있으면 1.05초 간격, 429 재시도. to_work → s2:<paperId>
+backend/constellation/sources/arxiv.py             # S2에 초록이 없을 때 arXiv 초록(3초 간격, 연결 1개)
+backend/constellation/ingest/match.py              # DOI → MAG(제목 일치) → 정규화 제목+연도로 DB 논문과 맞추기
+```
+
+- **출처 결정**
+  - `identify.lookup`은 `(종류, 기록, 출처)`를 돌려준다. OpenAlex 기록이 있으면 그것을 쓰고, DOI·arXiv·S2 id가 OpenAlex에 없으면 S2 기록을 쓴다.
+  - S2 기록의 DOI나 MAG(`W{MAG}`) 기록이 제목까지 같으면 OpenAlex로 바꾼다. MAG만으로는 믿지 않는다. 제목이 다른 논문으로 덮인 OpenAlex 기록이 있기 때문이다.
+- **인용 연결**
+  - S2 논문의 참고문헌은 `works.referenced_works`로, 피인용은 지도 안 논문과 맞은 것만 `citations(지도 안 논문, s2 논문)`으로 fetch 단계에서 쓴다.
+  - 둘 다 지도에 보이지 않는 공유 자료다. 지도에 보이는 변화는 #27과 같이 place 단계의 한 트랜잭션이다.
+- **지도 소속 판정**: `queries::membership`이 `{id, doi, title, year}`를 받는다. Rust `norm_title`·`norm_doi`와 SQL `regexp_replace`는 Python `sources.base`와 같은 정규화를 쓴다.

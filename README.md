@@ -165,6 +165,7 @@ curl -X POST localhost:8000/api/jobs/<id>/cancel
 ```sh
 .venv/bin/constellation papers search "retrieval augmented generation"   # OpenAlex 전문 검색, 25편씩
 .venv/bin/constellation papers search 2005.11401                         # DOI·arXiv ID·OpenAlex ID는 그 논문 하나
+.venv/bin/constellation papers search "self-rag" --source s2             # Semantic Scholar에서 검색
 .venv/bin/constellation papers add --map <run_id> -i ids.json            # {"ids": ["openalex:W…", "10.…", "arXiv:…"]}
 .venv/bin/constellation papers remove --map <run_id> -i ids.json         # 추가한 논문만 뺄 수 있다
 ```
@@ -174,10 +175,15 @@ curl -X POST localhost:8000/api/jobs/<id>/cancel
 - **소속**: 논문은 코퍼스에 `via='manual'`로 소속되고, 지금 지도에만 배치된다.
 - **표시**: `/api/map`의 `added`, `/api/works?added=true`, 상세의 `added_at`으로 구분한다.
 - **갱신하지 않는 것**: 계층 트리·갈래 흐름·인용 계보는 바뀌지 않는다. 추가한 논문이 수집 논문의 10%를 넘으면 결과에 `recompute_suggested`가 붙는다. 그때는 `build`로 지도를 다시 만든다.
-- **arXiv ID**: Semantic Scholar에서 제목을 받아, 제목이 같은 OpenAlex 기록을 쓴다. OpenAlex의 arXiv DOI 기록이 다른 논문으로 덮인 경우가 있기 때문이다. OpenAlex에 없는 논문(예: arXiv에만 있는 논문)은 찾지 못한 것으로 둔다.
+- **arXiv ID**: Semantic Scholar에서 제목을 받아, 제목이 같은 OpenAlex 기록을 쓴다. OpenAlex의 arXiv DOI 기록이 다른 논문으로 덮인 경우가 있기 때문이다.
+- **OpenAlex에 없는 논문**(예: arXiv에만 있는 Self-RAG): DOI·arXiv ID·S2 id(`s2:<paperId>`)가 OpenAlex에 없으면 Semantic Scholar 기록을 쓴다.
+  - 저장: `works.source = semanticscholar`, id는 `s2:<paperId>`. 초록이 없으면 arXiv API에서 받는다.
+  - 인용 연결: 참고문헌과 피인용(최대 1만 건)을 S2 목록에서 받아, DOI → MAG(제목 일치) → 제목+연도로 지도 안 논문과 맞춘다.
+  - 중복 판정: 같은 논문이 다른 출처 id로 이미 지도에 있으면(DOI·제목+연도) 건너뛴다.
+  - S2 공용 한도는 429가 잦다. 무료 키를 받아 `.env`의 `SEMANTIC_SCHOLAR_API_KEY`에 넣으면 초당 1회로 요청한다. 키 없이 재시도 끝까지 429면 그 논문은 `not_found`가 된다. 참고문헌·피인용만 못 받으면 논문은 추가하고 `warnings`에 남긴다.
 - **비용**: OpenAlex 검색은 1,000회에 $1(무료 예산 하루 $1)이고, DOI·ID 단건 조회는 무료다.
 
-앱에서는 작업 실행기가 추가·빼기를 실행한다(`POST /api/maps/{run}/papers`, `/papers/remove`, Tauri `add_papers`·`remove_papers`). 검색은 `GET /api/papers/search?q=&page=&run=`(Tauri `search_papers`)이고, `run`을 주면 결과마다 `in_map`·`added`가 붙는다.
+앱에서는 작업 실행기가 추가·빼기를 실행한다(`POST /api/maps/{run}/papers`, `/papers/remove`, Tauri `add_papers`·`remove_papers`). 검색은 `GET /api/papers/search?q=&page=&run=&source=`(Tauri `search_papers`)이다. `source`는 `openalex`(기본)나 `s2`이고, `run`을 주면 결과마다 `in_map`·`added`가 붙는다(다른 출처 id라도 DOI·제목+연도가 같으면 지도에 있다).
 
 ### 코퍼스 도입 전 DB 옮기기
 
