@@ -98,7 +98,10 @@ class OpenAlexSource:
 
     # ── HTTP ────────────────────────────────────────────────
 
-    async def _get(self, params: dict[str, Any], endpoint: str = "/works") -> dict[str, Any]:
+    async def _get(
+        self, params: dict[str, Any], endpoint: str = "/works", missing_ok: bool = False,
+    ) -> dict[str, Any]:
+        """missing_ok면 404를 빈 dict로 돌려준다(단건 조회)."""
         delay = 1.0
         for attempt in range(MAX_RETRIES):
             await self._limiter.wait()
@@ -114,6 +117,8 @@ class OpenAlexSource:
 
             if r.status_code == 200:
                 return r.json()
+            if r.status_code == 404 and missing_ok:
+                return {}
             if r.status_code in (429, 500, 502, 503, 504):
                 if attempt == MAX_RETRIES - 1:
                     r.raise_for_status()
@@ -261,6 +266,19 @@ class OpenAlexSource:
             if len(results) < PER_PAGE:
                 return
             page_no += 1
+
+    async def get_work(self, key: str, select: str = SELECT) -> dict[str, Any] | None:
+        """단건 조회. key는 `W123` 또는 `doi:10.…`. OpenAlex 요금표에서 무료다."""
+        payload = await self._get({"select": select}, "/works/" + key, missing_ok=True)
+        return payload or None
+
+    async def search_works(
+        self, query: str, page: int, per_page: int, select: str = SELECT,
+    ) -> tuple[int, list[dict[str, Any]]]:
+        """전문 검색(`search=`). 1,000회에 $1로 list+filter의 10배다."""
+        payload = await self._get({"search": query, "page": page,
+                                   "per-page": per_page, "select": select})
+        return int((payload.get("meta") or {}).get("count") or 0), payload.get("results") or []
 
     async def entities(self, kind: str, search: str, limit: int = 10) -> list[dict[str, Any]]:
         """토픽·서브필드·필드 검색. kind는 topics | subfields | fields."""
