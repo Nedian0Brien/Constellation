@@ -221,6 +221,9 @@ describe("citation tools", () => {
     expect(d.api.fetchCitations).toHaveBeenLastCalledWith("r1", "p1", "both", 500);
     expect(paperId("W12")).toBe("openalex:W12");
     expect(paperId("openalex:W12")).toBe("openalex:W12");
+    const s2 = "ddbd8fe782ac98e9c64dd98710687a962195dd9b";
+    expect(paperId(s2.toUpperCase())).toBe(`s2:${s2}`);
+    expect(paperId(`s2:${s2}`)).toBe(`s2:${s2}`);
     expect(await ex.get_citations({})).toHaveProperty("error");
   });
   it("get_lineage 는 씨앗 기준으로 인용 방향을 판정한다", async () => {

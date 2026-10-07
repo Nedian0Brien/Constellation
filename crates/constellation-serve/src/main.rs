@@ -300,7 +300,8 @@ async fn search_papers(State(runner): State<Runner>, Query(p): Params) -> Reply<
     let q = required(&p, "q")?;
     let page = bounded(int(&p, "page")?, 1, 40, "page")?;
     let run = p.get("run").cloned().filter(|r| !r.is_empty());
-    ok(blocking(move || runner.search(&q, page, run.as_deref())).await?)
+    let source = p.get("source").cloned();
+    ok(blocking(move || runner.search(&q, page, run.as_deref(), source.as_deref())).await?)
 }
 
 #[derive(serde::Deserialize)]

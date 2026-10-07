@@ -462,9 +462,12 @@ export interface AddResult {
     title_only: boolean;
     /** 가장 가까운 지도 안 논문과의 코사인 유사도 */
     similarity: number;
+    source: PaperSource;
   }[];
   skipped: { id: string; reason: string }[];
   not_found: string[];
+  /** 추가는 했지만 S2 참고문헌·피인용을 받지 못해 인용선이 빠진 논문 등 */
+  warnings: string[];
   /** 추가한 논문이 수집 논문의 10%를 넘으면 true */
   recompute_suggested: boolean;
 }
@@ -491,9 +494,12 @@ export const cancelJob = (id: string) =>
 // 검색은 OpenAlex 전문 검색(1,000회에 $1)이므로 화면에서 입력을 debounce한다.
 // DOI·arXiv ID·OpenAlex ID는 그 논문 하나를 무료 단건 조회로 찾는다.
 
+export type PaperSource = "openalex" | "s2";
 export interface ExternalPaper {
-  /** `openalex:W…`. addPapers에 그대로 넘긴다. */
+  /** `openalex:W…` 또는 `s2:<paperId>`. addPapers에 그대로 넘긴다. */
   id: string;
+  /** 기록을 가져온 곳. OpenAlex에 없는 논문은 Semantic Scholar(s2). */
+  source: PaperSource;
   title: string;
   year: number | null;
   authors: string[];
@@ -501,27 +507,31 @@ export interface ExternalPaper {
   cited_by_count: number | null;
   doi: string | null;
   has_abstract: boolean;
-  /** run을 넘겼을 때만. 작업 중이면 null */
+  /** run을 넘겼을 때만. 다른 출처 id라도 DOI·제목+연도가 같으면 true. 작업 중이면 null */
   in_map: boolean | null;
   added: boolean | null;
 }
 export interface ExternalSearch {
   query: string;
-  kind: "search" | "doi" | "arxiv" | "openalex";
+  kind: "search" | "doi" | "arxiv" | "openalex" | "s2";
+  /** 검색어를 찾은 곳. 식별자는 OpenAlex를 먼저 보고 없으면 Semantic Scholar다. */
+  source: PaperSource;
   total: number;
   page: number;
   items: ExternalPaper[];
 }
+/** source: 검색어를 찾을 곳. Semantic Scholar 검색은 1,000건까지다. */
 export const searchPapers = (
   q: string,
   page = 1,
   run?: string,
+  source: PaperSource = "openalex",
   signal?: AbortSignal,
 ) =>
   call<ExternalSearch>(
     "search_papers",
-    "/papers/search?" + params({ q, page, run }),
-    { q, page, run },
+    "/papers/search?" + params({ q, page, run, source }),
+    { q, page, run, source },
     signal,
   );
 /** 1–200편. 결과는 작업(`kind: "add"`)으로 돌아오고 `fetchJob`으로 확인한다. */

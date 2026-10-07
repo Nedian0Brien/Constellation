@@ -211,26 +211,38 @@ impl Runner {
         self.submit_job(Kind::Remove, serde_json::json!({ "map_id": map_id, "ids": ids }))
     }
 
-    /// 외부 논문 검색. `run`을 주면 결과마다 그 지도에 있는지(`in_map`)·추가한 논문인지
-    /// (`added`)를 붙인다. 작업 중이라 DB를 열 수 없으면 둘 다 null이다.
-    pub fn search(&self, q: &str, page: u32, run: Option<&str>) -> Result<Value> {
+    /// 외부 논문 검색. `source`는 검색어를 찾을 곳(openalex | s2, 기본 openalex)이다.
+    /// `run`을 주면 결과마다 그 지도에 있는지(`in_map`)·추가한 논문인지(`added`)를 붙인다.
+    /// 다른 출처 id라도 DOI·제목+연도가 같으면 지도에 있는 것으로 본다. 작업 중이라 DB를
+    /// 열 수 없으면 둘 다 null이다.
+    pub fn search(&self, q: &str, page: u32, run: Option<&str>, source: Option<&str>) -> Result<Value> {
         let q = q.trim();
         if q.is_empty() {
             return Err(Error::invalid("q 값이 필요합니다."));
         }
+        let source = source.filter(|s| !s.is_empty()).unwrap_or("openalex");
+        if !matches!(source, "openalex" | "s2") {
+            return Err(Error::invalid("source는 openalex 또는 s2여야 합니다."));
+        }
         let page = page.to_string();
-        let mut out = self.run_json(&["papers", "search", q, "--page", &page])?;
-        let ids: Vec<String> = out["items"]
+        let mut out =
+            self.run_json(&["papers", "search", q, "--page", &page, "--source", source])?;
+        let keys: Vec<constellation_core::queries::PaperKey> = out["items"]
             .as_array()
             .map(|items| {
                 items
                     .iter()
-                    .filter_map(|i| i["id"].as_str().map(str::to_string))
+                    .map(|i| constellation_core::queries::PaperKey {
+                        id: i["id"].as_str().unwrap_or_default().to_string(),
+                        doi: i["doi"].as_str().map(str::to_string),
+                        title: i["title"].as_str().map(str::to_string),
+                        year: i["year"].as_i64().map(|y| y as i32),
+                    })
                     .collect()
             })
             .unwrap_or_default();
         let flags = match run.filter(|r| !r.is_empty()) {
-            Some(run) => match constellation_core::queries::membership(&self.inner.db, run, &ids) {
+            Some(run) => match constellation_core::queries::membership(&self.inner.db, run, &keys) {
                 Ok(m) => Some(m),
                 Err(e) if e.status == 503 => None,
                 Err(e) => return Err(e),

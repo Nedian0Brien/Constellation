@@ -37,6 +37,8 @@ class Settings:
     openalex_mailto: str | None
     scopus_api_key: str | None
     scopus_insttoken: str | None
+    # 없어도 동작한다(공용 한도). 있으면 x-api-key로 보내고 초당 1회로 맞춘다.
+    semantic_scholar_api_key: str | None = None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -47,4 +49,5 @@ class Settings:
             openalex_mailto=g("OPENALEX_MAILTO"),
             scopus_api_key=g("SCOPUS_API_KEY"),
             scopus_insttoken=g("SCOPUS_INSTTOKEN"),
+            semantic_scholar_api_key=g("SEMANTIC_SCHOLAR_API_KEY"),
         )

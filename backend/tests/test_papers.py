@@ -322,7 +322,8 @@ class PlaceTests(unittest.TestCase):
             kind, value = identify.classify(q)
             if value == "W500":
                 raise RuntimeError("Semantic Scholar HTTP 429")
-            return kind, FakeSource.works.get(value)
+            rec = FakeSource.works.get(value)
+            return kind, rec, "openalex" if rec else None
 
         with ExitStack() as s:
             for p in fx.patches() + [
