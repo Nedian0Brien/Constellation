@@ -13,6 +13,9 @@ pub struct PaperFilter {
     pub year_from: Option<i32>,
     #[serde(default)]
     pub year_to: Option<i32>,
+    /// true면 사용자가 추가한 논문만, false면 수집으로 들어온 논문만.
+    #[serde(default)]
+    pub added: Option<bool>,
 }
 
 impl PaperFilter {
@@ -41,7 +44,7 @@ impl PaperFilter {
         Ok(self)
     }
 
-    fn sql(&self) -> (String, Vec<Value>) {
+    fn sql(&self, added_expr: &str) -> (String, Vec<Value>) {
         let mut terms = vec!["p.run_id = ?".to_string()];
         let mut values = vec![Value::Text(self.run.clone())];
         if !self.q.is_empty() {
@@ -60,6 +63,11 @@ impl PaperFilter {
         if let Some(y) = self.year_to {
             terms.push("(w.year IS NULL OR w.year <= ?)".to_string());
             values.push(Value::Int(y));
+        }
+        match self.added {
+            Some(true) => terms.push(added_expr.to_string()),
+            Some(false) => terms.push(format!("NOT {added_expr}")),
+            None => {}
         }
         (
             format!(
@@ -172,7 +180,7 @@ pub fn works(
     let filter = filter.validated()?;
     let conn = db.connect()?;
     require_run(&conn, &filter.run)?;
-    let (sql, values) = filter.sql();
+    let (sql, values) = filter.sql(super::runs::added_expr(&conn)?);
     let total: i64 = conn.query_row(
         &format!("SELECT count(*){sql}"),
         params_from_iter(values.iter().cloned()),
@@ -211,7 +219,7 @@ pub fn matches(db: &Database, filter: PaperFilter) -> Result<Matches> {
     let filter = filter.validated()?;
     let conn = db.connect()?;
     require_run(&conn, &filter.run)?;
-    let (sql, values) = filter.sql();
+    let (sql, values) = filter.sql(super::runs::added_expr(&conn)?);
     let ids = conn
         .prepare(&format!("SELECT w.id{sql} ORDER BY w.id"))?
         .query_map(params_from_iter(values), |r| r.get::<_, String>(0))?
@@ -243,6 +251,8 @@ pub struct Work {
     pub topics: Vec<Topic>,
     pub refs_in_corpus: i64,
     pub cited_by_in_corpus: i64,
+    /// 사용자가 지도에 추가한 시각. run이 있으면 그 지도의 코퍼스 기준이다.
+    pub added_at: Option<String>,
 }
 
 /// 논문 상세. run이 주어지면 그 run에 투영된 논문만 준다.
@@ -337,6 +347,17 @@ pub fn work(db: &Database, work_id: &str, run: Option<&str>) -> Result<Work> {
     };
     let refs_in_corpus = in_map("cited_id", "citing_id")?;
     let cited_by_in_corpus = in_map("citing_id", "cited_id")?;
+    let added_at: Option<String> = if super::runs::has_corpus_columns(&conn)? {
+        conn.query_row(
+            "SELECT CAST(min(m.added_at) AS VARCHAR) FROM corpus_works m \
+             WHERE m.work_id = ? AND m.via = 'manual' AND (? IS NULL OR m.corpus_id = \
+               (SELECT corpus_id FROM runs WHERE run_id = ?))",
+            params![work_id, run, run],
+            |r| r.get(0),
+        )?
+    } else {
+        None
+    };
     Ok(Work {
         id,
         doi,
@@ -351,7 +372,45 @@ pub fn work(db: &Database, work_id: &str, run: Option<&str>) -> Result<Work> {
         topics,
         refs_in_corpus,
         cited_by_in_corpus,
+        added_at,
     })
+}
+
+/// 외부 검색 결과의 논문들이 지도에 있는지, 추가한 논문인지.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Membership {
+    pub id: String,
+    pub in_map: bool,
+    pub added: bool,
+}
+
+pub fn membership(db: &Database, run: &str, ids: &[String]) -> Result<Vec<Membership>> {
+    let conn = db.connect()?;
+    require_run(&conn, run)?;
+    let added = super::runs::added_expr(&conn)?;
+    let mut found = std::collections::HashMap::<String, bool>::new();
+    // duckdb-rs는 목록 인자를 바인딩하지 못한다. 검색 한 페이지(25편) 단위라 자리표시자를 늘린다.
+    for chunk in ids.chunks(500) {
+        let marks = vec!["?"; chunk.len()].join(",");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT p.work_id, {added} FROM projections p \
+             WHERE p.run_id = ? AND p.work_id IN ({marks})"
+        ))?;
+        let values = std::iter::once(Value::Text(run.to_string()))
+            .chain(chunk.iter().cloned().map(Value::Text));
+        for row in stmt.query_map(params_from_iter(values), |r| Ok((r.get(0)?, r.get(1)?)))? {
+            let (id, a): (String, bool) = row?;
+            found.insert(id, a);
+        }
+    }
+    Ok(ids
+        .iter()
+        .map(|id| Membership {
+            id: id.clone(),
+            in_map: found.contains_key(id),
+            added: found.get(id).copied().unwrap_or(false),
+        })
+        .collect())
 }
 
 /// 인용 목록의 방향. `Both`가 기본이다.

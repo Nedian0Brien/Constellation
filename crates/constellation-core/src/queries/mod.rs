@@ -18,8 +18,8 @@ pub use map::{map, MapData};
 pub use runs::{health, runs, Health, RunInfo};
 pub use tree::{tree, TreeData, TreeNode};
 pub use works::{
-    citations, matches, work, works, Citations, CitedWork, Direction, Matches, Order, PaperFilter,
-    PaperPage, PaperRow, Sort, Topic, Work,
+    citations, matches, membership, work, works, Citations, CitedWork, Direction, Matches,
+    Membership, Order, PaperFilter, PaperPage, PaperRow, Sort, Topic, Work,
 };
 
 /// 피인용 상위 목록 한 줄. 주제 상세·갈래 상세가 같이 쓴다.

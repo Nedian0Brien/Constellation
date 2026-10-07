@@ -188,6 +188,12 @@ fn paper_filter(p: &HashMap<String, String>) -> Result<PaperFilter, ApiError> {
         q: p.get("q").cloned().unwrap_or_default(),
         year_from: int(p, "year_from")?.map(|v| v as i32),
         year_to: int(p, "year_to")?.map(|v| v as i32),
+        added: match p.get("added").map(String::as_str) {
+            None | Some("") => None,
+            Some("true") => Some(true),
+            Some("false") => Some(false),
+            Some(_) => return Err(Error::invalid("added 값이 잘못되었습니다.").into()),
+        },
     })
 }
 

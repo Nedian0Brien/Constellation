@@ -20,6 +20,8 @@ pub struct MapData {
     pub has_abstract: Vec<bool>,
     pub title: Vec<String>,
     pub cluster: Vec<i32>,
+    /// 사용자가 지도에 추가한 논문인지(수집으로 들어온 논문은 false).
+    pub added: Vec<bool>,
 }
 
 /// run이 없으면 지도 목록(`runs`)의 첫 항목 — 분석이 끝난 기본 모델의 최신 지도.
@@ -35,14 +37,15 @@ pub fn map(db: &Database, run: Option<&str>) -> Result<MapData> {
             })?,
     };
     let conn = db.connect()?;
+    let added = super::runs::added_expr(&conn)?;
 
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT p.work_id, p.x, p.y, p.z, w.year, w.cited_by_count, \
-                w.has_abstract, w.title, coalesce(c.cluster_id, -1) \
+                w.has_abstract, w.title, coalesce(c.cluster_id, -1), {added} \
          FROM projections p JOIN works w ON w.id = p.work_id \
          LEFT JOIN clusters c ON c.run_id = p.run_id AND c.work_id = p.work_id \
-         WHERE p.run_id = ? ORDER BY p.work_id",
-    )?;
+         WHERE p.run_id = ? ORDER BY p.work_id"
+    ))?;
     let mut data = MapData {
         run_id: run.clone(),
         n: 0,
@@ -55,6 +58,7 @@ pub fn map(db: &Database, run: Option<&str>) -> Result<MapData> {
         has_abstract: Vec::new(),
         title: Vec::new(),
         cluster: Vec::new(),
+        added: Vec::new(),
     };
     let mut rows = stmt.query(params![run])?;
     while let Some(r) = rows.next()? {
@@ -67,6 +71,7 @@ pub fn map(db: &Database, run: Option<&str>) -> Result<MapData> {
         data.has_abstract.push(r.get(6)?);
         data.title.push(r.get(7)?);
         data.cluster.push(r.get(8)?);
+        data.added.push(r.get(9)?);
     }
     data.n = data.id.len();
     if data.n == 0 {
