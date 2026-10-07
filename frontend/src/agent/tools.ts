@@ -248,11 +248,14 @@ const asInt = (v: unknown) =>
 const asNum = (v: unknown) =>
   typeof v === "number" && Number.isFinite(v) ? v : undefined;
 const asStr = (v: unknown) => (typeof v === "string" ? v : undefined);
-/** 모델이 OpenAlex 쪽 표기(`W123`)로 부르면 코퍼스 id(`openalex:W123`)로 맞춘다. */
+/** 모델이 출처 쪽 표기로 부르면 코퍼스 id로 맞춘다.
+ *  OpenAlex `W123` → `openalex:W123`, Semantic Scholar paperId(16진수 40자리) → `s2:<paperId>`. */
 export const paperId = (v: unknown) => {
   const s = asStr(v)?.trim();
   if (!s) return undefined;
-  return /^W\d+$/.test(s) ? `openalex:${s}` : s;
+  if (/^W\d+$/.test(s)) return `openalex:${s}`;
+  if (/^[0-9a-f]{40}$/i.test(s)) return `s2:${s.toLowerCase()}`;
+  return s;
 };
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
   Math.round(Math.hypot(a.x - b.x, a.y - b.y) * 100) / 100;

@@ -256,15 +256,18 @@ fn search_marks_map_membership_when_database_is_open() {
     )
     .unwrap();
     drop(conn);
-    let r = fx.runner.search("graph", 1, Some("m")).unwrap();
+    let r = fx.runner.search("graph", 1, Some("m"), None).unwrap();
     let flags: Vec<_> = r["items"].as_array().unwrap().iter().map(|i| i["in_map"].clone()).collect();
     assert_eq!(flags, [json!(true), json!(false)]);
-    let r = fx.runner.search("graph", 1, None).unwrap();
+    let r = fx.runner.search("graph", 1, None, Some("s2")).unwrap();
     assert!(r["items"][0]["in_map"].is_null());
     // 작업 중이면 DB를 열지 않고 표시를 비운다.
     fx.db.gate().close(BUSY, Duration::from_secs(1));
-    assert!(fx.runner.search("graph", 1, Some("m")).unwrap()["items"][0]["added"].is_null());
+    assert!(fx.runner.search("graph", 1, Some("m"), None).unwrap()["items"][0]["added"].is_null());
     fx.db.gate().open();
-    assert_eq!(fx.runner.search(" ", 1, None).unwrap_err().status, 422);
-    assert_eq!(fx.runner.search("graph", 1, Some("nope")).unwrap_err().status, 404);
+    assert_eq!(fx.runner.search(" ", 1, None, None).unwrap_err().status, 422);
+    assert_eq!(fx.runner.search("graph", 1, None, Some("crossref")).unwrap_err().status, 422);
+    fx.runner.search("graph", 1, None, Some("s2")).unwrap();
+    assert_eq!(read(fx.dir.path(), "search-args.txt").trim(), "s2");
+    assert_eq!(fx.runner.search("graph", 1, Some("nope"), None).unwrap_err().status, 404);
 }

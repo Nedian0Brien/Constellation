@@ -245,13 +245,14 @@ pub async fn search_papers(
     q: String,
     page: Option<u32>,
     run: Option<String>,
+    source: Option<String>,
 ) -> Reply<Value> {
     let runner = state.runner();
     let page = page.unwrap_or(1);
     if !(1..=40).contains(&page) {
         return Err(Error::invalid("page 값이 잘못되었습니다."));
     }
-    blocking(move || runner.search(&q, page, run.as_deref())).await
+    blocking(move || runner.search(&q, page, run.as_deref(), source.as_deref())).await
 }
 
 #[tauri::command]

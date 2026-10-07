@@ -430,9 +430,42 @@ fn added_papers_are_marked_filtered_and_dated() {
     assert_eq!(work.added_at.as_deref(), Some("2026-10-07 01:02:03"));
     assert_eq!(queries::work(&f.db, "1", Some("a")).unwrap().added_at, None);
 
-    let m = queries::membership(&f.db, "a", &["3".into(), "1".into(), "zz".into()]).unwrap();
+    let key = |id: &str, doi: Option<&str>, title: Option<&str>, year: Option<i32>| queries::PaperKey {
+        id: id.into(),
+        doi: doi.map(Into::into),
+        title: title.map(Into::into),
+        year,
+    };
+    let conn = Connection::open(f.db.path()).unwrap();
+    conn.execute_batch("UPDATE works SET doi = 'https://doi.org/10.1/AbC' WHERE id = '1'")
+        .unwrap();
+    drop(conn);
+    let m = queries::membership(
+        &f.db,
+        "a",
+        &[
+            key("3", None, None, None),
+            key("s2:x", Some("10.1/abc"), None, None),
+            // 다른 출처 id라도 정규화 제목·연도(±1)가 같으면 지도에 있다.
+            key("s2:y", None, Some("GAMMA!"), Some(2021)),
+            key("s2:z", None, Some("Gamma"), Some(2019)),
+            key("zz", None, None, None),
+        ],
+    )
+    .unwrap();
     let flags: Vec<_> = m.iter().map(|m| (m.id.as_str(), m.in_map, m.added)).collect();
-    assert_eq!(flags, [("3", true, true), ("1", true, false), ("zz", false, false)]);
+    assert_eq!(
+        flags,
+        [
+            ("3", true, true),
+            ("s2:x", true, false),
+            ("s2:y", true, true),
+            ("s2:z", false, false),
+            ("zz", false, false)
+        ]
+    );
+    assert_eq!(queries::norm_title("Self-RAG: Learning!").as_deref(), Some("selfraglearning"));
+    assert_eq!(queries::norm_doi("https://doi.org/10.1/AbC").as_deref(), Some("10.1/abc"));
     assert_eq!(queries::membership(&f.db, "nope", &[]).unwrap_err().status, 404);
 }
 

@@ -384,33 +384,86 @@ pub struct Membership {
     pub added: bool,
 }
 
-pub fn membership(db: &Database, run: &str, ids: &[String]) -> Result<Vec<Membership>> {
+/// 소속을 판정할 논문. 다른 출처의 id(`s2:…`)라도 DOI나 제목+연도가 같으면 지도에 있는 것으로 본다.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+pub struct PaperKey {
+    pub id: String,
+    #[serde(default)]
+    pub doi: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub year: Option<i32>,
+}
+
+/// DOI 비교 형식: 소문자, `https://doi.org/` 제거. Python `sources.base.norm_doi`와 같다.
+pub fn norm_doi(doi: &str) -> Option<String> {
+    let d = doi.trim().to_lowercase();
+    let d = ["https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "http://dx.doi.org/"]
+        .iter()
+        .find_map(|p| d.strip_prefix(p))
+        .unwrap_or(&d)
+        .to_string();
+    (!d.is_empty()).then_some(d)
+}
+
+/// 제목 비교 형식: 소문자에서 a–z·0–9만 남긴다. Python `sources.base.norm_title`과 같고,
+/// SQL 쪽은 `regexp_replace(lower(title), '[^a-z0-9]', '', 'g')`다.
+pub fn norm_title(title: &str) -> Option<String> {
+    let t: String = title
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        .collect();
+    (!t.is_empty()).then_some(t)
+}
+
+pub fn membership(db: &Database, run: &str, keys: &[PaperKey]) -> Result<Vec<Membership>> {
     let conn = db.connect()?;
     require_run(&conn, run)?;
-    let added = super::runs::added_expr(&conn)?;
-    let mut found = std::collections::HashMap::<String, bool>::new();
-    // duckdb-rs는 목록 인자를 바인딩하지 못한다. 검색 한 페이지(25편) 단위라 자리표시자를 늘린다.
-    for chunk in ids.chunks(500) {
-        let marks = vec!["?"; chunk.len()].join(",");
-        let mut stmt = conn.prepare(&format!(
-            "SELECT p.work_id, {added} FROM projections p \
-             WHERE p.run_id = ? AND p.work_id IN ({marks})"
-        ))?;
-        let values = std::iter::once(Value::Text(run.to_string()))
-            .chain(chunk.iter().cloned().map(Value::Text));
-        for row in stmt.query_map(params_from_iter(values), |r| Ok((r.get(0)?, r.get(1)?)))? {
-            let (id, a): (String, bool) = row?;
-            found.insert(id, a);
-        }
+    if keys.is_empty() {
+        return Ok(Vec::new());
     }
-    Ok(ids
-        .iter()
-        .map(|id| Membership {
-            id: id.clone(),
-            in_map: found.contains_key(id),
-            added: found.get(id).copied().unwrap_or(false),
-        })
-        .collect())
+    let added = super::runs::added_expr(&conn)?;
+    let mut out = Vec::with_capacity(keys.len());
+    // duckdb-rs는 목록 인자를 바인딩하지 못한다. 검색 한 페이지(25편) 단위라 VALUES 행을 늘린다.
+    for chunk in keys.chunks(200) {
+        let rows = vec!["(?::INTEGER, ?::VARCHAR, ?::VARCHAR, ?::VARCHAR, ?::INTEGER)"; chunk.len()]
+            .join(",");
+        let sql = format!(
+            "WITH k(i, id, doi, title, year) AS (VALUES {rows}), \
+             m AS (SELECT p.work_id AS id, \
+                     regexp_replace(lower(w.doi), '^https?://(dx\\.)?doi\\.org/', '') AS doi, \
+                     regexp_replace(lower(w.title), '[^a-z0-9]', '', 'g') AS title, \
+                     w.year, {added} AS added \
+                   FROM projections p JOIN works w ON w.id = p.work_id WHERE p.run_id = ?) \
+             SELECT k.i, count(m.id) > 0, coalesce(bool_or(m.added), false) FROM k \
+             LEFT JOIN m ON m.id = k.id \
+               OR (k.doi IS NOT NULL AND m.doi = k.doi) \
+               OR (k.title IS NOT NULL AND m.title = k.title \
+                   AND (k.year IS NULL OR m.year IS NULL OR abs(m.year - k.year) <= 1)) \
+             GROUP BY k.i ORDER BY k.i"
+        );
+        let mut values = Vec::with_capacity(chunk.len() * 5 + 1);
+        for (i, k) in chunk.iter().enumerate() {
+            values.push(Value::Int(i as i32));
+            values.push(Value::Text(k.id.clone()));
+            values.push(k.doi.as_deref().and_then(norm_doi).map_or(Value::Null, Value::Text));
+            values.push(k.title.as_deref().and_then(norm_title).map_or(Value::Null, Value::Text));
+            values.push(k.year.map_or(Value::Null, Value::Int));
+        }
+        values.push(Value::Text(run.to_string()));
+        let flags = conn
+            .prepare(&sql)?
+            .query_map(params_from_iter(values), |r| Ok((r.get::<_, bool>(1)?, r.get::<_, bool>(2)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        out.extend(chunk.iter().zip(flags).map(|(k, (in_map, added))| Membership {
+            id: k.id.clone(),
+            in_map,
+            added,
+        }));
+    }
+    Ok(out)
 }
 
 /// 인용 목록의 방향. `Both`가 기본이다.

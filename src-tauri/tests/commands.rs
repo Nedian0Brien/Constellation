@@ -192,7 +192,7 @@ fn job_commands_accept_frontend_argument_shapes() {
     assert_eq!(invoke(&webview, "job", json!({ "id": "../x" })).unwrap_err()["status"], 404);
 
     // api.ts 의 searchPapers · addPapers 가 보내는 모양.
-    let found = invoke(&webview, "search_papers", json!({ "q": "graph", "page": 1, "run": null })).unwrap();
+    let found = invoke(&webview, "search_papers", json!({ "q": "graph", "page": 1, "run": null, "source": "s2" })).unwrap();
     assert_eq!(found["items"][1]["id"], "openalex:W2");
     assert!(found["items"][0]["in_map"].is_null());
     let err = invoke(&webview, "search_papers", json!({ "q": "graph", "page": 41 })).unwrap_err();

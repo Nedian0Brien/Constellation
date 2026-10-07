@@ -7,6 +7,8 @@ case "$1" in
   corpus) echo "dropped $4 $5" >> "$data/drops.txt"; echo "지웠다"; exit 0 ;;
   papers)
     if [ "$2" = "search" ]; then
+      # papers search Q --page N --source S
+      echo "$7" > "$data/search-args.txt"
       echo "{\"query\": \"$3\", \"kind\": \"search\", \"total\": 2, \"page\": 1, \"items\": [{\"id\": \"openalex:W1\"}, {\"id\": \"openalex:W2\"}]}"
       exit 0
     fi
