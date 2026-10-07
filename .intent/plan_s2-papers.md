@@ -59,3 +59,15 @@ npm --prefix frontend run build
 npm --prefix frontend test
 E2E_PORT=5183 npm --prefix frontend run test:e2e   # 워크트리 serve를 8000에 띄운 뒤
 ```
+
+## 검증 결과 (2026-10-07)
+
+- Python `unittest` 59개, `cargo test --workspace`(core 16, jobs 12, Tauri 2), vitest 56, `npm run build` 통과. Playwright E2E 13/13(워크트리 serve, 실제 DB 조회 전용).
+- 실제 응답으로 확인한 것
+  - **S2 기록**: Self-RAG(arXiv 2310.11511)의 기록·초록이 있다(피인용 2,773). 참고문헌 57편 가운데 48편에 DOI나 MAG가 있다.
+  - **arXiv**: `arxiv.abstract("2310.11511")`이 초록을 돌려준다.
+  - **DOI 조회**: 스크래치 serve(8014)에서 `10.1145/3065386`은 `source: openalex`, `in_map: true`.
+- **S2 공용 한도**: 2026-10-07 20:58–21:15 사이 거의 모든 요청이 429였다. 확인용 요청이 200을 받은 직후에도 다음 요청은 429였다.
+  - 스크래치 지도에 Self-RAG를 추가하는 작업을 세 번 실행했다. 세 번 모두 resolve 단계에서 재시도 6번이 429로 끝나 `not_found`가 됐다. 작업 자체는 `succeeded`로 끝났고 지도는 바뀌지 않았다(10,604편, `added` 0).
+  - 이 결과로 참고문헌·피인용을 받지 못해도 논문은 추가하고 `warnings`에 남기도록 고쳤다.
+- **확인하지 못한 것**: S2 논문이 실데이터 지도에 배치되고 인용선이 이어지는 과정 전체. 가짜 S2 응답 테스트(`test_s2.AddS2Tests`)로만 확인했다. 사용자 결정(2026-10-07)에 따라 사이드바 작업 때 S2 키로 확인한다.
