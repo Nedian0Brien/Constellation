@@ -26,6 +26,7 @@ const map: MapData = {
   has_abstract: [true, true, false],
   title: ["첫 논문", "둘째 논문", "셋째 논문"],
   cluster: [0, 0, 1],
+  added: [false, false, false],
 };
 const clusters: ClusterInfo[] = [
   { cluster_id: 0, label: "RAG 평가", keywords: ["rag", "eval", "a", "b", "c", "d"], size: 2, x: 1.5, y: 15, year_median: 2024, top_work_id: "p2", top_work_title: "둘째 논문" },

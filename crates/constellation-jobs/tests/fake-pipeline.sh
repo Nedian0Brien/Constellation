@@ -5,6 +5,25 @@ case "$1" in
   estimate) echo '{"expected": 123}'; exit 0 ;;
   topics) echo "[{\"id\": \"T1\", \"name\": \"$2\"}]"; exit 0 ;;
   corpus) echo "dropped $4 $5" >> "$data/drops.txt"; echo "지웠다"; exit 0 ;;
+  papers)
+    if [ "$2" = "search" ]; then
+      echo "{\"query\": \"$3\", \"kind\": \"search\", \"total\": 2, \"page\": 1, \"items\": [{\"id\": \"openalex:W1\"}, {\"id\": \"openalex:W2\"}]}"
+      exit 0
+    fi
+    # papers add|remove --map M -i FILE --check|--events
+    map="$4"; file="$6"
+    pmode=$(sed -n 's/.*"mode": *"\([a-z]*\)".*/\1/p' "$file")
+    if [ "$7" = "--check" ]; then
+      if [ "$pmode" = "bad" ]; then echo "ids는 1–200개여야 합니다." >&2; exit 2; fi
+      echo "{\"map_id\": \"$map\", \"ids\": [\"W1\"], \"mode\": \"$pmode\"}"; exit 0
+    fi
+    echo "{\"event\": \"stage\", \"stage\": \"resolve\", \"index\": 0, \"count\": 5}"
+    if [ "$pmode" = "fail" ]; then
+      echo '{"event": "error", "stage": "resolve", "message": "찾지 못했다"}'; exit 1
+    fi
+    echo "{\"event\": \"done\", \"map_id\": \"$map\", \"result\": {\"added\": [{\"id\": \"openalex:W1\", \"cluster\": 3}], \"verb\": \"$2\"}}"
+    exit 0
+    ;;
 esac
 def="$3"
 mode=$(sed -n 's/.*"mode": *"\([a-z]*\)".*/\1/p' "$def")

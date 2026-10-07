@@ -188,6 +188,12 @@ fn paper_filter(p: &HashMap<String, String>) -> Result<PaperFilter, ApiError> {
         q: p.get("q").cloned().unwrap_or_default(),
         year_from: int(p, "year_from")?.map(|v| v as i32),
         year_to: int(p, "year_to")?.map(|v| v as i32),
+        added: match p.get("added").map(String::as_str) {
+            None | Some("") => None,
+            Some("true") => Some(true),
+            Some("false") => Some(false),
+            Some(_) => return Err(Error::invalid("added 값이 잘못되었습니다.").into()),
+        },
     })
 }
 
@@ -290,6 +296,36 @@ async fn job_log(State(runner): State<Runner>, Path(id): Path<String>) -> Reply<
     ok(JobLog { id, lines })
 }
 
+async fn search_papers(State(runner): State<Runner>, Query(p): Params) -> Reply<serde_json::Value> {
+    let q = required(&p, "q")?;
+    let page = bounded(int(&p, "page")?, 1, 40, "page")?;
+    let run = p.get("run").cloned().filter(|r| !r.is_empty());
+    ok(blocking(move || runner.search(&q, page, run.as_deref())).await?)
+}
+
+#[derive(serde::Deserialize)]
+struct PaperIds {
+    ids: serde_json::Value,
+}
+
+async fn add_papers(
+    State(runner): State<Runner>,
+    Path(run): Path<String>,
+    Json(body): Json<PaperIds>,
+) -> Result<(StatusCode, Json<Job>), ApiError> {
+    let job = blocking(move || runner.add_papers(&run, body.ids)).await?;
+    Ok((StatusCode::ACCEPTED, Json(job)))
+}
+
+async fn remove_papers(
+    State(runner): State<Runner>,
+    Path(run): Path<String>,
+    Json(body): Json<PaperIds>,
+) -> Result<(StatusCode, Json<Job>), ApiError> {
+    let job = blocking(move || runner.remove_papers(&run, body.ids)).await?;
+    Ok((StatusCode::ACCEPTED, Json(job)))
+}
+
 async fn cancel_job(State(runner): State<Runner>, Path(id): Path<String>) -> Reply<Job> {
     ok(runner.cancel(&id)?)
 }
@@ -354,6 +390,9 @@ async fn main() {
         .route("/api/jobs/{id}", get(job))
         .route("/api/jobs/{id}/log", get(job_log))
         .route("/api/jobs/{id}/cancel", post(cancel_job))
+        .route("/api/papers/search", get(search_papers))
+        .route("/api/maps/{run}/papers", post(add_papers))
+        .route("/api/maps/{run}/papers/remove", post(remove_papers))
         .layer(cors)
         .with_state(App {
             db,

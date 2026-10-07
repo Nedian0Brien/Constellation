@@ -96,7 +96,7 @@ pub fn is_pipeline(pid: u32) -> bool {
         .output()
         .map(|o| {
             let cmd = String::from_utf8_lossy(&o.stdout);
-            cmd.contains("build") && cmd.contains("--events")
+            cmd.contains("--events") && (cmd.contains(" build ") || cmd.contains(" papers "))
         })
         .unwrap_or(false)
 }

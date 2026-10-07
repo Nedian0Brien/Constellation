@@ -243,3 +243,17 @@ crates/constellation-jobs/                   # 작업 실행기. serve와 Tauri�
 - **프로세스 수명.** 파이프라인은 자기 프로세스 그룹에서 띄운다. 취소하면 그룹에 SIGTERM을 보내고(Python은 `SystemExit`으로 받아 연결을 닫는다), 10초 뒤에는 SIGKILL을 보낸다. 상태 파일에 pid를 남긴다. 앱·서버가 시작할 때 `running`으로 남은 작업이 있으면, 그 pid의 명령줄이 파이프라인인지 확인하고 종료시킨 뒤 실패로 바꾼다.
 - **코퍼스 단위 임베딩.** `embed_corpus(work_ids=…)`는 새 코퍼스 논문만 계산하고, 모델별 `works.parquet`에는 기존 행을 남긴 채 그 논문의 행만 합친다.
 - **API.** serve는 `POST /api/maps/estimate`, `GET /api/openalex/topics?q=`, `GET|POST /api/jobs`, `GET /api/jobs/{id}`, `GET /api/jobs/{id}/log`, `POST /api/jobs/{id}/cancel`을 제공한다. Tauri는 `estimate_map`·`search_topics`·`create_map`(Python을 기다리므로 async)·`jobs`·`job`·`job_log`·`cancel_job`을 제공한다.
+
+## 지도에 논문 추가 — 2026-10-07
+
+외부 출처에서 찾은 논문을 이미 만든 지도에 배치한다(연구 도구 기획 로드맵 3단계, `.intent/*_add-papers.md`).
+
+```
+backend/constellation/ingest/identify.py   # 식별자 판별(DOI·arXiv·OpenAlex), arXiv 해석, OpenAlex 검색
+backend/constellation/analyze/place.py     # 저장된 PCA·UMAP transform, 이웃 15편 다수결 배정, 빼기
+```
+
+- **배치는 한 트랜잭션이다.** 단계는 resolve → fetch → enrich → embed → place다. 앞의 네 단계는 공유 자료(`works`, 임베딩 캐시)만 쓴다. 코퍼스 소속·`projections`·`clusters`·`cluster_meta.size`는 place가 한 번에 쓴다. 그래서 실패나 취소에 대비한 정리가 필요 없고, 실행기의 `corpus drop`은 build 작업에만 한다.
+- **추가한 논문**은 지도 코퍼스의 `corpus_works.via = 'manual'`이다. core 질의가 `added_expr`로 판정한다(`MapData.added`, `PaperFilter.added`, `Work.added_at`, `membership`). 코퍼스 테이블이 없는 예전 DB에서는 항상 거짓이다.
+- **작업 종류.** `Job.kind`(build·add·remove)와 `result`가 있다. 예전 상태 파일은 build로 읽는다. 작업 중 조회 문구는 종류마다 다르다.
+- **검색 경로.** Python(`papers search`)이 OpenAlex·S2를 부르고 DB는 열지 않는다. Rust가 결과 id로 `membership`을 질의한다. 그래서 작업 중에도 검색할 수 있고, 그때 `in_map`은 null이다.

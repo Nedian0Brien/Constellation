@@ -13,6 +13,8 @@ export interface MapData {
   has_abstract: boolean[];
   title: string[];
   cluster: number[];
+  /** 사용자가 지도에 추가한 논문인지. 수집으로 들어온 논문은 false. */
+  added: boolean[];
 }
 
 // run 안에서 닫힌 인용 관계 전부. `citing[k]`·`cited[k]`는 `MapData` 배열의 인덱스다.
@@ -332,6 +334,8 @@ export interface Filters {
   q?: string;
   year_from?: number;
   year_to?: number;
+  /** true: 추가한 논문만, false: 수집으로 들어온 논문만 */
+  added?: boolean;
 }
 export const fetchMatches = (filters: Filters, signal?: AbortSignal) =>
   call<Matches>(
@@ -417,6 +421,7 @@ export interface TopicMatch {
   path: string[];
   works_count: number | null;
 }
+export type JobKind = "build" | "add" | "remove";
 export type JobStatus =
   | "queued"
   | "running"
@@ -425,8 +430,10 @@ export type JobStatus =
   | "cancelled";
 export interface Job {
   id: string;
+  kind: JobKind;
   status: JobStatus;
-  definition: MapDefinition;
+  /** build: 지도 정의, add·remove: `{map_id, ids}` */
+  definition: MapDefinition | { map_id: string; ids: string[] };
   stage: string | null;
   stage_index: number | null;
   stage_count: number;
@@ -441,6 +448,25 @@ export interface Job {
   /** llm: 이름 짓기 성공, ctfidf: 건너뛰고 키워드 라벨 */
   naming: "llm" | "ctfidf" | null;
   pid: number | null;
+  /** add: `AddResult`, remove: `{map_id, removed}` */
+  result: AddResult | { map_id: string; removed: string[] } | null;
+}
+export interface AddResult {
+  map_id: string;
+  added: {
+    id: string;
+    title: string | null;
+    /** -1 = 미분류 */
+    cluster: number;
+    label: string | null;
+    title_only: boolean;
+    /** 가장 가까운 지도 안 논문과의 코사인 유사도 */
+    similarity: number;
+  }[];
+  skipped: { id: string; reason: string }[];
+  not_found: string[];
+  /** 추가한 논문이 수집 논문의 10%를 넘으면 true */
+  recompute_suggested: boolean;
 }
 export interface JobLog {
   id: string;
@@ -460,3 +486,59 @@ export const fetchJobLog = (id: string, signal?: AbortSignal) =>
   call<JobLog>("job_log", `/jobs/${encodeURIComponent(id)}/log`, { id }, signal);
 export const cancelJob = (id: string) =>
   call<Job>("cancel_job", `/jobs/${encodeURIComponent(id)}/cancel`, { id }, undefined, {});
+
+// ── 외부 논문 검색과 지도에 추가 ──────────────────────────────
+// 검색은 OpenAlex 전문 검색(1,000회에 $1)이므로 화면에서 입력을 debounce한다.
+// DOI·arXiv ID·OpenAlex ID는 그 논문 하나를 무료 단건 조회로 찾는다.
+
+export interface ExternalPaper {
+  /** `openalex:W…`. addPapers에 그대로 넘긴다. */
+  id: string;
+  title: string;
+  year: number | null;
+  authors: string[];
+  venue: string | null;
+  cited_by_count: number | null;
+  doi: string | null;
+  has_abstract: boolean;
+  /** run을 넘겼을 때만. 작업 중이면 null */
+  in_map: boolean | null;
+  added: boolean | null;
+}
+export interface ExternalSearch {
+  query: string;
+  kind: "search" | "doi" | "arxiv" | "openalex";
+  total: number;
+  page: number;
+  items: ExternalPaper[];
+}
+export const searchPapers = (
+  q: string,
+  page = 1,
+  run?: string,
+  signal?: AbortSignal,
+) =>
+  call<ExternalSearch>(
+    "search_papers",
+    "/papers/search?" + params({ q, page, run }),
+    { q, page, run },
+    signal,
+  );
+/** 1–200편. 결과는 작업(`kind: "add"`)으로 돌아오고 `fetchJob`으로 확인한다. */
+export const addPapers = (run: string, ids: string[]) =>
+  call<Job>(
+    "add_papers",
+    `/maps/${encodeURIComponent(run)}/papers`,
+    { run, ids },
+    undefined,
+    { ids },
+  );
+/** 추가한 논문만 뺄 수 있다. 수집으로 들어온 논문이 섞이면 작업이 실패한다. */
+export const removePapers = (run: string, ids: string[]) =>
+  call<Job>(
+    "remove_papers",
+    `/maps/${encodeURIComponent(run)}/papers/remove`,
+    { run, ids },
+    undefined,
+    { ids },
+  );

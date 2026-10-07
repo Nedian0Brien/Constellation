@@ -191,7 +191,10 @@ async def backfill_citations(
         conn.close()
 
 
-async def enrich_abstracts(corpus: str, *, log: Progress = print) -> dict[str, int]:
+async def enrich_abstracts(
+    corpus: str | None = None, *, work_ids: list[str] | None = None,
+    log: Progress = print,
+) -> dict[str, int]:
     """초록이 없는 논문을 Semantic Scholar로 메운다.
 
     결손의 대부분은 Elsevier·Springer 저널이고, 그건 구조적으로 Scopus의
@@ -201,11 +204,18 @@ async def enrich_abstracts(corpus: str, *, log: Progress = print) -> dict[str, i
 
     conn = store.connect()
     try:
-        rows = conn.execute(
-            "SELECT w.id, w.doi FROM works w "
-            "JOIN corpus_works m ON m.work_id = w.id AND m.corpus_id = ? "
-            "WHERE NOT w.has_abstract AND w.doi IS NOT NULL", (corpus,)
-        ).fetchall()
+        if work_ids is not None:
+            # 지도에 추가하는 논문. 아직 코퍼스 소속이 아니다.
+            rows = conn.execute(
+                "SELECT w.id, w.doi FROM works w WHERE list_contains(?, w.id) "
+                "AND NOT w.has_abstract AND w.doi IS NOT NULL", (work_ids,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT w.id, w.doi FROM works w "
+                "JOIN corpus_works m ON m.work_id = w.id AND m.corpus_id = ? "
+                "WHERE NOT w.has_abstract AND w.doi IS NOT NULL", (corpus,)
+            ).fetchall()
         if not rows:
             log("보강할 대상이 없다.")
             return {"filled": 0}

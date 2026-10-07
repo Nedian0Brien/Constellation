@@ -25,6 +25,7 @@ from .config import Settings
 from .db import store
 from .db.scope import corpus_work_ids, resolve_map
 from .ingest.definition import Definition, SeedsDef, corpus_id
+from .sources.openalex import strip_id
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -223,3 +224,163 @@ async def search_topics(settings: Settings, q: str, limit: int = 8) -> list[dict
                     "works_count": r.get("works_count"),
                 })
     return out
+
+
+# ── 지도에 논문 추가·빼기 ─────────────────────────────────────
+
+ADD_STAGES = ("resolve", "fetch", "enrich", "embed", "place")
+MAX_ADD = 200
+RECOMPUTE_RATIO = 0.10   # 기획 5.3절의 제안값. 공식 기준은 없다.
+
+
+def _stage_runner(emit: Emit, stages: tuple[str, ...]):
+    """단계 이벤트·로그·진행률을 붙여 함수를 실행한다. 실패는 StageError로."""
+    def stage(name: str, fn):
+        emit({"event": "stage", "stage": name, "index": stages.index(name),
+              "count": len(stages)})
+
+        def log(msg: str) -> None:
+            if msg.strip():
+                emit({"event": "log", "stage": name, "message": msg})
+
+        def progress(done: int, total: int) -> None:
+            emit({"event": "progress", "stage": name, "done": done, "total": total})
+
+        try:
+            return fn(log, progress)
+        except Exception as e:  # noqa: BLE001
+            raise StageError(name, e) from e
+    return stage
+
+
+def check_papers(run_id: str, ids: Any) -> list[str]:
+    """추가·빼기 입력과 지도를 검사한다. 잘못되면 ValueError."""
+    from .analyze.place import map_info
+    if not isinstance(ids, list) or not all(isinstance(i, str) and i.strip() for i in ids):
+        raise ValueError("ids 값은 문자열 목록이어야 합니다.")
+    ids = list(dict.fromkeys(i.strip() for i in ids))
+    if not 1 <= len(ids) <= MAX_ADD:
+        raise ValueError("ids는 1–%d개여야 합니다." % MAX_ADD)
+    conn = store.connect(read_only=True)
+    try:
+        map_info(conn, run_id)
+    finally:
+        conn.close()
+    return ids
+
+
+def add_papers(run_id: str, ids: list[str], emit: Emit,
+               settings: Settings | None = None, s2_fetch=None) -> dict[str, Any]:
+    """식별자·검색 결과 id를 지도에 추가한다. 실패하면 StageError."""
+    from .analyze import place as place_mod
+    from .embed.run import embed_corpus
+    from .ingest import collect as collect_mod
+    from .ingest.identify import RESULT_SELECT, classify, lookup
+    from .sources.openalex import OpenAlexSource
+
+    settings = settings or Settings.load()
+    stage = _stage_runner(emit, ADD_STAGES)
+    conn = store.connect(read_only=True)
+    try:
+        info = place_mod.map_info(conn, run_id)
+        in_map = {r[0] for r in conn.execute(
+            "SELECT work_id FROM projections WHERE run_id = ?", (run_id,)).fetchall()}
+        have = store.existing_ids(conn)
+    finally:
+        conn.close()
+    model = info["model"]
+    found: dict[str, str] = {}      # 입력 → openalex:W…
+    not_found: list[str] = []
+    skipped: list[dict[str, str]] = []
+
+    def resolve(log, progress):
+        async def go():
+            async with OpenAlexSource(settings) as src:
+                for n, raw in enumerate(ids):
+                    kind, value = classify(raw.removeprefix("openalex:"))
+                    if kind == "search":
+                        not_found.append(raw)
+                        log("  식별자가 아니다: %s" % raw)
+                        continue
+                    try:
+                        _, row = await lookup(src, raw.removeprefix("openalex:"), s2_fetch, log)
+                    except RuntimeError as e:
+                        # 한 편을 못 찾았다고 작업 전체를 멈추지 않는다(S2 공용 풀 429 등).
+                        log("  조회 실패: %s (%s)" % (raw, str(e)[:160]))
+                        row = None
+                    if not row:
+                        not_found.append(raw)
+                        log("  찾지 못했다: %s" % raw)
+                    else:
+                        found[raw] = "openalex:" + strip_id(row["id"])
+                        log("  %s → %s %s" % (raw, found[raw], (row.get("title") or "")[:60]))
+                    progress(n + 1, len(ids))
+        if not settings.openalex_api_key:
+            raise RuntimeError("OPENALEX_API_KEY가 없습니다. 저장소의 .env에 넣으세요.")
+        asyncio.run(go())
+
+    stage("resolve", resolve)
+    targets = []
+    for raw, wid in found.items():
+        if wid in in_map:
+            skipped.append({"id": wid, "reason": "이미 지도에 있다"})
+        elif wid not in targets:
+            targets.append(wid)
+
+    def fetch(log, progress):
+        missing = [w for w in targets if w not in have]
+        if not missing:
+            log("모두 DB에 있다. 받지 않는다.")
+            return
+
+        async def go():
+            works = []
+            async with OpenAlexSource(settings) as src:
+                async for w in src.fetch_by_ids(missing):
+                    works.append(w)
+            return works
+        works = asyncio.run(go())
+        c = store.connect()
+        try:
+            store.upsert_works(c, works)
+            c.commit()
+        finally:
+            c.close()
+        log("%d편을 받았다" % len(works))
+
+    if targets:
+        stage("fetch", fetch)
+        stage("enrich", lambda log, progress: asyncio.run(
+            collect_mod.enrich_abstracts(work_ids=targets, log=log)))
+        stage("embed", lambda log, progress: embed_corpus(
+            model, log=log, progress=progress, work_ids=targets))
+        placed = stage("place", lambda log, progress: place_mod.place(run_id, targets, log=log))
+    else:
+        placed = []
+    n_added, n_collected = place_mod.added_ratio(run_id)
+    result = {
+        "map_id": run_id,
+        "added": [{k: r[k] for k in ("id", "title", "cluster", "label", "title_only",
+                                      "similarity")} for r in placed],
+        "skipped": skipped,
+        "not_found": not_found,
+        "recompute_suggested": n_collected > 0 and n_added > n_collected * RECOMPUTE_RATIO,
+    }
+    emit({"event": "done", "map_id": run_id, "result": result})
+    return result
+
+
+def remove_papers(run_id: str, ids: list[str], emit: Emit) -> dict[str, Any]:
+    from .analyze import place as place_mod
+    stage = _stage_runner(emit, ("remove",))
+    removed = stage("remove", lambda log, progress: place_mod.remove(run_id, ids, log=log))
+    result = {"map_id": run_id, "removed": removed}
+    emit({"event": "done", "map_id": run_id, "result": result})
+    return result
+
+
+async def search_papers(settings: Settings, q: str, page: int = 1) -> dict[str, Any]:
+    from .ingest.identify import search
+    from .sources.openalex import OpenAlexSource
+    async with OpenAlexSource(settings) as src:
+        return await search(src, q, page)

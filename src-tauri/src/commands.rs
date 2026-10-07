@@ -240,6 +240,33 @@ pub async fn create_map(state: State<'_, AppState>, definition: Value) -> Reply<
 }
 
 #[tauri::command]
+pub async fn search_papers(
+    state: State<'_, AppState>,
+    q: String,
+    page: Option<u32>,
+    run: Option<String>,
+) -> Reply<Value> {
+    let runner = state.runner();
+    let page = page.unwrap_or(1);
+    if !(1..=40).contains(&page) {
+        return Err(Error::invalid("page 값이 잘못되었습니다."));
+    }
+    blocking(move || runner.search(&q, page, run.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn add_papers(state: State<'_, AppState>, run: String, ids: Value) -> Reply<Job> {
+    let runner = state.runner();
+    blocking(move || runner.add_papers(&run, ids)).await
+}
+
+#[tauri::command]
+pub async fn remove_papers(state: State<'_, AppState>, run: String, ids: Value) -> Reply<Job> {
+    let runner = state.runner();
+    blocking(move || runner.remove_papers(&run, ids)).await
+}
+
+#[tauri::command]
 pub fn jobs(state: State<AppState>) -> Vec<Job> {
     state.runner().jobs()
 }

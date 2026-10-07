@@ -91,3 +91,26 @@ async def fetch_abstracts(
             await asyncio.sleep(PAUSE)
 
     return out
+
+
+PAPER_URL = "https://api.semanticscholar.org/graph/v1/paper/"
+
+
+async def fetch_paper(s2_id: str, fields: str = "title,year,externalIds") -> dict | None:
+    """단건 조회(`arXiv:2005.11401` 등). 없으면 None. 공용 풀의 429는 지수 대기로 다시 묻는다."""
+    delay = 2.0
+    async with httpx.AsyncClient(
+        timeout=30.0, headers={"User-Agent": "Constellation/0.1"}
+    ) as client:
+        for attempt in range(5):
+            r = await client.get(PAPER_URL + s2_id, params={"fields": fields})
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code == 404:
+                return None
+            if r.status_code in (429, 500, 502, 503, 504) and attempt < 4:
+                await asyncio.sleep(delay)
+                delay *= 2
+                continue
+            raise RuntimeError("Semantic Scholar HTTP %d: %s" % (r.status_code, r.text[:200]))
+    return None

@@ -33,6 +33,19 @@ impl Status {
     }
 }
 
+/// 작업 종류. 예전 상태 파일에는 없으므로 기본값은 Build다.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// 새 지도 만들기(`constellation build`)
+    #[default]
+    Build,
+    /// 지도에 논문 추가(`constellation papers add`)
+    Add,
+    /// 추가한 논문 빼기(`constellation papers remove`)
+    Remove,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Progress {
     pub done: u64,
@@ -49,8 +62,10 @@ pub struct JobError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Job {
     pub id: String,
+    #[serde(default)]
+    pub kind: Kind,
     pub status: Status,
-    /// 정규화한 지도 정의(`constellation build --check` 출력).
+    /// 검증을 거친 요청. build는 지도 정의, add·remove는 `{map_id, ids}`.
     pub definition: Value,
     pub stage: Option<String>,
     pub stage_index: Option<u32>,
@@ -67,6 +82,9 @@ pub struct Job {
     pub naming: Option<String>,
     /// 파이프라인 프로세스. 앱이 꺼진 뒤 다시 켤 때 남은 프로세스를 찾는다.
     pub pid: Option<u32>,
+    /// `done` 이벤트의 결과. add는 배치한 논문·건너뛴 논문·찾지 못한 입력.
+    #[serde(default)]
+    pub result: Option<Value>,
 }
 
 /// 파이프라인 단계 수. `backend/constellation/pipeline.py`의 STAGES와 같다.
@@ -80,9 +98,10 @@ pub fn now_ms() -> u64 {
 }
 
 impl Job {
-    pub fn new(id: String, definition: Value) -> Self {
+    pub fn new(id: String, kind: Kind, definition: Value) -> Self {
         Self {
             id,
+            kind,
             status: Status::Queued,
             definition,
             stage: None,
@@ -96,6 +115,7 @@ impl Job {
             map_id: None,
             naming: None,
             pid: None,
+            result: None,
         }
     }
 
@@ -123,6 +143,7 @@ impl Job {
                 self.corpus_id = s("corpus_id").or(self.corpus_id.take());
                 self.map_id = s("map_id");
                 self.naming = s("naming");
+                self.result = ev.get("result").cloned();
             }
             Some("error") => {
                 self.error = Some(JobError {

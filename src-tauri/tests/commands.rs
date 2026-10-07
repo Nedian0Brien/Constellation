@@ -190,4 +190,21 @@ fn job_commands_accept_frontend_argument_shapes() {
     let cancelled = invoke(&webview, "cancel_job", json!({ "id": id })).unwrap();
     assert_eq!(cancelled["status"], "succeeded");
     assert_eq!(invoke(&webview, "job", json!({ "id": "../x" })).unwrap_err()["status"], 404);
+
+    // api.ts 의 searchPapers · addPapers 가 보내는 모양.
+    let found = invoke(&webview, "search_papers", json!({ "q": "graph", "page": 1, "run": null })).unwrap();
+    assert_eq!(found["items"][1]["id"], "openalex:W2");
+    assert!(found["items"][0]["in_map"].is_null());
+    let err = invoke(&webview, "search_papers", json!({ "q": "graph", "page": 41 })).unwrap_err();
+    assert_eq!(err["status"], 422);
+    let job = invoke(&webview, "add_papers", json!({ "run": "m", "ids": { "mode": "ok" } })).unwrap();
+    assert_eq!((job["kind"].as_str(), job["definition"]["map_id"].as_str()), (Some("add"), Some("m")));
+    let id = job["id"].as_str().unwrap().to_string();
+    let start = std::time::Instant::now();
+    while invoke(&webview, "job", json!({ "id": id })).unwrap()["status"] != "succeeded" {
+        assert!(start.elapsed().as_secs() < 30);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let err = invoke(&webview, "remove_papers", json!({ "run": "m", "ids": { "mode": "bad" } })).unwrap_err();
+    assert_eq!(err["status"], 422);
 }

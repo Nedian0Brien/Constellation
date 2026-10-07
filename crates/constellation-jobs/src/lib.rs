@@ -21,12 +21,38 @@ use std::time::Duration;
 use constellation_core::{Database, Error, Gate};
 use serde_json::Value;
 
-pub use job::{valid_id, Job, JobError, Progress, Status, Store, KEEP, LOG_TAIL, STAGE_COUNT};
+pub use job::{valid_id, Job, JobError, Kind, Progress, Status, Store, KEEP, LOG_TAIL, STAGE_COUNT};
 
 type Result<T> = std::result::Result<T, Error>;
 
 /// 앱 조회가 돌려주는 문구. `/api/health`의 reason도 같다.
 pub const BUSY: &str = "새 지도를 만드는 중입니다. 끝나면 다시 열립니다.";
+/// 논문 추가·빼기 동안의 문구.
+pub const BUSY_PAPERS: &str = "지도에 논문을 반영하는 중입니다. 끝나면 다시 열립니다.";
+
+/// 종류별 파이프라인 인자. `file`은 요청을 쓴 파일, `mode`는 `--check` 또는 `--events`.
+fn pipeline_args(kind: Kind, definition: &Value, file: &str, mode: &'static str) -> Vec<String> {
+    let map = definition
+        .get("map_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let papers = |verb: &str| {
+        vec!["papers".into(), verb.into(), "--map".into(), map.clone(), "-i".into(), file.into(), mode.into()]
+    };
+    match kind {
+        Kind::Build => vec!["build".into(), "-d".into(), file.into(), mode.into()],
+        Kind::Add => papers("add"),
+        Kind::Remove => papers("remove"),
+    }
+}
+
+fn busy_message(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Build => BUSY,
+        Kind::Add | Kind::Remove => BUSY_PAPERS,
+    }
+}
 /// 실행 중인 조회가 끝나기를 기다리는 시간.
 const IDLE_WAIT: Duration = Duration::from_secs(5);
 /// SIGTERM 뒤 강제 종료까지 기다리는 시간.
@@ -170,8 +196,58 @@ impl Runner {
         Ok(self.store().log_tail(id).unwrap_or_default())
     }
 
-    /// 지도 정의를 검증하고 작업을 시작한다. 실행 중인 작업이 있으면 409.
+    /// 지도 정의를 검증하고 새 지도 만들기를 시작한다. 실행 중인 작업이 있으면 409.
     pub fn submit(&self, definition: Value) -> Result<Job> {
+        self.submit_job(Kind::Build, definition)
+    }
+
+    /// 지도에 논문을 추가한다. `ids`는 검색 결과 id(`openalex:W…`) 또는 DOI·arXiv·OpenAlex 식별자.
+    pub fn add_papers(&self, map_id: &str, ids: Value) -> Result<Job> {
+        self.submit_job(Kind::Add, serde_json::json!({ "map_id": map_id, "ids": ids }))
+    }
+
+    /// 추가한 논문을 지도에서 뺀다.
+    pub fn remove_papers(&self, map_id: &str, ids: Value) -> Result<Job> {
+        self.submit_job(Kind::Remove, serde_json::json!({ "map_id": map_id, "ids": ids }))
+    }
+
+    /// 외부 논문 검색. `run`을 주면 결과마다 그 지도에 있는지(`in_map`)·추가한 논문인지
+    /// (`added`)를 붙인다. 작업 중이라 DB를 열 수 없으면 둘 다 null이다.
+    pub fn search(&self, q: &str, page: u32, run: Option<&str>) -> Result<Value> {
+        let q = q.trim();
+        if q.is_empty() {
+            return Err(Error::invalid("q 값이 필요합니다."));
+        }
+        let page = page.to_string();
+        let mut out = self.run_json(&["papers", "search", q, "--page", &page])?;
+        let ids: Vec<String> = out["items"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|i| i["id"].as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let flags = match run.filter(|r| !r.is_empty()) {
+            Some(run) => match constellation_core::queries::membership(&self.inner.db, run, &ids) {
+                Ok(m) => Some(m),
+                Err(e) if e.status == 503 => None,
+                Err(e) => return Err(e),
+            },
+            None => None,
+        };
+        if let Some(items) = out["items"].as_array_mut() {
+            for (i, item) in items.iter_mut().enumerate() {
+                let m = flags.as_ref().and_then(|f| f.get(i));
+                item["in_map"] = m.map_or(Value::Null, |m| Value::Bool(m.in_map));
+                item["added"] = m.map_or(Value::Null, |m| Value::Bool(m.added));
+            }
+        }
+        Ok(out)
+    }
+
+    fn submit_job(&self, kind: Kind, definition: Value) -> Result<Job> {
         let id = {
             let mut cur = self.inner.current.lock().unwrap();
             if cur.is_some() {
@@ -188,8 +264,10 @@ impl Runner {
             });
             id
         };
-        let checked =
-            self.with_definition(&id, &definition, |p| self.run_json(&["build", "-d", p, "--check"]));
+        let checked = self.with_definition(&id, &definition, |p| {
+            let args = pipeline_args(kind, &definition, p, "--check");
+            self.run_json(&args.iter().map(String::as_str).collect::<Vec<_>>())
+        });
         let checked = match checked {
             Ok(v) => v,
             Err(e) => {
@@ -198,7 +276,7 @@ impl Runner {
                 return Err(e);
             }
         };
-        let job = Job::new(id.clone(), checked);
+        let job = Job::new(id.clone(), kind, checked);
         if let Err(e) = self.store().save(&job) {
             self.inner.current.lock().unwrap().take();
             return Err(Error::new(500, format!("작업 상태를 저장하지 못했습니다: {e}")));
@@ -269,7 +347,7 @@ impl Runner {
             });
             job.pid = None;
             let _ = self.store().save(&job);
-            if let Some(corpus) = job.corpus_id.clone() {
+            if let Some(corpus) = job.corpus_id.clone().filter(|_| job.kind == Kind::Build) {
                 if self.gate().close(BUSY, IDLE_WAIT) {
                     self.drop_corpus(&job.id, &corpus);
                     self.gate().open();
@@ -324,7 +402,7 @@ impl Runner {
             let _ = store.save(job);
         };
 
-        if !self.gate().close(BUSY, IDLE_WAIT) {
+        if !self.gate().close(busy_message(job.kind), IDLE_WAIT) {
             return fail(&mut job, "진행 중인 조회가 끝나지 않아 작업을 시작하지 못했습니다.".into());
         }
         if self.cancelled(&id) {
@@ -334,7 +412,9 @@ impl Runner {
             return;
         }
         let def = store.definition_path(&id).to_string_lossy().to_string();
-        let child = self.command(&["build", "-d", &def, "--events"]).and_then(|mut c| {
+        let args = pipeline_args(job.kind, &job.definition, &def, "--events");
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let child = self.command(&args).and_then(|mut c| {
             process::own_group(&mut c);
             c.stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -437,7 +517,8 @@ impl Runner {
             }
         }
         let _ = store.save(&job);
-        if job.status != Status::Succeeded {
+        // add·remove는 마지막 단계에서 한 트랜잭션으로 쓰므로 정리할 것이 없다.
+        if job.status != Status::Succeeded && job.kind == Kind::Build {
             if let Some(corpus) = job.corpus_id.clone() {
                 self.drop_corpus(&id, &corpus);
             }

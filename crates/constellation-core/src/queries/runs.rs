@@ -32,6 +32,17 @@ pub(crate) fn has_corpus_columns(conn: &duckdb::Connection) -> Result<bool> {
     Ok(n > 0)
 }
 
+/// 지도(`p.run_id`)의 코퍼스에 사용자가 추가한(`via='manual'`) 논문(`p.work_id`)인지.
+/// 코퍼스 도입 전 DB는 코퍼스 테이블이 없으므로 항상 거짓이다.
+pub(crate) fn added_expr(conn: &duckdb::Connection) -> Result<&'static str> {
+    Ok(if has_corpus_columns(conn)? {
+        "EXISTS (SELECT 1 FROM runs ar JOIN corpus_works am ON am.corpus_id = ar.corpus_id \
+         WHERE ar.run_id = p.run_id AND am.work_id = p.work_id AND am.via = 'manual')"
+    } else {
+        "FALSE"
+    })
+}
+
 /// 앱이 만드는 중인 코퍼스(`corpora.status = 'building'`)를 거를 수 있는지.
 fn has_corpus_status(conn: &duckdb::Connection) -> Result<bool> {
     let n: i64 = conn.query_row(

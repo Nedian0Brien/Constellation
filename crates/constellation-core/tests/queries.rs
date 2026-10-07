@@ -49,6 +49,7 @@ fn filter(run: &str, q: &str, from: Option<i32>, to: Option<i32>) -> PaperFilter
         q: q.into(),
         year_from: from,
         year_to: to,
+        added: None,
     }
 }
 
@@ -396,4 +397,62 @@ fn closed_gate_refuses_queries_and_waits_for_open_connections() {
     assert!(gate.reason().is_none());
     drop(held);
     assert!(gate.close("x", Duration::from_millis(100)));
+}
+
+#[test]
+fn added_papers_are_marked_filtered_and_dated() {
+    let f = populate();
+    let conn = Connection::open(f.db.path()).unwrap();
+    conn.execute_batch(
+        "INSERT INTO corpora (id,name,created_at) VALUES ('rag','RAG/IR',CURRENT_TIMESTAMP);\
+         UPDATE runs SET corpus_id = 'rag' WHERE run_id = 'a';\
+         INSERT INTO corpus_works VALUES ('rag','1','collect',CURRENT_TIMESTAMP),\
+           ('rag','2','collect',CURRENT_TIMESTAMP),('rag','3','manual','2026-10-07 01:02:03'),\
+           ('rag','5','collect',CURRENT_TIMESTAMP);",
+    )
+    .unwrap();
+    drop(conn);
+
+    let map = queries::map(&f.db, Some("a")).unwrap();
+    let added: Vec<_> = map.id.iter().zip(&map.added).filter(|(_, a)| **a).map(|(i, _)| i.as_str()).collect();
+    assert_eq!(added, ["3"]);
+
+    let mut only = filter("a", "", None, None);
+    only.added = Some(true);
+    let page = queries::works(&f.db, only.clone(), Sort::Title, Order::Asc, 1, 25).unwrap();
+    assert_eq!(ids(&page), ["3"]);
+    assert_eq!(queries::matches(&f.db, only).unwrap().ids, ["3"]);
+    let mut collected = filter("a", "", None, None);
+    collected.added = Some(false);
+    assert_eq!(queries::matches(&f.db, collected).unwrap().total, 3);
+
+    let work = queries::work(&f.db, "3", Some("a")).unwrap();
+    assert_eq!(work.added_at.as_deref(), Some("2026-10-07 01:02:03"));
+    assert_eq!(queries::work(&f.db, "1", Some("a")).unwrap().added_at, None);
+
+    let m = queries::membership(&f.db, "a", &["3".into(), "1".into(), "zz".into()]).unwrap();
+    let flags: Vec<_> = m.iter().map(|m| (m.id.as_str(), m.in_map, m.added)).collect();
+    assert_eq!(flags, [("3", true, true), ("1", true, false), ("zz", false, false)]);
+    assert_eq!(queries::membership(&f.db, "nope", &[]).unwrap_err().status, 404);
+}
+
+#[test]
+fn legacy_database_without_corpus_tables_has_no_added_papers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("legacy.duckdb");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE runs (run_id TEXT, kind TEXT, model TEXT, params_json TEXT, n_items INT, created_at TIMESTAMP);\
+         CREATE TABLE works (id TEXT, title TEXT, abstract TEXT, year INT, cited_by_count INT, has_abstract BOOLEAN, \
+           doi TEXT, venue TEXT, type TEXT, source TEXT);\
+         CREATE TABLE projections (run_id TEXT, work_id TEXT, x DOUBLE, y DOUBLE, z DOUBLE);\
+         CREATE TABLE clusters (run_id TEXT, work_id TEXT, cluster_id INT, probability DOUBLE);\
+         INSERT INTO runs VALUES ('a','project','scincl',NULL,1,CURRENT_TIMESTAMP);\
+         INSERT INTO works VALUES ('1','t',NULL,2020,1,false,NULL,NULL,NULL,'test');\
+         INSERT INTO projections VALUES ('a','1',0,0,0);",
+    )
+    .unwrap();
+    drop(conn);
+    let db = Database::new(&path);
+    assert_eq!(queries::map(&db, Some("a")).unwrap().added, [false]);
 }

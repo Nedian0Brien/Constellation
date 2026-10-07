@@ -498,6 +498,41 @@ def _json_out(value) -> None:
     sys.stdout.flush()
 
 
+def _emitter(events: bool):
+    """이벤트 출력 함수. --events면 표준 출력에 JSON 줄만 쓰고 나머지 출력(print,
+    진행 막대, 라이브러리 경고)은 표준 오류로 돌린다. 아니면 사람이 읽는 형태로 쓴다."""
+    import json
+    import os
+
+    if events:
+        out = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
+        os.dup2(2, 1)
+        sys.stdout = sys.stderr
+
+        def emit(ev):
+            out.write(json.dumps(ev, ensure_ascii=False) + "\n")
+        return emit
+
+    def emit(ev):
+        kind = ev["event"]
+        if kind == "stage":
+            console.print("[bold]── %d/%d %s ──[/]" % (ev["index"] + 1, ev["count"], ev["stage"]))
+        elif kind == "log":
+            console.print(ev["message"])
+        elif kind == "done":
+            console.print("[green]완료[/] %s" % json.dumps(
+                {k: v for k, v in ev.items() if k != "event"}, ensure_ascii=False))
+        elif kind == "error":
+            console.print("[red]%s 단계 실패:[/] %s" % (ev["stage"], ev["message"]))
+    return emit
+
+
+def _on_sigterm() -> None:
+    """실행기가 취소하면 SIGTERM이 온다. SystemExit으로 바꿔 finally(연결 닫기)가 돌게 한다."""
+    import signal
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+
+
 @app.command()
 def build(
     definition: str = typer.Option(..., "--definition", "-d", help="지도 정의 JSON 파일"),
@@ -507,40 +542,15 @@ def build(
                                help="정의만 검증하고 정규화한 정의를 JSON으로 쓴다"),
 ) -> None:
     """정의 하나로 collect부터 lineage까지 실행해 새 지도를 만든다."""
-    import json
-    import os
-    import signal
-
     from . import pipeline
 
     defn = _definition(definition)
     if check:
         _json_out(defn.to_json())
         return
-    if events:
-        # 이벤트만 표준 출력으로 낸다. 나머지 출력(print, 진행 막대, 라이브러리
-        # 경고)은 표준 오류로 돌려 이벤트 줄이 섞이지 않게 한다.
-        out = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
-        os.dup2(2, 1)
-        sys.stdout = sys.stderr
+    emit = _emitter(events)
 
-        def emit(ev):
-            out.write(json.dumps(ev, ensure_ascii=False) + "\n")
-    else:
-        def emit(ev):
-            kind = ev["event"]
-            if kind == "stage":
-                console.print("[bold]── %d/%d %s ──[/]" % (ev["index"] + 1, ev["count"], ev["stage"]))
-            elif kind == "log":
-                console.print(ev["message"])
-            elif kind == "done":
-                console.print("[green]완료[/] — 코퍼스 %s, 지도 %s, 이름 %s"
-                              % (ev["corpus_id"], ev["map_id"], ev["naming"]))
-            elif kind == "error":
-                console.print("[red]%s 단계 실패:[/] %s" % (ev["stage"], ev["message"]))
-
-    # 실행기가 취소하면 SIGTERM이 온다. SystemExit으로 바꿔 finally(연결 닫기)가 돌게 한다.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    _on_sigterm()
     try:
         pipeline.build(defn, emit)
     except pipeline.StageError as e:
@@ -573,6 +583,84 @@ def topics(
         _json_out(asyncio.run(pipeline.search_topics(_settings(), query, limit)))
     except RuntimeError as e:
         console.print("[red]%s[/]" % e)
+        raise typer.Exit(1)
+
+
+papers_app = typer.Typer(help="외부 논문 검색과 지도에 논문 추가·빼기")
+app.add_typer(papers_app, name="papers")
+
+
+@papers_app.command("search")
+def papers_search(
+    query: str = typer.Argument(..., help="검색어 또는 DOI·arXiv ID·OpenAlex ID"),
+    page: int = typer.Option(1, "--page"),
+) -> None:
+    """OpenAlex에서 논문을 찾아 JSON으로 쓴다. 식별자면 그 논문 하나를 찾는다."""
+    from . import pipeline
+    try:
+        _json_out(asyncio.run(pipeline.search_papers(_settings(), query, page)))
+    except ValueError as e:
+        sys.stderr.write("%s\n" % e)
+        raise typer.Exit(2)
+    except RuntimeError as e:
+        console.print("[red]%s[/]" % e)
+        raise typer.Exit(1)
+
+
+def _papers_input(map_id: str, path: str) -> list[str]:
+    import json
+    from pathlib import Path
+
+    from . import pipeline
+    try:
+        data = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+        return pipeline.check_papers(map_id, data.get("ids") if isinstance(data, dict) else None)
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        sys.stderr.write("%s\n" % e)
+        raise typer.Exit(2)
+
+
+@papers_app.command("add")
+def papers_add(
+    map_id: str = typer.Option(..., "--map", help="대상 지도(project run id)"),
+    ids_file: str = typer.Option(..., "--ids", "-i", help='{"ids": [...]} JSON 파일'),
+    events: bool = typer.Option(False, "--events", help="진행 상황을 JSON 줄로 쓴다"),
+    check: bool = typer.Option(False, "--check", help="입력과 지도만 검사한다"),
+) -> None:
+    """논문을 지도에 추가한다. 기존 논문의 좌표·클러스터는 바꾸지 않는다."""
+    from . import pipeline
+    ids = _papers_input(map_id, ids_file)
+    if check:
+        _json_out({"map_id": map_id, "ids": ids})
+        return
+    emit = _emitter(events)
+    _on_sigterm()
+    try:
+        pipeline.add_papers(map_id, ids, emit)
+    except pipeline.StageError as e:
+        emit({"event": "error", "stage": e.stage, "message": str(e)})
+        raise typer.Exit(1)
+
+
+@papers_app.command("remove")
+def papers_remove(
+    map_id: str = typer.Option(..., "--map", help="대상 지도(project run id)"),
+    ids_file: str = typer.Option(..., "--ids", "-i", help='{"ids": [...]} JSON 파일'),
+    events: bool = typer.Option(False, "--events", help="진행 상황을 JSON 줄로 쓴다"),
+    check: bool = typer.Option(False, "--check", help="입력과 지도만 검사한다"),
+) -> None:
+    """추가한 논문을 지도에서 뺀다. 수집으로 들어온 논문은 뺄 수 없다."""
+    from . import pipeline
+    ids = _papers_input(map_id, ids_file)
+    if check:
+        _json_out({"map_id": map_id, "ids": ids})
+        return
+    emit = _emitter(events)
+    _on_sigterm()
+    try:
+        pipeline.remove_papers(map_id, ids, emit)
+    except pipeline.StageError as e:
+        emit({"event": "error", "stage": e.stage, "message": str(e)})
         raise typer.Exit(1)
 
 
