@@ -594,11 +594,13 @@ app.add_typer(papers_app, name="papers")
 def papers_search(
     query: str = typer.Argument(..., help="검색어 또는 DOI·arXiv ID·OpenAlex ID"),
     page: int = typer.Option(1, "--page"),
+    source: str = typer.Option("openalex", "--source", help="검색어를 찾을 곳: openalex | s2"),
 ) -> None:
-    """OpenAlex에서 논문을 찾아 JSON으로 쓴다. 식별자면 그 논문 하나를 찾는다."""
+    """외부 출처에서 논문을 찾아 JSON으로 쓴다. 식별자면 그 논문 하나를 찾는다
+    (OpenAlex에 없으면 Semantic Scholar)."""
     from . import pipeline
     try:
-        _json_out(asyncio.run(pipeline.search_papers(_settings(), query, page)))
+        _json_out(asyncio.run(pipeline.search_papers(_settings(), query, page, source)))
     except ValueError as e:
         sys.stderr.write("%s\n" % e)
         raise typer.Exit(2)

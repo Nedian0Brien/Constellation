@@ -270,13 +270,21 @@ def check_papers(run_id: str, ids: Any) -> list[str]:
 
 
 def add_papers(run_id: str, ids: list[str], emit: Emit,
-               settings: Settings | None = None, s2_fetch=None) -> dict[str, Any]:
-    """식별자·검색 결과 id를 지도에 추가한다. 실패하면 StageError."""
+               settings: Settings | None = None, s2_fetch=None,
+               s2_client=None) -> dict[str, Any]:
+    """식별자·검색 결과 id를 지도에 추가한다. 실패하면 StageError.
+
+    OpenAlex 기록이 있으면 그것을, 없으면 Semantic Scholar 기록(`s2:<paperId>`)을 쓴다.
+    S2 논문의 참고문헌·피인용은 S2 목록으로 DB 논문과 맞춰 잇는다.
+    """
     from .analyze import place as place_mod
     from .embed.run import embed_corpus
     from .ingest import collect as collect_mod
-    from .ingest.identify import RESULT_SELECT, classify, lookup
+    from .ingest.identify import lookup
+    from .ingest.match import keys_of, match_works
+    from .sources import arxiv
     from .sources.openalex import OpenAlexSource
+    from .sources.semanticscholar import S2Client, to_work
 
     settings = settings or Settings.load()
     stage = _stage_runner(emit, ADD_STAGES)
@@ -289,7 +297,7 @@ def add_papers(run_id: str, ids: list[str], emit: Emit,
     finally:
         conn.close()
     model = info["model"]
-    found: dict[str, str] = {}      # 입력 → openalex:W…
+    found: dict[str, tuple[str, dict[str, Any]]] = {}   # 입력 → (id, 기록)
     not_found: list[str] = []
     skipped: list[dict[str, str]] = []
 
@@ -297,52 +305,98 @@ def add_papers(run_id: str, ids: list[str], emit: Emit,
         async def go():
             async with OpenAlexSource(settings) as src:
                 for n, raw in enumerate(ids):
-                    kind, value = classify(raw.removeprefix("openalex:"))
-                    if kind == "search":
-                        not_found.append(raw)
-                        log("  식별자가 아니다: %s" % raw)
-                        continue
+                    q = raw.removeprefix("openalex:") if raw.startswith("openalex:") else raw
                     try:
-                        _, row = await lookup(src, raw.removeprefix("openalex:"), s2_fetch, log)
+                        kind, rec, source = await lookup(src, q, s2_fetch, log)
                     except RuntimeError as e:
-                        # 한 편을 못 찾았다고 작업 전체를 멈추지 않는다(S2 공용 풀 429 등).
+                        # 한 편을 못 찾았다고 작업 전체를 멈추지 않는다(S2 공용 한도 429 등).
                         log("  조회 실패: %s (%s)" % (raw, str(e)[:160]))
-                        row = None
-                    if not row:
+                        kind, rec, source = "error", None, None
+                    if kind == "search":
+                        log("  식별자가 아니다: %s" % raw)
+                    if not rec:
                         not_found.append(raw)
                         log("  찾지 못했다: %s" % raw)
                     else:
-                        found[raw] = "openalex:" + strip_id(row["id"])
-                        log("  %s → %s %s" % (raw, found[raw], (row.get("title") or "")[:60]))
+                        wid = ("openalex:" + strip_id(rec["id"]) if source == "openalex"
+                               else "s2:" + rec["paperId"])
+                        found[raw] = (wid, rec)
+                        log("  %s → %s %s" % (raw, wid, (rec.get("title") or "")[:60]))
                     progress(n + 1, len(ids))
         if not settings.openalex_api_key:
             raise RuntimeError("OPENALEX_API_KEY가 없습니다. 저장소의 .env에 넣으세요.")
         asyncio.run(go())
 
     stage("resolve", resolve)
-    targets = []
-    for raw, wid in found.items():
+    # 같은 논문이 다른 출처의 id로 이미 지도에 있을 수 있다(DOI·제목+연도로 판정).
+    c = store.connect(read_only=True)
+    try:
+        same = match_works(c, [keys_of(rec) for _, rec in found.values()], run_id)
+    finally:
+        c.close()
+    targets: list[str] = []
+    records: dict[str, dict[str, Any]] = {}
+    for (wid, rec), twin in zip(found.values(), same):
         if wid in in_map:
             skipped.append({"id": wid, "reason": "이미 지도에 있다"})
+        elif twin:
+            skipped.append({"id": wid, "reason": "이미 지도에 있다 (%s)" % twin})
         elif wid not in targets:
             targets.append(wid)
+            records[wid] = rec
 
     def fetch(log, progress):
-        missing = [w for w in targets if w not in have]
-        if not missing:
-            log("모두 DB에 있다. 받지 않는다.")
-            return
+        missing = [w for w in targets if w.startswith("openalex:") and w not in have]
+        from_s2 = [w for w in targets if w.startswith("s2:")]
 
         async def go():
-            works = []
-            async with OpenAlexSource(settings) as src:
-                async for w in src.fetch_by_ids(missing):
-                    works.append(w)
-            return works
-        works = asyncio.run(go())
+            works, cited_by = [], []
+            if missing:
+                async with OpenAlexSource(settings) as src:
+                    async for w in src.fetch_by_ids(missing):
+                        works.append(w)
+            if from_s2:
+                client = s2_client or S2Client(log=log)
+                async with client as s2:
+                    for wid in from_s2:
+                        works_, rows = await s2_paper(s2, records[wid], log, progress)
+                        works.append(works_)
+                        cited_by.extend(rows)
+            return works, cited_by
+
+        async def s2_paper(s2, rec, log, progress):
+            """S2 기록 → Work(참고문헌 포함)와 피인용 행(지도 안 논문 → 이 논문)."""
+            pid = rec["paperId"]
+            if "abstract" not in rec or "authors" not in rec:
+                rec = await s2.paper(pid) or rec
+            work = to_work(rec)
+            arxiv_id = (rec.get("externalIds") or {}).get("ArXiv")
+            if not work.abstract and arxiv_id:
+                work.abstract = await arxiv.abstract(arxiv_id)
+                log("  초록을 arXiv에서 받았다" if work.abstract else "  초록이 없다(제목만 쓴다)")
+            refs = await s2.references(pid)
+            citing, truncated = await s2.citations(pid, progress=progress)
+            if truncated:
+                log("  피인용이 많아 앞의 %s건만 맞춘다" % format(len(citing), ","))
+            c = store.connect(read_only=True)
+            try:
+                ref_ids = match_works(c, [keys_of(r) for r in refs])
+                cit_ids = match_works(c, [keys_of(r) for r in citing], run_id)
+            finally:
+                c.close()
+            work.referenced_works = [m or "s2:" + r["paperId"]
+                                     for r, m in zip(refs, ref_ids) if m or r.get("paperId")]
+            rows = sorted({(m, work.id) for m in cit_ids if m})
+            log("  %s — 참고문헌 %d편(DB에서 찾은 것 %d), 피인용 %d편 중 지도 안 %d편"
+                % (work.title[:50], len(refs), sum(1 for m in ref_ids if m),
+                   len(citing), len(rows)))
+            return work, rows
+
+        works, cited_by = asyncio.run(go())
         c = store.connect()
         try:
             store.upsert_works(c, works)
+            store.bulk_insert(c, "citations", ["citing_id", "cited_id"], cited_by)
             c.commit()
         finally:
             c.close()
@@ -360,8 +414,10 @@ def add_papers(run_id: str, ids: list[str], emit: Emit,
     n_added, n_collected = place_mod.added_ratio(run_id)
     result = {
         "map_id": run_id,
-        "added": [{k: r[k] for k in ("id", "title", "cluster", "label", "title_only",
-                                      "similarity")} for r in placed],
+        "added": [{**{k: r[k] for k in ("id", "title", "cluster", "label", "title_only",
+                                         "similarity")},
+                   "source": "s2" if r["id"].startswith("s2:") else "openalex"}
+                  for r in placed],
         "skipped": skipped,
         "not_found": not_found,
         "recompute_suggested": n_collected > 0 and n_added > n_collected * RECOMPUTE_RATIO,
@@ -379,8 +435,9 @@ def remove_papers(run_id: str, ids: list[str], emit: Emit) -> dict[str, Any]:
     return result
 
 
-async def search_papers(settings: Settings, q: str, page: int = 1) -> dict[str, Any]:
+async def search_papers(settings: Settings, q: str, page: int = 1,
+                        source: str = "openalex") -> dict[str, Any]:
     from .ingest.identify import search
     from .sources.openalex import OpenAlexSource
     async with OpenAlexSource(settings) as src:
-        return await search(src, q, page)
+        return await search(src, q, page, source=source)

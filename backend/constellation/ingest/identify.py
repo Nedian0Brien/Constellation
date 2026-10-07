@@ -32,11 +32,15 @@ _ARXIV = re.compile(
     % (_ARXIV_NEW, _ARXIV_OLD), re.I)
 _ARXIV_DOI = re.compile(r"^10\.48550/arxiv\.(.+)$", re.I)
 _OPENALEX = re.compile(r"^(?:openalex:|https?://openalex\.org/)?(W\d+)$", re.I)
+_S2 = re.compile(r"^(?:s2:|https?://(?:www\.)?semanticscholar\.org/paper/(?:[^/]+/)?)([0-9a-f]{40})$", re.I)
 
 
 def classify(q: str) -> tuple[str, str]:
-    """(종류, 값). 종류는 openalex | arxiv | doi | search."""
+    """(종류, 값). 종류는 openalex | s2 | arxiv | doi | search."""
     s = q.strip()
+    m = _S2.match(s)
+    if m:
+        return "s2", m.group(1).lower()
     m = _OPENALEX.match(s)
     if m:
         return "openalex", m.group(1).upper()
@@ -67,24 +71,25 @@ def summarize(r: dict[str, Any]) -> dict[str, Any]:
         "cited_by_count": r.get("cited_by_count"),
         "doi": r.get("doi"),
         "has_abstract": bool(reconstruct_abstract(r.get("abstract_inverted_index"))),
+        "source": "openalex",
     }
 
 
-async def resolve_arxiv(
-    src: OpenAlexSource, arxiv_id: str, s2_fetch=None, log=None,
+async def _s2_fetch_default(key: str) -> dict[str, Any] | None:
+    from ..sources.semanticscholar import PAPER_FIELDS, fetch_paper
+    return await fetch_paper(key, PAPER_FIELDS)
+
+
+async def openalex_of(
+    src: OpenAlexSource, paper: dict[str, Any], log=None,
 ) -> dict[str, Any] | None:
-    """arXiv ID → OpenAlex 원본 행. 찾지 못하면 None이고, 이유는 log로 남긴다."""
-    if s2_fetch is None:
-        from ..sources.semanticscholar import fetch_paper as s2_fetch
+    """S2 기록과 같은 논문의 OpenAlex 원본 행. 제목이 같은 기록만 쓴다."""
     log = log or (lambda msg: None)
-    paper = await s2_fetch("arXiv:" + arxiv_id)
-    if not paper or not paper.get("title"):
-        log("  Semantic Scholar에 arXiv:%s 가 없다" % arxiv_id)
+    want = norm_title(paper.get("title"))
+    if not want:
         return None
-    want = norm_title(paper["title"])
     year = paper.get("year")
     ext = paper.get("externalIds") or {}
-
     keys = []
     if ext.get("DOI") and not _ARXIV_DOI.match(ext["DOI"]):
         keys.append("doi:" + ext["DOI"].lower())
@@ -95,7 +100,7 @@ async def resolve_arxiv(
         if r and norm_title(r.get("title")) == want:
             return r
 
-    # 제목 검색은 list+filter 요금이다. 쉼표는 필터 구분자라 뺀다.
+    # 제목 검색은 list+filter 요금이다. 쉼표·세로줄·쌍점은 필터 구문이라 뺀다.
     title = re.sub(r"[,|:]", " ", paper["title"])
     payload = await src._get({"filter": "title.search:" + title,
                               "select": RESULT_SELECT, "per-page": 25})
@@ -104,37 +109,106 @@ async def resolve_arxiv(
             and (year is None or r.get("publication_year") is None
                  or abs(r["publication_year"] - year) <= 1)]
     if not same:
-        log("  arXiv:%s(%s)는 Semantic Scholar에 있지만 OpenAlex에서 같은 제목의 기록을 찾지 못했다"
-            % (arxiv_id, paper["title"][:80]))
+        log("  %s는 OpenAlex에서 같은 제목의 기록을 찾지 못했다" % paper["title"][:80])
         return None
     return max(same, key=lambda r: r.get("cited_by_count") or 0)
 
 
+async def resolve_arxiv(
+    src: OpenAlexSource, arxiv_id: str, s2_fetch=None, log=None,
+) -> dict[str, Any] | None:
+    """arXiv ID → OpenAlex 원본 행. 찾지 못하면 None이고, 이유는 log로 남긴다."""
+    log = log or (lambda msg: None)
+    paper = await (s2_fetch or _s2_fetch_default)("arXiv:" + arxiv_id)
+    if not paper or not paper.get("title"):
+        log("  Semantic Scholar에 arXiv:%s 가 없다" % arxiv_id)
+        return None
+    return await openalex_of(src, paper, log)
+
+
 async def lookup(
     src: OpenAlexSource, q: str, s2_fetch=None, log=None,
-) -> tuple[str, dict[str, Any] | None]:
-    """식별자 하나 → (종류, OpenAlex 원본 행). 검색어면 ("search", None)."""
+) -> tuple[str, dict[str, Any] | None, str | None]:
+    """식별자 하나 → (종류, 기록, 출처). 출처는 openalex | s2 | None(못 찾음).
+
+    OpenAlex 기록이 있으면 그것을 쓴다. DOI·arXiv·S2 id가 OpenAlex에 없으면
+    Semantic Scholar 기록을 돌려준다. 검색어면 ("search", None, None).
+    """
+    log = log or (lambda msg: None)
+    s2_fetch = s2_fetch or _s2_fetch_default
     kind, value = classify(q)
+    if kind == "search":
+        return kind, None, None
     if kind == "openalex":
-        return kind, await src.get_work(value, RESULT_SELECT)
+        row = await src.get_work(value, RESULT_SELECT)
+        return kind, row, "openalex" if row else None
     if kind == "doi":
-        return kind, await src.get_work("doi:" + value, RESULT_SELECT)
-    if kind == "arxiv":
-        return kind, await resolve_arxiv(src, value, s2_fetch, log)
-    return kind, None
+        row = await src.get_work("doi:" + value, RESULT_SELECT)
+        if row:
+            return kind, row, "openalex"
+        paper = await s2_fetch("DOI:" + value)
+    elif kind == "arxiv":
+        paper = await s2_fetch("arXiv:" + value)
+    else:  # s2
+        paper = await s2_fetch(value)
+    if not paper or not paper.get("title"):
+        log("  Semantic Scholar에도 없다: %s" % q)
+        return kind, None, None
+    row = await openalex_of(src, paper, log)
+    if row:
+        return kind, row, "openalex"
+    return kind, paper, "s2"
 
 
-async def search(src: OpenAlexSource, q: str, page: int = 1, s2_fetch=None) -> dict[str, Any]:
-    """검색어 또는 식별자로 찾는다. 식별자면 결과는 0–1편이다."""
+def summarize_s2(rec: dict[str, Any]) -> dict[str, Any]:
+    """S2 기록 → 검색 결과 항목. 모양은 OpenAlex 결과(`summarize`)와 같다."""
+    from ..sources.base import norm_doi
+    doi = norm_doi((rec.get("externalIds") or {}).get("DOI"))
+    return {
+        "id": "s2:" + rec["paperId"],
+        "title": (rec.get("title") or "").strip() or "(제목 없음)",
+        "year": rec.get("year"),
+        "authors": [a["name"] for a in rec.get("authors") or [] if a.get("name")][:5],
+        "venue": rec.get("venue") or None,
+        "cited_by_count": rec.get("citationCount"),
+        "doi": "https://doi.org/" + doi if doi else None,
+        "has_abstract": bool((rec.get("abstract") or "").strip()),
+        "source": "s2",
+    }
+
+
+def item(record: dict[str, Any], source: str) -> dict[str, Any]:
+    return summarize(record) if source == "openalex" else summarize_s2(record)
+
+
+async def search(
+    src: OpenAlexSource, q: str, page: int = 1, s2_fetch=None,
+    source: str = "openalex", s2=None,
+) -> dict[str, Any]:
+    """검색어 또는 식별자로 찾는다. 식별자면 결과는 0–1편이고, 출처와 관계없이
+    OpenAlex 기록을 먼저 쓴다. 검색어는 `source`(openalex | s2)에서 찾는다."""
     q = q.strip()
     if not q:
         raise ValueError("검색어가 필요합니다.")
+    if source not in ("openalex", "s2"):
+        raise ValueError("source는 openalex 또는 s2여야 합니다.")
     if not 1 <= page <= MAX_PAGE:
         raise ValueError("page 값은 1–%d 사이여야 합니다." % MAX_PAGE)
-    kind, row = await lookup(src, q, s2_fetch)
+    kind, record, found = await lookup(src, q, s2_fetch)
     if kind != "search":
-        items = [summarize(row)] if row else []
-        return {"query": q, "kind": kind, "total": len(items), "page": 1, "items": items}
+        items = [item(record, found)] if record else []
+        return {"query": q, "kind": kind, "source": found or source,
+                "total": len(items), "page": 1, "items": items}
+    if source == "s2":
+        if s2 is None:
+            from ..sources.semanticscholar import S2Client
+            async with S2Client() as client:
+                total, rows = await client.search(q, (page - 1) * PER_PAGE, PER_PAGE)
+        else:
+            total, rows = await s2.search(q, (page - 1) * PER_PAGE, PER_PAGE)
+        # S2 관련도 검색은 1,000건까지만 준다.
+        return {"query": q, "kind": "search", "source": "s2", "total": min(total, 1000),
+                "page": page, "items": [summarize_s2(r) for r in rows]}
     total, rows = await src.search_works(q, page, PER_PAGE, RESULT_SELECT)
-    return {"query": q, "kind": "search", "total": total, "page": page,
+    return {"query": q, "kind": "search", "source": "openalex", "total": total, "page": page,
             "items": [summarize(r) for r in rows]}
