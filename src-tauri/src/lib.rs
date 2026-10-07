@@ -78,6 +78,9 @@ pub fn configure<R: tauri::Runtime>(
             commands::job,
             commands::job_log,
             commands::cancel_job,
+            commands::search_papers,
+            commands::add_papers,
+            commands::remove_papers,
         ])
 }
 
