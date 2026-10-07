@@ -300,6 +300,7 @@ def add_papers(run_id: str, ids: list[str], emit: Emit,
     found: dict[str, tuple[str, dict[str, Any]]] = {}   # 입력 → (id, 기록)
     not_found: list[str] = []
     skipped: list[dict[str, str]] = []
+    warnings: list[str] = []
 
     def resolve(log, progress):
         async def go():
@@ -374,8 +375,19 @@ def add_papers(run_id: str, ids: list[str], emit: Emit,
             if not work.abstract and arxiv_id:
                 work.abstract = await arxiv.abstract(arxiv_id)
                 log("  초록을 arXiv에서 받았다" if work.abstract else "  초록이 없다(제목만 쓴다)")
-            refs = await s2.references(pid)
-            citing, truncated = await s2.citations(pid, progress=progress)
+            # 인용 목록을 못 받아도(S2 공용 한도 429 등) 논문은 추가한다. 결과에 남긴다.
+            try:
+                refs = await s2.references(pid)
+            except RuntimeError as e:
+                refs = []
+                warnings.append("%s: 참고문헌을 받지 못했다 (%s)" % (work.id, str(e)[:120]))
+            try:
+                citing, truncated = await s2.citations(pid, progress=progress)
+            except RuntimeError as e:
+                citing, truncated = [], False
+                warnings.append("%s: 피인용을 받지 못했다 (%s)" % (work.id, str(e)[:120]))
+            for w in warnings:
+                log("  " + w)
             if truncated:
                 log("  피인용이 많아 앞의 %s건만 맞춘다" % format(len(citing), ","))
             c = store.connect(read_only=True)
@@ -420,6 +432,7 @@ def add_papers(run_id: str, ids: list[str], emit: Emit,
                   for r in placed],
         "skipped": skipped,
         "not_found": not_found,
+        "warnings": warnings,
         "recompute_suggested": n_collected > 0 and n_added > n_collected * RECOMPUTE_RATIO,
     }
     emit({"event": "done", "map_id": run_id, "result": result})

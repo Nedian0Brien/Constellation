@@ -466,6 +466,8 @@ export interface AddResult {
   }[];
   skipped: { id: string; reason: string }[];
   not_found: string[];
+  /** 추가는 했지만 S2 참고문헌·피인용을 받지 못해 인용선이 빠진 논문 등 */
+  warnings: string[];
   /** 추가한 논문이 수집 논문의 10%를 넘으면 true */
   recompute_suggested: boolean;
 }

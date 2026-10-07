@@ -184,6 +184,8 @@ class FakeS2Client:
                 {"paperId": "r2", "title": "Somewhere Else", "year": 2020}]
 
     async def citations(self, pid, progress=None):
+        if getattr(self, "fail_citations", False):
+            raise RuntimeError("Semantic Scholar HTTP 429")
         return [{"paperId": "c1", "title": "openalex:G1_03", "year": 2021},
                 {"paperId": "c2", "title": "Not In Map", "year": 2021}], False
 
@@ -197,7 +199,7 @@ class AddS2Tests(unittest.TestCase):
     def tearDownClass(cls):
         cls.fx.tmp.cleanup()
 
-    def _run(self, ids, records):
+    def _run(self, ids, records, client=None):
         fx, events = self.fx, []
 
         async def lookup(src, q, s2_fetch=None, log=None):
@@ -222,7 +224,8 @@ class AddS2Tests(unittest.TestCase):
                 mock.patch("constellation.embed.run.embed_corpus", fake_embed),
             ]:
                 s.enter_context(p)
-            result = pipeline.add_papers("m", ids, events.append, KEY, s2_client=FakeS2Client())
+            result = pipeline.add_papers("m", ids, events.append, KEY,
+                                         s2_client=client or FakeS2Client())
         return result, events
 
     def test_add_s2_paper_links_citations_and_skips_twins(self):
@@ -245,11 +248,24 @@ class AddS2Tests(unittest.TestCase):
         self.assertEqual(again["added"], [])
         self.assertEqual(again["skipped"], [{"id": "s2:" + "f" * 40,
                                              "reason": "이미 지도에 있다 (%s)" % sid}])
+        self.assertEqual(result["warnings"], [])
         with ExitStack() as s:
             for p in fx.patches():
                 s.enter_context(p)
             place_mod.remove("m", [sid], log=lambda *_: None)
         self.assertEqual(fx.snapshot(), before)
+
+        # 피인용 목록을 못 받아도 논문은 추가하고 경고를 남긴다.
+        client = FakeS2Client()
+        client.fail_citations = True
+        result, _ = self._run(["2310.11511"], {"2310.11511": SELF_RAG}, client)
+        self.assertEqual([a["id"] for a in result["added"]], [sid])
+        self.assertEqual(len(result["warnings"]), 1)
+        self.assertIn("피인용을 받지 못했다", result["warnings"][0])
+        with ExitStack() as s:
+            for p in fx.patches():
+                s.enter_context(p)
+            place_mod.remove("m", [sid], log=lambda *_: None)
 
 
 if __name__ == "__main__":
